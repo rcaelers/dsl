@@ -370,7 +370,7 @@ fn migrate_legacy_viewer_nodes(
                 output: source.index,
             };
         }
-        graph.set_extension(PAYLOAD_EXTENSION, payloads)?;
+        graph.set_semantic_extension(PAYLOAD_EXTENSION, payloads)?;
     }
     let count = viewer_nodes.len();
     for node in viewer_nodes {
@@ -482,9 +482,9 @@ fn synchronize_payload_subscriptions(
         });
     }
     if subscriptions.is_empty() {
-        graph.remove_extension(PAYLOAD_EXTENSION);
+        graph.remove_semantic_extension(PAYLOAD_EXTENSION);
     } else {
-        graph.set_extension(
+        graph.set_semantic_extension(
             PAYLOAD_EXTENSION,
             SavedPayloadSubscriptions {
                 version: PAYLOAD_VERSION,
@@ -635,25 +635,27 @@ fn store(
     selections: &[ViewerOutputSelection],
 ) -> Result<(), serde_json::Error> {
     if selections.is_empty() {
-        graph.remove_extension(EXTENSION);
+        graph.remove_semantic_extension(EXTENSION);
         return Ok(());
     }
-    graph.set_extension(
-        EXTENSION,
-        SavedSelections {
-            version: VERSION,
-            selections: selections
-                .iter()
-                .map(|selection| SavedSelection {
-                    endpoint: SavedEndpoint {
-                        node: selection.node,
-                        output: selection.output_id.clone(),
-                    },
-                    selected: selection.selected,
-                })
-                .collect(),
-        },
-    )
+    graph
+        .set_semantic_extension(
+            EXTENSION,
+            SavedSelections {
+                version: VERSION,
+                selections: selections
+                    .iter()
+                    .map(|selection| SavedSelection {
+                        endpoint: SavedEndpoint {
+                            node: selection.node,
+                            output: selection.output_id.clone(),
+                        },
+                        selected: selection.selected,
+                    })
+                    .collect(),
+            },
+        )
+        .map(|_| ())
 }
 
 #[cfg(test)]
@@ -857,7 +859,9 @@ mod viewer_selection_tests {
         let output_id = viewer_output_selections(widget.graph())[0]
             .output_id
             .clone();
+        let revision = widget.graph().semantic_revision();
         set_viewer_output_selected(widget.graph_mut(), producer, &output_id, true).unwrap();
+        assert!(widget.graph().semantic_revision() > revision);
         let selected = output_subscription_plan(widget.graph());
         assert!(selected.is_retained(producer, 0));
         assert!(selected.contains(producer, 0));

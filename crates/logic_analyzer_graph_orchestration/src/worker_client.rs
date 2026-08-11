@@ -82,7 +82,7 @@ impl GraphWorkerClient {
         state.pending.insert(sequence);
         state.outbound.push_back(GraphWorkerRequest::Start {
             sequence,
-            graph,
+            graph: Box::new(graph),
             subscriptions,
             timeline_markers,
         });

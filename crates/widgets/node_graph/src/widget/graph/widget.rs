@@ -488,6 +488,7 @@ impl NodeGraphWidget {
             return false;
         };
         self.runtime.insert(id, instance);
+        self.graph.mark_semantic_change();
         true
     }
 
@@ -601,8 +602,10 @@ impl NodeGraphWidget {
     /// file loading (`restore_node`): sockets validated against current defs,
     /// `on_update` re-run, badges recomputed.
     pub fn set_graph(&mut self, graph: GraphState) {
+        let previous_revision = self.graph.semantic_revision();
         self.graph = graph;
         self.graph.reconcile_reroute_outputs();
+        self.graph.mark_semantic_change_after(previous_revision);
         self.contributed_panel_state_changed = false;
         self.external_badges.clear();
         self.node_statuses.clear();
@@ -628,6 +631,10 @@ impl NodeGraphWidget {
     }
 
     pub(crate) fn run_update(&mut self, id: NodeId) {
+        let before = self.graph.nodes.get(&id).map(|node| {
+            serde_json::to_vec(&(&node.inputs, &node.outputs, node.muted, &node.state))
+                .expect("node semantic state is always serializable")
+        });
         if let (Some(instance), Some(node)) =
             (self.runtime.get_mut(&id), self.graph.nodes.get_mut(&id))
         {
@@ -638,16 +645,32 @@ impl NodeGraphWidget {
             node.state = instance.save_state();
             node.badge = instance.badge();
         }
+        let changed = before.is_some_and(|before| {
+            self.graph.nodes.get(&id).is_some_and(|node| {
+                before
+                    != serde_json::to_vec(&(&node.inputs, &node.outputs, node.muted, &node.state))
+                        .expect("node semantic state is always serializable")
+            })
+        });
+        if changed {
+            self.graph.mark_semantic_change();
+        }
     }
 
     pub(crate) fn sync_all_node_state(&mut self) {
+        let mut changed = false;
         for id in self.graph.sorted_node_ids() {
             if let (Some(instance), Some(node)) =
                 (self.runtime.get_mut(&id), self.graph.nodes.get_mut(&id))
             {
                 instance.set_bound_title(&node.title);
-                node.state = instance.save_state();
+                let state = instance.save_state();
+                changed |= node.state != state;
+                node.state = state;
             }
+        }
+        if changed {
+            self.graph.mark_semantic_change();
         }
     }
 

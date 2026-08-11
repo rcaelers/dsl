@@ -165,7 +165,7 @@ pub fn decode_graph_worker_request(
             }
             GraphWorkerRequest::Start {
                 sequence,
-                graph,
+                graph: Box::new(graph),
                 subscriptions,
                 timeline_markers,
             }
@@ -498,7 +498,7 @@ mod worker_execution_codec_tests {
         let expected_snapshot = graph.semantic_snapshot();
         let request = GraphWorkerRequest::Start {
             sequence: 11,
-            graph,
+            graph: Box::new(graph),
             subscriptions: OutputSubscriptionPlan::new(),
             timeline_markers: vec![(2, 45)],
         };

@@ -30,6 +30,9 @@ fn app_composes_owned_state_instead_of_redeclaring_lifecycle_fields() {
         "run_message:",
         "cached_preview_graph:",
         "running_graph_semantics:",
+        "cached_preview_revision:",
+        "running_graph_revision:",
+        "revision_preparation:",
         "sampling_overlay_candidates:",
         "selected_sampling_overlays:",
         "viewer_lane_order:",
@@ -45,6 +48,24 @@ fn app_composes_owned_state_instead_of_redeclaring_lifecycle_fields() {
             "App redeclares owner field {former_field}"
         );
     }
+}
+
+#[test]
+fn application_live_sync_is_revision_driven_and_does_not_serialize_while_idle() {
+    let app = include_str!("app.rs");
+    let sync_run = app
+        .split_once("fn sync_run(&mut self, ctx: &egui::Context)")
+        .expect("sync_run declaration")
+        .1
+        .split_once("fn show_status_bar")
+        .expect("sync_run end")
+        .0;
+
+    assert!(sync_run.contains("semantic_revision()"));
+    assert!(sync_run.contains("should_prepare_revision"));
+    assert!(sync_run.contains("poll_revision_preparation"));
+    assert!(!sync_run.contains("semantic_snapshot()"));
+    assert!(!sync_run.contains("SYNC_INTERVAL_S"));
 }
 
 #[test]

@@ -253,14 +253,6 @@ item here, so acceptance comparisons stop being ad-hoc.
   derived caching, graph edits, and viewer input latency using the same artifact identities and
   bounded-memory rules. Native improvements are not assumed to help wasm without measurements.
 
-- [graph.execution.debounced-live-sync] (P3 · medium) Replace fixed-interval semantic graph polling with an
-  event-driven dirty revision and a true debounce: reset the quiet-period timer after every
-  processing-relevant edit, lower only the latest immutable graph revision after the quiet period,
-  and discard stale results when a newer revision exists. Perform lowering and edit-plan
-  preparation away from the UI thread, keep runtime application ordered through its control
-  boundary, and leave periodic progress reporting independent from graph synchronization.
-  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#graph-execution-debounced-live-sync).
-
 ### Capture provider and host architecture
 
 - [capture.live.host-capabilities] (P4 · low) Add a host capability that inhibits automatic system sleep while

@@ -369,7 +369,9 @@ impl NodeGraphWidget {
         };
         self.sync_all_node_state();
         self.redo_stack.push(self.graph.clone());
+        let previous_revision = self.graph.semantic_revision();
         self.graph = previous;
+        self.graph.mark_semantic_change_after(previous_revision);
         self.restore_runtime();
     }
 
@@ -379,7 +381,9 @@ impl NodeGraphWidget {
         let Some(previous) = self.undo_stack.pop() else {
             return;
         };
+        let previous_revision = self.graph.semantic_revision();
         self.graph = previous;
+        self.graph.mark_semantic_change_after(previous_revision);
         self.restore_runtime();
     }
 
@@ -389,7 +393,9 @@ impl NodeGraphWidget {
         };
         self.sync_all_node_state();
         self.undo_stack.push(self.graph.clone());
+        let previous_revision = self.graph.semantic_revision();
         self.graph = next;
+        self.graph.mark_semantic_change_after(previous_revision);
         self.restore_runtime();
     }
 
@@ -870,6 +876,7 @@ impl NodeGraphWidget {
             && node.kind != crate::model::NodeKind::Reroute
         {
             node.muted = !node.muted;
+            self.graph.mark_semantic_change();
         }
     }
 }
@@ -1254,6 +1261,7 @@ mod action_tests {
         let b = widget.add_node_at("Sink", Pos2::new(0.0, 0.0)).unwrap();
         widget.graph.nodes.get_mut(&b).unwrap().selected = true;
 
+        let revision = widget.graph.semantic_revision();
         widget.execute_action(
             GraphAction::ToggleMuted { target: Some(a) },
             &egui::Context::default(),
@@ -1262,6 +1270,7 @@ mod action_tests {
 
         assert!(widget.graph.nodes[&a].muted);
         assert!(!widget.graph.nodes[&b].muted);
+        assert!(widget.graph.semantic_revision() > revision);
     }
 
     #[test]

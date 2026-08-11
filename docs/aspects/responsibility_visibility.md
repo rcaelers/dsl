@@ -66,7 +66,8 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
 - `logic_analyzer_graph_orchestration` owns the graph-worker protocol and worker-side composition
   above a separate compiler and runtime.
 - `node_graph_document` owns graph records, identities, neutral presentation values, serialization,
-  and document-local invariants. Headless graph crates depend on this owner directly.
+  document-local invariants, and the transient semantic revision advanced by processing-relevant
+  mutations. Headless graph crates depend on this owner directly.
 - `node_graph::api` owns node-definition and editor integration contracts. Graph-node definition
   code depends on this namespace; widget and editor operations remain at the `node_graph` crate
   root for UI composition. File controls depend on its portable
@@ -83,7 +84,10 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
 - `logic_analyzer_ui` owns the concrete application graph service. Application orchestration
   calls its private `UiGraphService`, which composes `GraphLowerer` and `GraphRuntime` directly;
   the private `GraphRun` trait remains the execution-lifecycle boundary between local `LiveRun`
-  and worker-backed runs. UI tests exercise the concrete service with injected repositories and
+  and worker-backed runs. `GraphRunLifecycle` observes document revisions, owns the true debounce,
+  submits immutable revision snapshots through the injected finite-work executor, and rejects
+  stale lowering completions before applying a prepared plan. Run pumping and progress reporting
+  remain independent. UI tests exercise the concrete service with injected repositories and
   executors. Its private capture-provider port maps prepared finite sources and active acquisition
   sources onto one presentation, readiness, cache/index-availability, and data-access vocabulary.
   Acquisition control is an optional capability implemented only by the live adapter, while

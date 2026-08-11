@@ -10,33 +10,6 @@ P3 items are planned work, often alongside related changes. The module-ownership
 [`responsibility_visibility.md`](../aspects/responsibility_visibility.md#module-ownership) guide
 the remaining UI decompositions.
 
-## graph.execution.debounced-live-sync (P3 · medium) {#graph-execution-debounced-live-sync}
-
-**Current state.** `app.rs:2772` — `const SYNC_INTERVAL_S: f64 = 0.5`: every 0.5 s the UI thread
-computes `self.node_graph.graph().semantic_snapshot()` and compares it against
-`cached_preview_graph` (`app.rs:2784`), then refreshes capture availability, trigger
-configuration, and sampling-overlay candidates. A parallel 0.5 s epoch poll exists at
-`app.rs:2421` (`EPOCH_SYNC_INTERVAL_S`). Cost is paid when idle; latency is paid when editing.
-
-**Direction.**
-
-1. Add a monotonically increasing *semantic revision* to the graph document, bumped only by
-   processing-relevant edits (node/connection/state changes — not node positions or panel
-   state). Home: `node_graph_document`, which owns document-local semantic state.
-2. Replace the interval comparison with a true debounce: on each frame, if
-   `document_revision != last_lowered_revision` and `now - last_edit_time >= quiet_period`
-   (start at 250 ms), take one immutable snapshot and submit it for lowering; reset the timer on
-   every relevant edit. An unchanged graph costs one integer compare per frame, not a snapshot.
-3. Perform lowering/edit-plan preparation off the UI thread. The machinery exists: the
-   orchestration worker client already lowers on a worker, and `worker_operation_executor` is
-   available natively. Tag each submission with its revision; when a result arrives, apply it
-   only if its revision is still current — otherwise drop it.
-4. Keep run-progress pumping (`run.pump_for(…)` at `app.rs:2807`) on its existing cadence;
-   progress reporting is explicitly independent of graph synchronization.
-5. Measure before/after with the concurrent-viewer methodology from
-   [`docs/aspects/performance.md`](../aspects/performance.md): idle CPU per frame and
-   edit-to-applied latency are the two numbers that must both improve.
-
 ## performance.regression-harness (P3 · medium) {#performance-regression-harness}
 
 **Current state.** One Criterion-style bench (`benches/compiler_capture.rs`) and three focused

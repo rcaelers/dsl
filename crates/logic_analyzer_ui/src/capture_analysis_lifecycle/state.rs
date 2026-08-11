@@ -19,9 +19,8 @@ pub(crate) struct CaptureAnalysisLifecycle {
     capture_graph: Option<GraphState>,
     analysis: Option<Box<dyn GraphRun>>,
     analysis_error: Option<String>,
-    epoch_observed_graph: Option<Vec<u8>>,
+    epoch_observed_revision: Option<u64>,
     epoch_request_in_flight: bool,
-    last_epoch_sync: f64,
     presentation_identity: Option<String>,
     storage: Option<CaptureStorageSnapshot>,
 }
@@ -38,9 +37,8 @@ impl CaptureAnalysisLifecycle {
             capture_graph: None,
             analysis: None,
             analysis_error: None,
-            epoch_observed_graph: None,
+            epoch_observed_revision: None,
             epoch_request_in_flight: false,
-            last_epoch_sync: -1.0,
             presentation_identity: None,
             storage: None,
         }
@@ -85,16 +83,16 @@ impl CaptureAnalysisLifecycle {
         self.trigger_configuration_error = Some(error.into());
     }
 
-    pub(crate) fn begin_capture(&mut self, graph: GraphState, observed_graph: Option<Vec<u8>>) {
+    pub(crate) fn begin_capture(&mut self, graph: GraphState, observed_revision: u64) {
         self.capture_graph = Some(graph);
-        self.epoch_observed_graph = observed_graph;
+        self.epoch_observed_revision = Some(observed_revision);
         self.epoch_request_in_flight = false;
         self.clear_analysis();
     }
 
     pub(crate) fn clear_capture_graph(&mut self) {
         self.capture_graph = None;
-        self.epoch_observed_graph = None;
+        self.epoch_observed_revision = None;
         self.epoch_request_in_flight = false;
     }
 
@@ -133,12 +131,12 @@ impl CaptureAnalysisLifecycle {
         self.analysis.as_ref().is_some_and(|run| !run.is_finished())
     }
 
-    pub(crate) fn epoch_observed_graph(&self) -> Option<&[u8]> {
-        self.epoch_observed_graph.as_deref()
+    pub(crate) fn epoch_observed_revision(&self) -> Option<u64> {
+        self.epoch_observed_revision
     }
 
-    pub(crate) fn observe_epoch_graph(&mut self, revision: Vec<u8>) {
-        self.epoch_observed_graph = Some(revision);
+    pub(crate) fn observe_epoch_revision(&mut self, revision: u64) {
+        self.epoch_observed_revision = Some(revision);
     }
 
     pub(crate) fn epoch_request_in_flight(&self) -> bool {
@@ -151,14 +149,6 @@ impl CaptureAnalysisLifecycle {
 
     pub(crate) fn mark_epoch_request_finished(&mut self) {
         self.epoch_request_in_flight = false;
-    }
-
-    pub(crate) fn last_epoch_sync(&self) -> f64 {
-        self.last_epoch_sync
-    }
-
-    pub(crate) fn mark_epoch_sync(&mut self, now: f64) {
-        self.last_epoch_sync = now;
     }
 
     pub(crate) fn presentation_identity(&self) -> Option<&str> {

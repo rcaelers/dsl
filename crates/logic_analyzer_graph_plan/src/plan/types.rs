@@ -44,7 +44,10 @@ impl ProcessingGraphError {
 }
 
 /// Runtime-facing payload capabilities embedded into a processing graph by its producer.
-pub trait ProcessingPayloadCatalog {
+///
+/// Catalogs are transferable because plan lowering may complete on a host finite-work executor
+/// before the plan is returned to its ordered runtime control boundary.
+pub trait ProcessingPayloadCatalog: Send + Sync {
     /// Returns registered payload identities and adapters.
     fn payloads(&self) -> &PayloadRegistry;
     /// Returns whether the payload kind supports persistent caching.

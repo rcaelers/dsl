@@ -59,7 +59,7 @@ pub enum GraphWorkerRequest {
         /// Host-assigned generation used to correlate later messages.
         sequence: u64,
         /// Editor graph to lower and execute.
-        graph: GraphState,
+        graph: Box<GraphState>,
         /// Retained and visible output selection for the run.
         subscriptions: OutputSubscriptionPlan,
         /// Host cursor markers expressed as `(number, timestamp_ns)`.
@@ -180,7 +180,7 @@ impl GraphWorkerRuntime {
                 graph,
                 subscriptions,
                 timeline_markers,
-            } => self.start(sequence, graph, subscriptions, timeline_markers, emit),
+            } => self.start(sequence, *graph, subscriptions, timeline_markers, emit),
             GraphWorkerRequest::Cancel { sequence } => self.cancel(sequence, emit),
         }
     }
@@ -361,7 +361,7 @@ mod worker_execution_tests {
         runtime.execute_streaming(
             GraphWorkerRequest::Start {
                 sequence: 7,
-                graph: GraphState::default(),
+                graph: Box::new(GraphState::default()),
                 subscriptions: OutputSubscriptionPlan::new(),
                 timeline_markers: Vec::new(),
             },

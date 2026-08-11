@@ -63,7 +63,11 @@ impl GraphDocumentBuilder {
             return false;
         };
         node.state = state;
-        self.node_types.restore_node(node).is_some()
+        let restored = self.node_types.restore_node(node).is_some();
+        if restored {
+            self.graph.mark_semantic_change();
+        }
+        restored
     }
 }
 

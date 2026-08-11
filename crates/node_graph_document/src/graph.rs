@@ -47,6 +47,8 @@ pub struct GraphState {
 pub struct GraphMetadata {
     next_id: u32,
     next_frame_id: u32,
+    #[serde(skip)]
+    semantic_revision: u64,
     /// Namespaced, owner-managed document state. Values belong to the whole
     /// saved graph, may refer to graph identities, and are not part of copied
     /// node fragments. Generic graph code only preserves them.
@@ -55,6 +57,35 @@ pub struct GraphMetadata {
 }
 
 impl GraphState {
+    /// Returns the transient revision of processing-relevant document state.
+    ///
+    /// The revision is not persisted. Document mutation APIs advance it for nodes and wires;
+    /// extension owners explicitly select semantic extension APIs when their values affect
+    /// compilation or execution.
+    pub fn semantic_revision(&self) -> u64 {
+        self.metadata.semantic_revision
+    }
+
+    /// Records a processing-relevant mutation performed through direct record access.
+    pub fn mark_semantic_change(&mut self) {
+        self.metadata.semantic_revision = self.metadata.semantic_revision.saturating_add(1);
+    }
+
+    /// Advances this document beyond a replaced document's transient semantic revision.
+    ///
+    /// This keeps revisions monotonic when undo, redo, or whole-document replacement installs a
+    /// cloned or freshly deserialized graph.
+    ///
+    /// # Parameters
+    /// - `previous`: Revision of the document being replaced.
+    pub fn mark_semantic_change_after(&mut self, previous: u64) {
+        self.metadata.semantic_revision = self
+            .metadata
+            .semantic_revision
+            .max(previous)
+            .saturating_add(1);
+    }
+
     /// Serializes the executable meaning of this graph without editor-only layout state.
     ///
     /// Position, selection, collapse state, display title, header color, frames, and allocation
@@ -118,12 +149,47 @@ impl GraphState {
         Ok(())
     }
 
+    /// Stores an owner-managed extension and advances the semantic revision when it changes.
+    ///
+    /// Owners use this API only when the extension affects compilation or execution. Presentation
+    /// extensions continue to use [`Self::set_extension`].
+    ///
+    /// # Parameters
+    /// - `key`: Namespaced extension key owned by the caller.
+    /// - `value`: Serializable processing-relevant document state.
+    pub fn set_semantic_extension<T: Serialize>(
+        &mut self,
+        key: impl Into<String>,
+        value: T,
+    ) -> Result<bool, serde_json::Error> {
+        let key = key.into();
+        let value = serde_json::to_value(value)?;
+        if self.metadata.extensions.get(&key) == Some(&value) {
+            return Ok(false);
+        }
+        self.metadata.extensions.insert(key, value);
+        self.mark_semantic_change();
+        Ok(true)
+    }
+
     /// Removes one owner-managed extension value.
     ///
     /// # Parameters
     /// - `key`: Namespaced extension key to remove. Unknown keys are ignored.
     pub fn remove_extension(&mut self, key: &str) {
         self.metadata.extensions.remove(key);
+    }
+
+    /// Removes a processing-relevant extension and advances the semantic revision when present.
+    ///
+    /// # Parameters
+    /// - `key`: Namespaced semantic extension key to remove.
+    pub fn remove_semantic_extension(&mut self, key: &str) -> bool {
+        let removed = self.metadata.extensions.remove(key).is_some();
+        if removed {
+            self.mark_semantic_change();
+        }
+        removed
     }
 
     /// Allocates the next stable node identity for this graph document.
@@ -139,6 +205,7 @@ impl GraphState {
     /// - `node`: Node to add. Existing connections are not reconciled automatically.
     pub fn add_node(&mut self, node: Node) {
         self.nodes.insert(node.id, node);
+        self.mark_semantic_change();
     }
 
     /// Removes a node and every incoming or outgoing connection attached to it.
@@ -146,7 +213,10 @@ impl GraphState {
     /// # Parameters
     /// - `id`: Stable identity of the node to remove. Unknown identities are ignored.
     pub fn remove_node(&mut self, id: NodeId) {
-        self.nodes.remove(&id);
+        if self.nodes.remove(&id).is_none() {
+            return;
+        }
+        self.mark_semantic_change();
         self.connections
             .retain(|connection| connection.to.node != id);
         // Outgoing connections are dropped one by one so each downstream
@@ -175,6 +245,7 @@ impl GraphState {
         self.resolve_input(from, to);
         self.grow_variadic_group(to);
         self.propagate_reroute_output(to.node);
+        self.mark_semantic_change();
     }
 
     /// Removes the connection feeding `to`, if any, and reverts the input
@@ -189,6 +260,7 @@ impl GraphState {
         let removed = self.connections.len() != before;
         if removed {
             self.on_input_disconnected(to);
+            self.mark_semantic_change();
         }
         removed
     }
@@ -200,6 +272,7 @@ impl GraphState {
     pub fn remove_connection_at(&mut self, index: usize) -> Connection {
         let connection = self.connections.remove(index);
         self.on_input_disconnected(connection.to);
+        self.mark_semantic_change();
         connection
     }
 
@@ -999,6 +1072,54 @@ mod tests {
 
         graph.nodes.get_mut(&id).unwrap().state = serde_json::json!({"threshold": 7});
         assert_ne!(graph.semantic_snapshot(), original);
+    }
+
+    #[test]
+    fn semantic_revision_tracks_processing_edits_but_not_presentation_edits() {
+        let mut graph = GraphState::default();
+        let id = graph.next_id();
+        graph.add_node(Node::blank(id, "Test Node", GraphPosition::ZERO));
+        let after_node = graph.semantic_revision();
+
+        graph.nodes.get_mut(&id).unwrap().pos = GraphPosition::new(100.0, 200.0);
+        graph
+            .set_extension("example.panel", serde_json::json!({"width": 300}))
+            .unwrap();
+        assert_eq!(graph.semantic_revision(), after_node);
+
+        assert!(
+            graph
+                .set_semantic_extension("example.outputs", serde_json::json!([id.0]))
+                .unwrap()
+        );
+        let after_output = graph.semantic_revision();
+        assert!(after_output > after_node);
+        assert!(
+            !graph
+                .set_semantic_extension("example.outputs", serde_json::json!([id.0]))
+                .unwrap()
+        );
+        assert_eq!(graph.semantic_revision(), after_output);
+
+        assert!(graph.remove_semantic_extension("example.outputs"));
+        assert!(graph.semantic_revision() > after_output);
+    }
+
+    #[test]
+    fn replacement_revision_advances_beyond_undo_snapshots() {
+        let mut current = GraphState::default();
+        current.mark_semantic_change();
+        current.mark_semantic_change();
+        let previous = current.semantic_revision();
+
+        let mut replacement = GraphState::default();
+        replacement.mark_semantic_change_after(previous);
+
+        assert!(replacement.semantic_revision() > previous);
+
+        let encoded = serde_json::to_vec(&replacement).unwrap();
+        let restored: GraphState = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(restored.semantic_revision(), 0);
     }
 
     #[test]

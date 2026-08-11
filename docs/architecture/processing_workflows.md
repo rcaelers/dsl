@@ -216,24 +216,36 @@ regenerated. Cleanup receives the active keys as pins and cannot change the mean
 
 ## Live graph reconciliation
 
-The UI compares semantic graph snapshots, excluding editor layout and other presentation-only
-state. A valid changed snapshot is lowered to another complete `ProcessingGraph`; the active run
-then classifies the plan difference.
+`GraphState` carries a transient, monotonically increasing semantic revision. Node, connection,
+state, output-subscription, and execution-context edits advance it; editor layout and panel state
+do not. The UI observes revision changes in constant time and starts a true 250 ms debounce whose
+deadline moves after every further edit. Once quiet, it clones that revision and submits lowering
+through the injected finite-work executor. Native composition performs that work off the UI
+thread; cooperative hosts preserve the same explicit task contract.
+
+Every completion retains its submitted revision. The UI discards it when the document has advanced
+and submits only the newest quiet revision. A valid current plan reaches the active run through its
+ordered control boundary; an invalid current plan leaves the active run unchanged. Run pumping and
+periodic progress projection remain independent of document synchronization.
 
 ```mermaid
 sequenceDiagram
     participant UI as logic_analyzer_ui
-    participant Lowerer as GraphLowerer
+    participant Executor as finite WorkExecutor
+    participant Lowerer as GraphLowerer task
     participant Run as LiveRun
     participant Manager as signal_runtime::AppManager
 
-    UI->>UI: detect semantic document change
-    UI->>Lowerer: lower(edited GraphState)
+    UI->>UI: observe semantic revision and debounce until quiet
+    UI->>Executor: submit(revision, immutable GraphState)
+    Executor->>Lowerer: lower(GraphState)
+    Lowerer-->>UI: revision-tagged plan or diagnostics
+    alt Completion revision is stale
+        UI->>UI: discard completion
+    else Current revision
     alt Document is invalid while editing
-        Lowerer-->>UI: diagnostics
         UI->>Run: leave active plan unchanged
     else Valid replacement plan
-        Lowerer-->>UI: ProcessingGraph
         UI->>Run: apply_processing_graph(plan)
         Run->>Run: reuse sampling stores and diff by NodeId
         alt Hot configuration
@@ -245,6 +257,7 @@ sequenceDiagram
         else Source change or cache-pruned topology
             Run-->>UI: NeedsFullRestart; active run remains available
         end
+    end
     end
 ```
 

@@ -34,6 +34,7 @@ use crate::live_capture::{CaptureAvailability, CaptureFeatureDiscovery};
 pub(crate) struct UiGraphService {
     compiler: GraphLowerer,
     runtime: GraphRuntime,
+    work_executor: Arc<dyn WorkExecutor>,
     graph_worker_client: Option<Arc<GraphWorkerClient>>,
 }
 
@@ -48,16 +49,34 @@ fn present_runtime_errors(errors: Vec<GraphRuntimeError>) -> Vec<CompileError> {
 }
 
 impl UiGraphService {
-    fn new(compiler: GraphLowerer, runtime: GraphRuntime) -> Self {
+    fn new(
+        compiler: GraphLowerer,
+        runtime: GraphRuntime,
+        work_executor: Arc<dyn WorkExecutor>,
+    ) -> Self {
         Self {
             compiler,
             runtime,
+            work_executor,
             graph_worker_client: None,
         }
     }
 
     fn lowerer(&self) -> &GraphLowerer {
         &self.compiler
+    }
+
+    pub(crate) fn start_revision_preparation(
+        &self,
+        revision: u64,
+        graph: GraphState,
+    ) -> Result<super::GraphRevisionPreparationTask, platform_runtime::WorkExecutorError> {
+        let lowerer = self.compiler.clone();
+        super::GraphRevisionPreparationTask::start(
+            revision,
+            Arc::clone(&self.work_executor),
+            Box::new(move || lowerer.lower(&graph)),
+        )
     }
 }
 
@@ -450,19 +469,11 @@ impl UiGraphService {
         })
     }
 
-    pub(crate) fn sampling_overlay_candidates(
+    pub(crate) fn load_prepared_cached_data(
         &self,
-        graph: &GraphState,
-    ) -> Result<Vec<SamplingOverlayCandidate>, Vec<CompileError>> {
-        self.lowerer().sampling_overlay_candidates(graph)
-    }
-
-    pub(crate) fn load_cached_data(
-        &self,
-        graph: &GraphState,
+        compiled: logic_analyzer_graph_plan::ProcessingGraph,
         context: &mut GraphRunContext,
     ) -> Result<bool, Vec<CompileError>> {
-        let compiled = self.lowerer().lower(graph)?;
         self.runtime
             .load_cached_data(compiled, context)
             .map_err(present_runtime_errors)
@@ -500,15 +511,6 @@ impl UiGraphService {
             .map_err(present_runtime_errors)
     }
 
-    pub(crate) fn apply_run(
-        &self,
-        run: &mut dyn GraphRun,
-        graph: &GraphState,
-    ) -> Result<ApplySummary, ApplyError> {
-        let compiled = self.lowerer().lower(graph).map_err(ApplyError::Compile)?;
-        run.apply_processing_graph(compiled, None)
-    }
-
     pub(crate) fn apply_configuration_epoch(
         &self,
         run: &mut dyn GraphRun,
@@ -534,7 +536,11 @@ impl UiGraphService {
 }
 
 pub(crate) fn standard_graph_service() -> UiGraphService {
-    UiGraphService::new(GraphLowerer::new(), GraphRuntime::new())
+    UiGraphService::new(
+        GraphLowerer::new(),
+        GraphRuntime::new(),
+        Arc::new(platform_runtime::InlineWorkExecutor),
+    )
 }
 
 pub(crate) fn graph_service_with_execution(
@@ -558,6 +564,11 @@ pub(crate) fn graph_service_with_execution_and_capability_overrides(
 ) -> UiGraphService {
     UiGraphService::new(
         GraphLowerer::with_capability_overrides(capability_overrides),
-        GraphRuntime::with_execution(source_preparation_executor, runtime_factory, work_executor),
+        GraphRuntime::with_execution(
+            source_preparation_executor,
+            runtime_factory,
+            Arc::clone(&work_executor),
+        ),
+        work_executor,
     )
 }

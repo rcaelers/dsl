@@ -42,6 +42,7 @@ use crate::collected_output_presentation::waveform_presentation_registry;
 use crate::decoder_panel::{DecoderPanels, DecoderTableRegistry};
 use crate::decoder_table_presentation::decoder_table_registry;
 use crate::graph_run_lifecycle::{GraphRunLifecycle, GraphRunPoll};
+use crate::graph_service::PreparedGraphRevision;
 use crate::host_service::HostService;
 use crate::live_capture::{
     CaptureAnalysisAttachment, CaptureAvailability, CaptureCoordinator, CaptureCoordinatorContract,
@@ -371,11 +372,11 @@ fn save_timeline_cursors(
         ));
     }
     if cursors.is_empty() {
-        graph.remove_extension(TIMELINE_CURSORS_EXTENSION);
+        graph.remove_semantic_extension(TIMELINE_CURSORS_EXTENSION);
         Ok(())
     } else {
         graph
-            .set_extension(
+            .set_semantic_extension(
                 TIMELINE_CURSORS_EXTENSION,
                 SavedTimelineCursors {
                     version: timeline_cursor_schema_version(),
@@ -388,6 +389,7 @@ fn save_timeline_cursors(
                         .collect(),
                 },
             )
+            .map(|_| ())
             .map_err(Into::into)
     }
 }
@@ -974,7 +976,7 @@ impl App {
         self.restore_viewer_lane_height_setting();
         self.restore_timeline_cursor_setting();
         self.restore_panel_layout_setting();
-        self.restore_cached_derived_data();
+        self.graph_run.clear_cached_preview_revision();
     }
 
     /// Loads one configured demo after rejecting the request during active capture work.
@@ -1767,21 +1769,24 @@ impl App {
         true
     }
 
-    fn restore_cached_derived_data(&mut self) {
+    fn restore_prepared_cached_derived_data(
+        &mut self,
+        revision: u64,
+        compiled: plan::ProcessingGraph,
+    ) {
         if self.graph_run.has_run()
             || self.capture_analysis.coordinator().is_active()
             || self.is_capture_analysis_active()
         {
             return;
         }
-        self.graph_run
-            .set_cached_preview_graph(self.node_graph.graph().semantic_snapshot());
+        self.graph_run.set_cached_preview_revision(revision);
         let mut ctx = runtime::GraphRunContext::default();
         self.supply_timeline_cursors(&mut ctx);
         match self
             .graph_run
             .service()
-            .load_cached_data(self.node_graph.graph(), &mut ctx)
+            .load_prepared_cached_data(compiled, &mut ctx)
         {
             Ok(true) => self.bind_run_data(ctx.run_data()),
             Ok(false) | Err(_) => self.clear_derived_data_presentations(),
@@ -1841,7 +1846,7 @@ impl App {
         // Run is an explicit fresh execution. Cached lanes are a pre-run
         // preview only, so release their mmap/query handles before removing
         // this graph's entries and creating the replacement stores.
-        self.graph_run.clear_cached_preview_graph();
+        self.graph_run.clear_cached_preview_revision();
         self.clear_derived_data_presentations();
         let mut ctx = runtime::GraphRunContext::default();
         self.supply_timeline_cursors(&mut ctx);
@@ -1879,7 +1884,7 @@ impl App {
                 let run_data = ctx.run_data();
                 self.bind_run_data(run_data);
                 self.graph_run
-                    .install_run(run, self.node_graph.graph().semantic_snapshot());
+                    .install_run(run, self.node_graph.graph().semantic_revision());
             }
             Err(errors) => {
                 self.graph_run.clear_sampling_overlay_candidates();
@@ -1919,11 +1924,7 @@ impl App {
         self.graph_run.is_running()
     }
 
-    fn bind_current_run_presentations(&mut self) {
-        self.merge_current_run_presentation_catalog();
-    }
-
-    fn apply_view_configuration_to_run(&mut self) {
+    fn refresh_view_configuration_after_edit(&mut self) {
         if let Ok(Some(feature)) = self
             .graph_run
             .service()
@@ -1933,36 +1934,7 @@ impl App {
                 .set_visible_capture_channels(feature.visible_channels().iter().copied());
         }
         if !self.graph_run.has_run() {
-            self.restore_cached_derived_data();
-            return;
-        }
-        let graph_semantics = self.node_graph.graph().semantic_snapshot();
-        let result = self
-            .graph_run
-            .apply_run(self.node_graph.graph())
-            .expect("run existence checked above");
-        match result {
-            Ok(_) => {
-                self.graph_run.set_running_graph_semantics(graph_semantics);
-                self.bind_current_run_presentations();
-            }
-            Err(runtime::ApplyError::Compile(_)) => {}
-            Err(runtime::ApplyError::NeedsFullRestart(reason)) => {
-                self.graph_run.set_running_graph_semantics(graph_semantics);
-                self.graph_run.set_run_message(
-                    format!("view update could not use cached data: {reason}"),
-                    true,
-                );
-            }
-            Err(runtime::ApplyError::Apply(message)) => {
-                self.toasts.error(format!("view update failed: {message}"))
-            }
-            Err(runtime::ApplyError::Materialization { source, .. }) => {
-                self.toasts.error(format!("view update failed: {source}"))
-            }
-            Err(runtime::ApplyError::Runtime(error)) => {
-                self.toasts.error(format!("view update failed: {error}"))
-            }
+            self.graph_run.clear_cached_preview_revision();
         }
     }
 
@@ -2057,7 +2029,7 @@ impl App {
             .unwrap_or_default();
         self.capture_analysis.begin_capture(
             self.node_graph.graph().clone(),
-            serde_json::to_vec(self.node_graph.graph()).ok(),
+            self.node_graph.graph().semantic_revision(),
         );
         self.set_presented_derived_lanes(signal_derived::DerivedLanes::new());
         for config in &capture_cache_configs {
@@ -2316,7 +2288,7 @@ impl App {
             ));
         }
 
-        const EPOCH_SYNC_INTERVAL_S: f64 = 0.5;
+        const EDIT_QUIET_PERIOD_S: f64 = 0.25;
         let now = ctx.input(|input| input.time);
         let recording = self
             .capture_analysis
@@ -2328,21 +2300,15 @@ impl App {
         if !recording
             || self.capture_analysis.analysis().unwrap().is_finished()
             || self.capture_analysis.epoch_request_in_flight()
-            || now - self.capture_analysis.last_epoch_sync() < EPOCH_SYNC_INTERVAL_S
         {
             return;
         }
-        self.capture_analysis.mark_epoch_sync(now);
-        let revision = match serde_json::to_vec(self.node_graph.graph()) {
-            Ok(revision) => revision,
-            Err(error) => {
-                self.toasts.error(format!(
-                    "could not encode the edited capture graph: {error}"
-                ));
-                return;
-            }
-        };
-        if self.capture_analysis.epoch_observed_graph() == Some(revision.as_slice()) {
+        let revision = self.node_graph.graph().semantic_revision();
+        if self.capture_analysis.epoch_observed_revision() == Some(revision)
+            || !self
+                .graph_run
+                .revision_is_quiet(revision, now, EDIT_QUIET_PERIOD_S)
+        {
             return;
         }
         match self
@@ -2351,7 +2317,7 @@ impl App {
             .request_configuration_epoch(self.node_graph.graph().clone())
         {
             Ok(()) => {
-                self.capture_analysis.observe_epoch_graph(revision);
+                self.capture_analysis.observe_epoch_revision(revision);
                 self.capture_analysis.mark_epoch_request_started();
             }
             Err(error) => self.toasts.error(error.to_string()),
@@ -2666,53 +2632,65 @@ impl App {
         }
     }
 
-    /// Drives the run forward and, periodically, diffs the edited graph
-    /// against it and applies what can be applied live (`docs/architecture/processing_workflows.md`,
-    /// live editing): taps, branch
-    /// removals, hot prop changes, in-place restarts. Edits that need a full
-    /// restart leave the run untouched and say so.
+    /// Drives the run forward and submits a debounced immutable document revision for live
+    /// reconciliation (`docs/architecture/processing_workflows.md`, live editing): taps, branch
+    /// removals, hot property changes, and in-place restarts. Edits that need a full restart leave
+    /// the run untouched and say so. Stale lowering completions are discarded by revision.
     ///
     /// `pump()` is called every frame — a no-op on the native threaded
     /// manager (its nodes run themselves in the background), but on wasm's
     /// cooperative manager it's what actually executes node `work()`, so it
     /// can't be gated behind the same throttle as the `apply()` diff below.
     fn sync_run(&mut self, ctx: &egui::Context) {
-        const SYNC_INTERVAL_S: f64 = 0.5;
+        const EDIT_QUIET_PERIOD_S: f64 = 0.25;
+        const PROGRESS_UPDATE_INTERVAL_S: f64 = 0.5;
+
         if self.graph_run.cache_clear_task().is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
             return;
         }
+
         let now = ctx.input(|input| input.time);
+        let revision = self.node_graph.graph().semantic_revision();
+        self.graph_run.observe_document_revision(revision, now);
+        if self.graph_run.revision_preparation_pending() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        }
+        let prepared = self
+            .graph_run
+            .poll_revision_preparation()
+            .filter(|prepared| prepared.revision == revision);
+
         if !self.graph_run.has_run() {
             if self.capture_analysis.coordinator().is_active() || self.is_capture_analysis_active()
             {
                 return;
             }
-            if now - self.graph_run.last_live_sync() >= SYNC_INTERVAL_S {
-                self.graph_run.mark_live_sync(now);
-                let graph_snapshot = Some(self.node_graph.graph().semantic_snapshot());
-                if graph_snapshot.as_deref() != self.graph_run.cached_preview_graph() {
-                    self.restore_cached_derived_data();
-                }
-                let availability = capture_availability(
-                    self.node_graph.graph(),
-                    self.graph_run.service(),
-                    self.capture_analysis
-                        .coordinator()
-                        .backend_unavailable_reason(),
-                );
-                self.capture_analysis.set_availability(availability);
-                self.refresh_trigger_configuration();
-                if let Ok(candidates) = self
+            if let Some(prepared) = prepared {
+                self.apply_idle_graph_revision(prepared);
+            }
+            if self.graph_run.cached_preview_revision() != Some(revision)
+                && self
                     .graph_run
-                    .service()
-                    .sampling_overlay_candidates(self.node_graph.graph())
+                    .should_prepare_revision(revision, now, EDIT_QUIET_PERIOD_S)
+            {
+                if let Err(error) = self
+                    .graph_run
+                    .start_revision_preparation(revision, self.node_graph.graph().clone())
                 {
-                    self.set_sampling_overlay_candidates(candidates);
+                    if error == platform_runtime::WorkExecutorError::QueueFull {
+                        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+                    } else {
+                        self.toasts
+                            .error(format!("Could not prepare the edited graph: {error}"));
+                    }
+                } else {
+                    ctx.request_repaint_after(std::time::Duration::from_millis(16));
                 }
             }
             return;
         }
+
         let Some(GraphRunPoll {
             failure,
             synchronized,
@@ -2741,54 +2719,110 @@ impl App {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
         }
 
-        if now - self.graph_run.last_live_sync() < SYNC_INTERVAL_S {
-            return;
+        if self
+            .graph_run
+            .progress_update_due(now, PROGRESS_UPDATE_INTERVAL_S)
+        {
+            self.graph_run.mark_progress_updated(now);
+            for (id, items) in self
+                .graph_run
+                .run()
+                .expect("run existence checked above")
+                .progress()
+            {
+                let status = (items > 0).then(|| format_count(items));
+                self.node_graph.set_node_status(id, status);
+            }
         }
-        self.graph_run.mark_live_sync(now);
 
-        // Per-node progress in the headers — also after the
-        // run finished, so the final counts stick.
-        for (id, items) in self.graph_run.run().unwrap().progress() {
-            let status = (items > 0).then(|| format_count(items));
-            self.node_graph.set_node_status(id, status);
-        }
-        // No live edits once the run is done or winding down — `apply()`'s
-        // remove/restart paths join node threads, which a stopping run may
-        // not finish promptly.
         if self.graph_run.run_is_finished_or_stopping() {
             return;
         }
-        let graph_semantics = self.node_graph.graph().semantic_snapshot();
-        if self.graph_run.running_graph_semantics() == Some(graph_semantics.as_slice()) {
+        if let Some(prepared) = prepared {
+            self.apply_live_graph_revision(prepared);
+        }
+        if self.graph_run.running_graph_revision() == Some(revision) {
             return;
         }
+        if self
+            .graph_run
+            .should_prepare_revision(revision, now, EDIT_QUIET_PERIOD_S)
+        {
+            if let Err(error) = self
+                .graph_run
+                .start_revision_preparation(revision, self.node_graph.graph().clone())
+            {
+                if error == platform_runtime::WorkExecutorError::QueueFull {
+                    ctx.request_repaint_after(std::time::Duration::from_millis(100));
+                } else {
+                    self.toasts
+                        .error(format!("Could not prepare the edited graph: {error}"));
+                }
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_millis(16));
+            }
+        }
+    }
+
+    fn apply_idle_graph_revision(&mut self, prepared: PreparedGraphRevision) {
+        let revision = prepared.revision;
+        let candidates = prepared
+            .processing_graph
+            .as_ref()
+            .map(|graph| graph.sampling_overlays.clone())
+            .unwrap_or_default();
+        match prepared.processing_graph {
+            Ok(compiled) => self.restore_prepared_cached_derived_data(revision, compiled),
+            Err(_) => {
+                self.graph_run.set_cached_preview_revision(revision);
+                self.clear_derived_data_presentations();
+            }
+        }
+
+        let availability = capture_availability(
+            self.node_graph.graph(),
+            self.graph_run.service(),
+            self.capture_analysis
+                .coordinator()
+                .backend_unavailable_reason(),
+        );
+        self.capture_analysis.set_availability(availability);
+        self.refresh_trigger_configuration();
+        self.set_sampling_overlay_candidates(candidates);
+    }
+
+    fn apply_live_graph_revision(&mut self, prepared: PreparedGraphRevision) {
+        let revision = prepared.revision;
+        let compiled = match prepared.processing_graph {
+            Ok(compiled) => compiled,
+            Err(_) => {
+                // Mid-edit graphs are often momentarily invalid. Keep the active pipeline and
+                // wait for the next semantic revision instead of retrying unchanged input.
+                return;
+            }
+        };
 
         let mut refresh_run_presentations = false;
         match self
             .graph_run
-            .apply_run(self.node_graph.graph())
+            .apply_prepared_run(compiled)
             .expect("run existence checked above")
         {
             Ok(summary) if summary.is_empty() => {
-                self.graph_run
-                    .set_running_graph_semantics(graph_semantics.clone());
+                self.graph_run.set_running_graph_revision(revision);
                 refresh_run_presentations = true;
             }
             Ok(summary) => {
-                self.graph_run
-                    .set_running_graph_semantics(graph_semantics.clone());
+                self.graph_run.set_running_graph_revision(revision);
                 refresh_run_presentations = true;
                 self.toasts.info(format!(
                     "live: +{} −{} cfg {} restart {}",
                     summary.added, summary.removed, summary.configured, summary.restarted
                 ));
             }
-            Err(runtime::ApplyError::Compile(_)) => {
-                // Mid-edit graphs are often momentarily invalid; keep the
-                // running pipeline and wait for the graph to become valid.
-            }
+            Err(runtime::ApplyError::Compile(_)) => {}
             Err(runtime::ApplyError::NeedsFullRestart(reason)) => {
-                self.graph_run.set_running_graph_semantics(graph_semantics);
+                self.graph_run.set_running_graph_revision(revision);
                 self.graph_run
                     .set_run_message(format!("stop & rerun to apply: {reason}"), false);
             }
@@ -2829,9 +2863,16 @@ impl App {
                 .to_vec();
             self.set_sampling_overlay_candidates(candidates);
             self.merge_current_run_presentation_catalog();
+            if let Ok(Some(feature)) = self
+                .graph_run
+                .service()
+                .discover_live_capture_feature(self.node_graph.graph())
+            {
+                self.logic_analyzer
+                    .set_visible_capture_channels(feature.visible_channels().iter().copied());
+            }
         }
     }
-
     fn show_status_bar(&mut self, ui: &mut egui::Ui, actions: &[StatusAction]) {
         let rect = ui.max_rect();
         ui.painter()
@@ -3710,7 +3751,7 @@ impl eframe::App for App {
         let presentation_ownership_changed = self.synchronize_presentation_graph_nodes();
         let view_panel_state_changed = self.node_graph.take_contributed_panel_state_changed();
         if viewer_subscriptions_changed || view_panel_state_changed {
-            self.apply_view_configuration_to_run();
+            self.refresh_view_configuration_after_edit();
             ui.ctx().request_repaint();
         }
         if presentation_ownership_changed {

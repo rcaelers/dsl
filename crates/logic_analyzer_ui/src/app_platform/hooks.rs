@@ -217,8 +217,7 @@ impl App {
         self.graph_run.clear_run_message();
         self.error_badges.clear();
         self.node_graph.new_graph();
-        self.graph_run
-            .replace_cached_preview_graph(serde_json::to_vec(self.node_graph.graph()).ok());
+        self.graph_run.replace_cached_preview_revision(None);
         self.restore_sampling_overlay_setting();
         self.restore_viewer_lane_order_setting();
         self.restore_viewer_lane_height_setting();
@@ -916,12 +915,12 @@ impl App {
         match self.graph_run.service().start_clear_derived_caches() {
             Ok(task) => {
                 self.graph_run
-                    .set_cached_preview_graph(self.node_graph.graph().semantic_snapshot());
+                    .set_cached_preview_revision(self.node_graph.graph().semantic_revision());
                 self.graph_run.install_cache_clear_task(task);
                 self.toasts.info("Clearing derived data caches…");
             }
             Err(error) => {
-                self.graph_run.clear_cached_preview_graph();
+                self.graph_run.clear_cached_preview_revision();
                 self.toasts
                     .error(format!("Failed to start clearing caches: {error}"));
             }
@@ -955,7 +954,7 @@ impl App {
                 stats.removed_bytes
             )),
             Err(error) => {
-                self.graph_run.clear_cached_preview_graph();
+                self.graph_run.clear_cached_preview_revision();
                 self.toasts
                     .error(format!("Failed to clear caches: {error}"));
             }

@@ -313,7 +313,7 @@ fn worker_hosted_large_timeline_returns_bounded_artifacts_and_loadable_cached_la
     runtime.execute_streaming(
         GraphWorkerRequest::Start {
             sequence: 41,
-            graph: graph.clone(),
+            graph: Box::new(graph.clone()),
             subscriptions: subscriptions.clone(),
             timeline_markers: Vec::new(),
         },

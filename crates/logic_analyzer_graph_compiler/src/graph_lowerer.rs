@@ -30,6 +30,7 @@ use super::payload_catalog::RegistryPayloadCatalog;
 /// The lowerer retains only the immutable graph registry and the explicit output plan.
 /// It owns no artifact repository, executor, runtime manager, active run, source preparation, or
 /// worker client, so invoking any method on it cannot start graph work.
+#[derive(Clone)]
 pub struct GraphLowerer {
     registry: Arc<GraphRegistry>,
     output_subscriptions: OutputSubscriptionPlan,
