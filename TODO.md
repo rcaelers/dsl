@@ -272,9 +272,5 @@ promoting any item here, so acceptance comparisons remain evidence-based.
 
 ### Enforcement and documentation
 
-- [docs.ownership-statements] (P4 · low) State crate ownership positively. Large parts of
-  `crate_responsibility.md` define a crate by what it excludes; one sentence naming what it owns
-  and the type it hands to the next layer carries more. Keep an exclusion only where the boundary
-  is genuinely surprising.
 - [docs.index-deduplication] (P4 · low) Reduce `docs/INDEX.md` to one entry per document. Most crates appear
   in three lists, so the index has become a table of contents for itself.

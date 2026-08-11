@@ -14,21 +14,25 @@ in [Processing Graph Workflows](processing_workflows.md).
 
 ## Crate guide
 
+Each entry names the capability the crate owns and the principal contract it hands to adjacent
+layers. An exclusion is stated only when that boundary is easy to misunderstand.
+
 ### Generic platform, signal, and data-plane crates
 
 #### `platform-artifacts`
 
 Owns platform-neutral immutable byte regions, artifact and source identities, repository contracts,
 in-memory repository behavior, replication, checksums, and persistence time primitives. Physical
-filesystem or browser storage is supplied through the repository contract. Capture formats,
-derived encodings, execution, and host selection remain outside this crate.
+filesystem or browser storage is supplied through the repository contract. It hands
+`PreparedByteSource`, `ArtifactRepository`, and replication contracts to capture, derived-data,
+session, and graph-runtime owners.
 
 #### `platform-runtime`
 
 Owns platform-neutral work execution and worker-operation contracts, serializable request and
 result envelopes, registered finite-operation kernels, explicit inline/cooperative fallbacks, and
-the target-independent bounded worker queue. It does not own stream graphs, process nodes,
-application policy, or native/browser transports.
+the target-independent bounded worker queue. It hands `WorkExecutor`, `WorkerOperation`, kernel
+registration, and bounded queue contracts to portable processing owners and their host adapters.
 
 #### `signal-runtime`
 
@@ -36,17 +40,16 @@ Owns generic typed-stream execution: process-node lifecycle, named ports, channe
 wiring, scheduling, and threaded and cooperative managers. Its crate root is the supported
 execution facade. `ProcessNodeConstruction` couples a constructed process with owner-defined
 metadata without introducing an umbrella processing crate. `NodeWorkError` retains owner-specific
-typed work failures through cloneable `WorkError` and `NodeFailure` values. It consumes injected
-`platform-runtime` work capabilities and does not define
-their host adapters, capture or derived payload storage, acquisition sessions, concrete nodes,
-graph documents, or presentation.
+typed work failures through cloneable `WorkError` and `NodeFailure` values. It hands `ProcessNode`,
+port schemas, `AppManagerFactory`, and source-bearing work failures to portable node libraries and
+graph execution.
 
 #### `signal-capture`
 
 Owns generic immutable capture payloads, capture data-source and query contracts, random-access
 signal capabilities, opaque provider-owned channel identities, transition queries, and finite
-waveform indexing. Its crate root is the immutable-capture facade. Acquisition lifecycle, concrete
-formats and devices, derived data, and widgets remain outside this crate.
+waveform indexing. Its crate root hands `CaptureDataSource`, `CaptureIndex`, query contracts, and
+index factories to capture formats, sessions, graph execution, and viewers.
 
 #### `signal-derived`
 
@@ -54,9 +57,9 @@ Owns presentation-neutral retained outputs: generic derived payloads, payload ad
 lane catalogs, bounded queries, sampling-point stores, indexes, and encoded derived storage.
 
 Its public `derived_word_store` module owns the indexed annotation format, append and query
-contracts, persistent publication, reopening, and storage administration shared by supported
-timestamped payload adapters. Protocol decoding, renderer selection, and graph cache policy remain
-outside that module.
+contracts, persistent publication, reopening, and storage administration. The crate hands payload,
+collection, lane-query, indexing, and storage contracts to protocol decoders, graph execution, and
+presentation owners.
 
 #### `signal-capture-session`
 
@@ -68,57 +71,61 @@ presentation, and cache-identity contracts. Its public modules are domain facade
 - `live_capture_store` defines append-only recording, committed-prefix reading, finalization,
   recovery, and session-repository contracts.
 
-Logic-analyzer trigger programs, driver contracts, concrete device transports, formats, graph-node
-state, and UI workflow remain outside this crate.
+It hands capture-source metadata, acquisition events, finalized captures, and `CaptureStore`
+contracts to source implementations and application capture coordination.
 
 #### `signal-transforms`
 
 Owns portable UI-independent stream transformations and control primitives. Each public module is
-one transform family. Runtime scheduling, graph definitions, and presentation remain outside it.
+one transform family. It hands configured `ProcessNode` implementations to graph-node runtime
+builders.
 
 #### `signal-sinks`
 
 Owns portable terminal stream consumers and output encodings. File-producing sinks consume the
-injected `OutputStorage` destination contract; physical file access and dialogs remain outside it.
+injected `OutputStorage` destination contract. It hands configured sink `ProcessNode`s and the
+destination port to graph features and application composition.
 
 #### `signal-generators`
 
 Owns explicit deterministic capture and UART-like signal generation for authored demonstrations,
-tests, and scenarios. Generators are selected through configuration and are not host fallbacks.
+tests, and scenarios. It hands portable capture-source and process-node implementations to graph
+features. Generators are selected through configuration and are not implicit host fallbacks.
 
 #### `logic-analyzer-capture-formats`
 
 Owns DSL and Sigrok archive parsing, capture indexing, and finite replay sources. It consumes
-prepared byte sources and artifact/work capabilities; host file selection and graph definitions
-remain outside it.
+prepared byte sources and artifact/work capabilities. It hands format-specific source factories,
+generic `CaptureDataSource` implementations, and replay process nodes to concrete graph features.
 
 #### `logic-analyzer-trigger`
 
 Owns serializable trigger programs, provider schemas, registered predicates, stable identifiers,
 simple digital conditions, edit classification, and validation diagnostics. It depends only on the
-opaque channel identity from `signal-capture`; acquisition, graphs, widgets, UI, and devices consume
-its crate-root facade directly.
+opaque channel identity from `signal-capture`. It hands `TriggerProgram`, provider schemas, edits,
+and diagnostics to acquisition providers, graph features, and trigger presentation.
 
 #### `logic-analyzer-acquisition`
 
 Owns device-neutral logic-analyzer driver and capture-configuration contracts, hardware-trigger
-values, raw chunks, and the reusable runtime source adapter. It consumes trigger, capture, runtime,
-and host-work contracts without selecting a concrete device or transport.
+values, raw chunks, and the reusable runtime source adapter. It hands `LogicAnalyzer`,
+`LogicCaptureConfig`, and `LogicAnalyzerSource` contracts to device implementations and capture
+source factories.
 
 #### `logic-analyzer-device-dslogic`
 
 Owns the DSLogic U3Pro16 protocol, acquisition planning, packet conversion, and processing source.
-It consumes injected USB transport and FPGA-image contracts. Native application composition adapts
-the generic USB and file mechanisms supplied by `platform` to those ports; graph configuration and
-UI remain outside this crate.
+It hands the concrete U3Pro16 capture-source factory and its neutral USB/FPGA-image input ports to
+graph-node and application composition. Native composition adapts generic `platform` mechanisms to
+those device-owned ports.
 
 #### `logic-analyzer-protocol-decoders`
 
 Owns UI-independent protocol packet values, packet framing, and I²C, parallel, Sigrok, SPI, and
 UART decoding state machines plus their runtime configuration and host contracts. Sigrok execution
 startup and running lifecycle failures retain host-adapter causes through owner-typed contracts.
-Graph sockets, saved state, retained-packet adapters, and renderer metadata remain with the
-corresponding graph features.
+It hands configured decoder `ProcessNode`s, protocol packet values, and Sigrok execution contracts
+to concrete graph features and host composition.
 
 ### Graph crates
 
@@ -128,121 +135,124 @@ Owns contracts implemented by graph-node and payload features. The public `node`
 the capability traits for document semantics, runtime materialization, capture and live features,
 timeline behavior, and presentation. The public `node_support` module contains their neutral values
 and restricted build services, including port kinds, resolved inputs, capture identities, and
-presentation descriptors. Inventory assembly, lowering, built-in behavior, and host paths remain
-outside this crate.
+presentation descriptors. It hands capability traits and neutral build values to graph features,
+the registry, compiler, runtime plan, and UI services.
 
 #### `logic-analyzer-graph-registry`
 
 Owns graph-node and payload registration descriptors; compile-time
 inventory collection; deterministic validation; runtime capability overrides; and immutable
-`GraphRegistry` snapshots. Editor definitions and editor-registration overrides belong to
-`logic-analyzer-graph-editor-registry`. Viewer-renderer registration
-remains with `logic-analyzer-viewer`, and application-panel registration remains with
-`logic-analyzer-ui`. The registry owns no graph document, lowering policy, execution lifetime, or
-UI state.
+`GraphRegistry` snapshots. It hands validated immutable capability catalogs to the compiler and
+application composition. Editor definitions remain in `logic-analyzer-graph-editor-registry`,
+because headless registry consumers must not acquire an egui dependency.
 
 #### `logic-analyzer-graph-nodes`
 
 Owns the enabled built-in graph feature bundle: concrete node definitions, serialized state,
 migrations, capability implementations, runtime builders, payload registrations, socket styling,
-and presentation metadata. It contributes these features through registry contracts so generic
-compiler, runtime, viewer, and editor code remain independent of concrete nodes and protocols.
+and presentation metadata. It hands compile-time graph and payload registrations plus editor
+definitions to their registries, keeping generic compiler, runtime, viewer, and editor code
+independent of concrete nodes and protocols.
 
 #### `logic-analyzer-graph-plan`
 
 Owns the neutral immutable boundary between graph planning and execution. `ProcessingGraph` carries
 resolved runtime nodes and edges, materializer handles, payload materialization, output
-subscriptions, source lifecycle, cache identity, and sampling metadata. The crate owns neither the
-editable document nor an execution lifetime.
+subscriptions, source lifecycle, cache identity, and sampling metadata. It hands a complete
+`ProcessingGraph` from compiler or worker planning to graph runtime; the plan deliberately owns no
+editable-document or active-run state.
 
 #### `logic-analyzer-graph-compiler`
 
 Owns graph-document semantic analysis, discovery, validation, capability negotiation, diagnostics,
 and lowering into `ProcessingGraph`. `GraphLowerer` reads an immutable registry snapshot and an
-explicit output-subscription plan. The crate owns no repository, executor, active run, UI state,
-concrete node behavior, or target selection.
+explicit output-subscription plan. It hands either a validated `ProcessingGraph` or stable-identity
+diagnostics to application and worker orchestration.
 
 #### `logic-analyzer-graph-runtime`
 
 Owns source preparation, cache execution planning, processing-graph materialization, generated
 collector materialization, graph-run lifecycle, progress and diagnostics, and live plan
 reconciliation. It consumes a complete `ProcessingGraph` and injected repository, executor, and
-runtime-manager services. It has no compiler, registry, editable-document, concrete-node, UI, or
-target dependency.
+runtime-manager services. It hands `GraphRun`, run data, readiness, progress, and diagnostics to
+application or worker orchestration. Its direct consumption of the immutable plan—rather than the
+compiler or editable document—is the execution boundary.
 
 #### `logic-analyzer-graph-orchestration`
 
 Owns the application-neutral worker protocol, codecs, client lifecycle, and worker-side composition
-of graph lowering and execution. It transports graph requests and run observations without making
-the compiler or runtime own worker policy. Graph semantics and plan contracts remain with their
-respective crates.
+of graph lowering and execution. It hands worker requests, observations, a client, and a composed
+worker runtime to application roots and UI graph services while leaving graph semantics and plan
+contracts with their respective owners.
 
 ### Reusable document, widget, and application crates
 
 #### `node-graph-document`
 
 Owns portable graph records, stable graph identities, neutral presentation values, saved-document
-serialization, semantic snapshots, and document-local invariants. It has no widget, compiler,
-runtime, application, or host dependency.
+serialization, semantic snapshots, and document-local invariants. It hands `GraphState` and its
+record/identity vocabulary to the reusable editor, compiler, plug-ins, and application document
+services.
 
 #### `node-graph`
 
 Owns the generic node-definition registry, definition reconciliation, editor interaction, and egui
 graph widget. Its public `api` module exposes node and socket definitions, controls, panel actions,
 and the portable file-dialog contract. Portable records come from `node-graph-document` and are
-re-exported for widget consumers. The crate-root facade owns editor composition. Concrete node
-semantics, compiler policy, and host adapters remain outside this crate. Within the graph widget,
-private owners separate transient interaction state, response allocation and hit testing, global
-input/menu dispatch, modal pointer transitions, selection and frame membership, and wire gestures
-and rewiring.
+re-exported for widget consumers. The crate hands `NodeDef`, `NodeTypeRegistry`, and related editor
+contracts through `node_graph::api`, and hands `NodeGraphWidget` plus editor preferences/actions
+through the crate root to UI composition. It deliberately receives concrete behavior as metadata
+and contracts rather than branching on node or protocol names.
 
 #### `logic-analyzer-graph-editor-registry`
 
 Owns stable-ID-keyed node-editor definition inventory and instance-bound editor overrides. It is
-the Logic Conduit integration seam around the reusable widget and remains outside the headless
-graph tier.
+the Logic Conduit integration seam around the reusable widget. It hands validated editor
+registrations to UI registry construction while the headless graph tier continues to consume only
+graph capability registrations.
 
 #### `logic-analyzer-viewer`
 
 Owns generic waveform and derived-lane presentation, viewport interaction, row organization,
 cursor and edge measurements, visible-window sampling, sampling overlays, and renderer
-registrations. It consumes explicit renderer keys and presentation metadata and never infers
-protocol behavior from names or values. Source preparation, collection, and execution remain with
-their owners.
+registrations. It hands `LogicAnalyzerViewer`, query/presentation contracts, and renderer
+registries to UI composition. It consumes explicit renderer keys and presentation metadata and
+never infers protocol behavior from names or values.
 
 #### `panel-layout`
 
 Owns a reusable egui panel layout: its persistent tree, split placement, content selection,
 dragging, closing, maximizing, and boundary menus. Panel and content identifiers are opaque;
-application panel identity and behavior belong to the host. Its crate root is a facade over
-private contract, icon, control, geometry, tree-operation, and stateful-layout owners. Geometry
-calculation and tree mutation remain independent of the egui interaction orchestrator, while the
-serialized model and public paths remain stable.
+application panel identity and behavior belong to the host. It hands `PanelLayout`, opaque panel
+specifications, layout persistence, and interaction results to any egui application through its
+crate-root facade.
 
 #### `trigger-editor`
 
 Owns the generic schema-driven editor for provider-neutral trigger programs. It renders trigger
-contracts and emits edits without defining device predicate semantics, acquisition behavior, or
-application workflow. Its crate-root facade separates host-facing edit contracts, the validated
-program reducer, generic operand presentation, and egui composition into private owners.
+contracts and applies validated edits through its program reducer. It hands `TriggerEditor` and
+edit results to UI composition; predicate meaning remains provider-owned metadata.
 
 #### `widget-support`
 
-Owns small application-neutral presentation helpers shared by reusable egui widgets. It does not
-select concrete nodes, protocols, application commands, or menu policy.
+Owns small application-neutral presentation helpers shared by reusable egui widgets. It hands menu,
+icon, and related visual primitives to widget crates without introducing an application-level
+widget facade.
 
 #### `input-bindings`
 
 Owns portable input-binding configuration, lookup, and shortcut presentation. Context and action
-identities are opaque strings; application command policy and menu layout remain with the UI.
+identities are opaque strings. It hands resolved triggers and displayable shortcuts to reusable
+widgets and application input dispatch.
 
 #### `logic-analyzer-ui`
 
 Owns portable application interaction and panel composition. It coordinates the graph editor,
 viewer, output selection, Run and live-apply workflow, documents, menus, panels, and application
 services through UI-owned graph, host, and capture ports and the capture-export-owned service
-contract. Concrete graph-node definitions, processing execution policy, host I/O, and target
-selection remain outside this crate.
+contract. It hands `App`, the `AppServices` construction contract, and application-facing host
+ports to native and web composition roots. Concrete node inventories and host mechanisms enter
+only through those injected services.
 
 ### Host, application, and support crates
 
@@ -250,48 +260,52 @@ selection remain outside this crate.
 
 Owns reusable native and web host mechanisms and the workspace's single reusable target-selection
 point. Its crate-root facade provides individually scoped storage, worker, random-access file,
-output-file, document-dialog, and generic USB mechanisms to application composition. It has no
-dependency on Logic Conduit domain crates. UI host adaptation, concrete formats and devices, graph
-construction, and application policy remain outside this crate.
+output-file, document-dialog, and generic USB mechanisms to application composition. It hands only
+those low-level mechanisms to application roots and has no dependency on Logic Conduit domain
+crates; domain-port adaptation stays in the roots.
 
 #### `logic-analyzer-capture-export`
 
 Owns native streaming export of finalized generic captures, including format selection, progress,
 observer, result, and stateful application-service contracts, plus the asynchronous native service
-implementation. It does not own capture acquisition, graph behavior, concrete processing nodes,
-or UI policy.
+implementation. It hands `CaptureExportService`, status/completion values, and the repository-backed
+native service factory to UI and native composition.
 
 #### `logic-analyzer-app-native`
 
-Is the native composition root. It boots the desktop host, enables the selected registration
-inventory, adapts native host mechanisms to UI/domain ports, binds concrete node metadata and
-runtime capabilities as instance-owned overrides, constructs `AppServices`, and injects them into
-`logic-analyzer-ui`. Reusable application policy and services remain in library crates.
+Owns native application bootstrap and dependency assembly. It boots the desktop host, enables the
+selected registration inventory, adapts native host mechanisms to UI/domain ports, binds concrete
+node metadata and runtime capabilities as instance-owned overrides, constructs `AppServices`, and
+injects them into `logic-analyzer-ui`. Its handoff is the running desktop application; reusable
+application policy remains in library crates.
 
 #### `logic-analyzer-app-web`
 
-Is the browser composition root. It boots the web host, enables the selected registration
-inventory, adapts browser host mechanisms to UI/domain ports, selects concrete node capabilities,
-constructs both UI services and the worker graph runtime, and injects them. Reusable application
-policy and services remain in library crates.
+Owns browser application bootstrap and dependency assembly. It boots the web host, enables the
+selected registration inventory, adapts browser host mechanisms to UI/domain ports, selects
+concrete node capabilities, constructs both UI services and the worker graph runtime, and injects
+them. Reusable application policy remains in library crates. Its handoff is the mounted web
+application plus its composed graph worker.
 
 #### `logic-analyzer-test-support`
 
 Owns deterministic providers, fixtures, and conformance helpers shared by cross-crate integration
-tests. It contains no production composition or concrete UI policy.
+tests. It hands reusable fake sources, repositories, and data-plane assertions to component and
+workspace integration tests.
 
 #### `example-plugin`
 
-Is the reference implementation of the supported compile-time plug-in surface. It contributes
+Owns the reference implementation of the supported compile-time plug-in surface. It hands
 externally owned graph nodes, runtime behavior, payloads, viewer presentation, and an application
-panel without creating dependencies from generic host infrastructure back to the plug-in.
+panel to the same registration inventories used by built-in features, demonstrating that generic
+infrastructure does not depend back on a plug-in.
 
 #### `logic-analyzer-examples`
 
-Is the top-level integration package. It owns workspace-spanning integration and architecture
+Owns the top-level workspace integration surface: workspace-spanning integration and architecture
 tests, graph examples, focused benchmarks, the reproducible performance-regression runner, and the
-standalone CCD framebuffer example. Production composition and reusable behavior remain in their
-owning crates.
+standalone CCD framebuffer example. It hands executable checks, reference graphs, and performance
+evidence to CI and maintainers.
 
 ## Dependency direction
 
