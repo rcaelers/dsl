@@ -25,6 +25,16 @@ fn node_definition_and_registry_contain_no_decoder_host_special_cases() {
 }
 
 #[test]
+fn add_menu_ordering_contains_no_concrete_category_special_cases() {
+    let source = include_str!("widget/graph/menu.rs");
+    let production = source
+        .split_once("#[cfg(test)]")
+        .map_or(source, |(before, _)| before);
+
+    assert!(!production.contains("External Sigrok"));
+}
+
+#[test]
 fn crate_root_exposes_only_editor_composition_not_api_or_implementation_facades() {
     let root = include_str!("lib.rs");
 

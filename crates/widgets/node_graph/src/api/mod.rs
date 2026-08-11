@@ -98,7 +98,8 @@ pub use control::{
 pub use document::GraphDocumentBuilder;
 pub use indicator::SocketIndicatorPresentation;
 pub use node::{
-    InputDef, NodeDef, NodeInstanceSchema, OutputDef, PanelSection, PropDef, SocketTypeIdentity,
+    AddMenuCategory, InputDef, NodeDef, NodeInstanceSchema, OutputDef, PanelSection, PropDef,
+    SocketTypeIdentity,
 };
 pub use panel::{
     NodePanelDef, NodePanelPresentation, PanelAction, PanelContext, PanelDataProvider,

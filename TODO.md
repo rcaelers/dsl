@@ -271,11 +271,6 @@ promoting any item here, so acceptance comparisons remain evidence-based.
   dependency metadata, move its documentation and examples with the crate, add standalone CI, and
   verify that its persisted layout, area, panel, and view contracts remain application-neutral.
 
-### Crate boundary corrections
-
-- [node-graph.category-ordering] (P4 · low) Replace the `category.label == "External Sigrok"` sort key in
-  `node_graph`'s add-menu construction with an ordering value supplied by the category metadata.
-  It is the one place a generic widget branches on a protocol name.
 ### Enforcement and documentation
 
 - [docs.ownership-statements] (P4 · low) State crate ownership positively. Large parts of

@@ -34,7 +34,11 @@ fn build_add_search_items(registry: &NodeTypeRegistry, canvas_pos: Pos2) -> Vec<
         .iter()
         .filter(|definition| definition.add_menu_visible)
         .map(|def| AddSearchItem {
-            label: format!("{} → {}", def.category.replace("::", " → "), def.name),
+            label: format!(
+                "{} → {}",
+                def.category.path().replace("::", " → "),
+                def.name
+            ),
             action: GraphAction::AddNode {
                 name: def.name.clone(),
                 pos: canvas_pos,
@@ -65,7 +69,7 @@ fn build_link_drag_search_items(
         .connectable_types(from_socket, from.direction)
         .into_iter()
         .map(|def| AddSearchItem {
-            label: format!("{} → {}", def.category, def.name),
+            label: format!("{} → {}", def.category.path(), def.name),
             action: GraphAction::AddNodeAndConnect {
                 name: def.name.clone(),
                 pos: canvas_pos,
@@ -92,11 +96,12 @@ fn build_add_entries(registry: &NodeTypeRegistry, canvas_pos: Pos2) -> Vec<MenuE
         }
         insert_add_category(
             &mut categories,
-            &mut def.category.split("::").peekable(),
+            &mut def.category.path().split("::").peekable(),
+            def.category.root_order(),
             def.name.clone(),
         );
     }
-    categories.sort_by_key(|category| category.label == "External Sigrok");
+    categories.sort_by_key(|category| category.root_order);
     let mut entries = categories
         .into_iter()
         .map(|category| category.into_entry(canvas_pos))
@@ -114,6 +119,7 @@ fn build_add_entries(registry: &NodeTypeRegistry, canvas_pos: Pos2) -> Vec<MenuE
 
 struct AddCategory {
     label: String,
+    root_order: i32,
     children: Vec<AddCategory>,
     nodes: Vec<String>,
 }
@@ -142,6 +148,7 @@ impl AddCategory {
 fn insert_add_category<'a>(
     categories: &mut Vec<AddCategory>,
     path: &mut std::iter::Peekable<impl Iterator<Item = &'a str>>,
+    root_order: i32,
     node: String,
 ) {
     let Some(label) = path.next() else {
@@ -153,15 +160,17 @@ fn insert_add_category<'a>(
         .unwrap_or_else(|| {
             categories.push(AddCategory {
                 label: label.to_owned(),
+                root_order,
                 children: Vec::new(),
                 nodes: Vec::new(),
             });
             categories.len() - 1
         });
+    categories[index].root_order = categories[index].root_order.max(root_order);
     if path.peek().is_none() {
         categories[index].nodes.push(node);
     } else {
-        insert_add_category(&mut categories[index].children, path, node);
+        insert_add_category(&mut categories[index].children, path, root_order, node);
     }
 }
 
@@ -840,5 +849,46 @@ impl MenuController {
             }
             action => Some(action),
         }
+    }
+}
+
+#[cfg(test)]
+mod category_ordering_tests {
+    use super::{AddCategory, insert_add_category};
+
+    fn insert(categories: &mut Vec<AddCategory>, path: &str, root_order: i32, node: &str) {
+        insert_add_category(
+            categories,
+            &mut path.split("::").peekable(),
+            root_order,
+            node.to_owned(),
+        );
+    }
+
+    #[test]
+    fn explicit_category_order_is_label_independent_and_stable() {
+        let mut categories = Vec::new();
+        insert(&mut categories, "First registered", 0, "One");
+        insert(&mut categories, "Deferred", 100, "Two");
+        insert(&mut categories, "Second registered", 0, "Three");
+
+        categories.sort_by_key(|category| category.root_order);
+
+        assert_eq!(
+            categories
+                .iter()
+                .map(|category| category.label.as_str())
+                .collect::<Vec<_>>(),
+            ["First registered", "Second registered", "Deferred"]
+        );
+    }
+
+    #[test]
+    fn shared_root_uses_the_highest_contributed_order() {
+        let mut categories = Vec::new();
+        insert(&mut categories, "Shared::One", 0, "One");
+        insert(&mut categories, "Shared::Two", 25, "Two");
+
+        assert_eq!(categories[0].root_order, 25);
     }
 }

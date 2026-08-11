@@ -54,6 +54,11 @@ presentations, and two hooks:
 - `badge(state)` — recomputed after every update; a validation/status message drawn under
   the node (`NodeBadge` with info/warning/error severity).
 
+`NodeDef::add_menu_category` supplies protocol-neutral `AddMenuCategory` metadata. Its path
+creates nested menus and its root-order value positions the top-level category while preserving
+registry order between equal values. Dynamic `NodeTemplate` entries carry the same metadata, so
+the widget never derives ordering from category labels.
+
 Socket types are `SocketDef` implementations (name, color, shape); `SocketWithControlDef`
 additionally binds a value type that renders as an inline control while the socket is
 unconnected. Builtins: `Bool`, `Int`, `Float`, `Str`, `File`, `Any`, with value types

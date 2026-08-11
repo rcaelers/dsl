@@ -388,6 +388,47 @@ impl<S> NodeInstanceSchema<S> {
     }
 }
 
+/// Generic add-menu metadata for one node category path.
+///
+/// Category paths use `::` to describe nested menus. `root_order` orders only
+/// the first path segment; categories with the same value retain registry
+/// order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AddMenuCategory {
+    path: String,
+    root_order: i32,
+}
+
+impl AddMenuCategory {
+    /// Creates a category at the default root-menu position.
+    pub fn new(path: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            root_order: 0,
+        }
+    }
+
+    /// Creates a category with an explicit root-menu ordering value.
+    ///
+    /// Lower values appear first. Equal values preserve registry order.
+    pub fn ordered(path: impl Into<String>, root_order: i32) -> Self {
+        Self {
+            path: path.into(),
+            root_order,
+        }
+    }
+
+    /// Returns the `::`-separated user-facing category path.
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    /// Returns the ordering value for the first category path segment.
+    pub fn root_order(&self) -> i32 {
+        self.root_order
+    }
+}
+
 /// Compile-time definition of a concrete node type and its persisted state.
 pub trait NodeDef: 'static {
     /// Serializable node-owned configuration state.
@@ -401,6 +442,13 @@ pub trait NodeDef: 'static {
     fn category() -> &'static str
     where
         Self: Sized;
+    /// Returns generic add-menu metadata for this node's category.
+    fn add_menu_category() -> AddMenuCategory
+    where
+        Self: Sized,
+    {
+        AddMenuCategory::new(Self::category())
+    }
     /// Returns whether the node is offered in the add-node menu.
     fn add_menu_visible() -> bool
     where

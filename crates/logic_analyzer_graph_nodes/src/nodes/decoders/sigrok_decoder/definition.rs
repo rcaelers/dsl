@@ -9,9 +9,9 @@ use logic_analyzer_protocol_decoders::sigrok_decoder::{
     SigrokOutputKind, SigrokScalarValue,
 };
 use node_graph::api::{
-    BoolValue, EnumValue, FloatValue, InlineControl, InlineControlContext, InputDef, IntValue,
-    NodeBadge, NodeDef, NodeInstanceSchema, NodeTemplate, OutputDef, PanelSection, PropDef, Socket,
-    StringValue,
+    AddMenuCategory, BoolValue, EnumValue, FloatValue, InlineControl, InlineControlContext,
+    InputDef, IntValue, NodeBadge, NodeDef, NodeInstanceSchema, NodeTemplate, OutputDef,
+    PanelSection, PropDef, Socket, StringValue,
 };
 
 use crate::sockets::{COLOR_DECODERS, ProtocolPackets, Signal, Words};
@@ -19,6 +19,7 @@ use crate::sockets::{COLOR_DECODERS, ProtocolPackets, Signal, Words};
 const PROTOCOL_CONTRACT_SCHEMA_VERSION: u8 = 2;
 const STANDARD_PAYLOAD_SCHEMA_VERSION: u8 = 3;
 const CURRENT_SCHEMA_VERSION: u8 = 4;
+const EXTERNAL_SIGROK_MENU_ORDER: i32 = 100;
 
 #[derive(Clone, Debug)]
 pub(crate) struct CatalogChoice {
@@ -653,7 +654,10 @@ pub(crate) fn node_templates(snapshot: &SigrokCatalogSnapshot) -> Vec<NodeTempla
             let tag = descriptor.tags.first().map_or("Other", String::as_str);
             NodeTemplate {
                 name: format!("{} ({})", descriptor.name, descriptor.id),
-                category: format!("External Sigrok::{tag}"),
+                category: AddMenuCategory::ordered(
+                    format!("External Sigrok::{tag}"),
+                    EXTERNAL_SIGROK_MENU_ORDER,
+                ),
                 base_type: "Sigrok Decoder".to_owned(),
                 title: format!("{} · Sigrok", descriptor.name),
                 state: serde_json::to_value(SigrokDecoderState::from_descriptor(
@@ -769,6 +773,30 @@ mod definition_tests {
 
     use super::*;
     use crate::nodes::test_support::test_sigrok_logic_descriptor;
+
+    #[test]
+    fn catalog_templates_supply_their_generic_add_menu_order() {
+        let snapshot = SigrokCatalogSnapshot {
+            entries: vec![SigrokCatalogEntry {
+                decoder_root: PathBuf::from("virtual/sigrok-decoders"),
+                descriptor: test_sigrok_logic_descriptor(),
+            }],
+            diagnostics: Vec::new(),
+        };
+
+        let templates = node_templates(&snapshot);
+
+        assert_eq!(
+            templates[0].category.root_order(),
+            EXTERNAL_SIGROK_MENU_ORDER
+        );
+        assert!(
+            templates[0]
+                .category
+                .path()
+                .starts_with("External Sigrok::")
+        );
+    }
 
     #[test]
     fn instance_schema_uses_saved_stable_channels_options_and_outputs() {

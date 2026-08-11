@@ -4,7 +4,7 @@ use std::sync::Arc;
 use egui::{Color32, Pos2};
 
 use super::instance::{NodeInstance, NodeRuntime, NodeStateUpdate, TypedNode};
-use crate::api::{InputDef, NodeDef, OutputDef};
+use crate::api::{AddMenuCategory, InputDef, NodeDef, OutputDef};
 use crate::model::{Node, NodeId, NodeKind, Socket, SocketDirection, SocketShape, VariadicInfo};
 use crate::support::{egui_color, graph_color, graph_position};
 
@@ -406,7 +406,7 @@ type NodeRestore = Arc<dyn Fn(&mut Node) -> Box<dyn NodeInstance> + Send + Sync>
 
 pub(crate) struct RegisteredNodeType {
     pub(crate) name: String,
-    pub(crate) category: String,
+    pub(crate) category: AddMenuCategory,
     pub(crate) create: Arc<dyn Fn(NodeId, Pos2) -> NodeRuntime + Send + Sync>,
     pub(crate) restore: NodeRestore,
     pub(crate) add_menu_visible: bool,
@@ -425,7 +425,7 @@ impl RegisteredNodeType {
         let restore_state_update = state_update;
         Self {
             name: T::name().to_owned(),
-            category: T::category().to_owned(),
+            category: T::add_menu_category(),
             create: Arc::new(move |id, pos| {
                 build_node_with_state_update::<T>(id, pos, T::state(), create_state_update.clone())
             }),
@@ -443,8 +443,8 @@ impl RegisteredNodeType {
 pub struct NodeTemplate {
     /// Registered name assigned to the template node type.
     pub name: String,
-    /// User-facing add-menu category for the template.
-    pub category: String,
+    /// User-facing add-menu category metadata for the template.
+    pub category: AddMenuCategory,
     /// Registered concrete node type on which the template is based.
     pub base_type: String,
     /// Initial user-visible title for created template instances.
@@ -459,7 +459,7 @@ impl NodeTypeRegistry {
     /// # Parameters
     /// - `type_name`: Registered node-type name.
     pub fn category_of(&self, type_name: &str) -> Option<&str> {
-        self.find(type_name).map(|def| def.category.as_str())
+        self.find(type_name).map(|def| def.category.path())
     }
 }
 
@@ -812,7 +812,7 @@ mod tests {
             "external.test",
             vec![NodeTemplate {
                 name: "External view panel".to_owned(),
-                category: "External".to_owned(),
+                category: AddMenuCategory::new("External"),
                 base_type: "ContributedPanel".to_owned(),
                 title: "Foreign panel".to_owned(),
                 state: serde_json::to_value(ContributedPanelState {
