@@ -2,4 +2,9 @@
 
 mod plan;
 
-pub use plan::*;
+pub use plan::{
+    CapturePresentationDiscoveryError, CollectedOutputLane, CollectedOutputSubscription,
+    CollectedTableSubscription, DiscoveredCapturePresentation, OutputSubscriptionPlan,
+    PayloadCatalogConfigurationError, ProcessingEdge, ProcessingGraph, ProcessingGraphError,
+    ProcessingNode, ProcessingPayloadCatalog, ResolvedSamplingOverlay, SamplingOverlayCandidate,
+};

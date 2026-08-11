@@ -1486,6 +1486,10 @@ files.each do |path|
     errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: pub(super) and pub(in ...) are forbidden"
   end
 
+  source.to_enum(:scan, /^\s*pub(?:\([^)]*\))?\s+use\s+[^;]*::\s*\*\s*;/m).each do
+    errors << "#{rel}:#{line_number(source, Regexp.last_match.begin(0))}: facade exports must enumerate their supported symbols"
+  end
+
   declaration = /^\s*(?<visibility>pub(?:\([^)]*\))?\s+)?mod\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?:;|\{)/
   source.to_enum(:scan, declaration).each do
     match = Regexp.last_match

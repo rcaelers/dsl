@@ -191,6 +191,8 @@ sibling leaf modules are `pub(crate)` at their definition but are not re-exporte
 `mod.rs`. A symbol re-exported for another module in the same crate is `pub(crate)` at its
 definition and at the owning facade. A supported cross-crate or plugin contract is `pub` at its
 definition and is publicly re-exported from an allowlisted public module or the crate root.
+Facades enumerate every supported symbol explicitly. Wildcard re-exports are prohibited because a
+new implementation symbol must not become public without an API-contract change at its facade.
 
 The layout does not use `pub(super)` or `pub(in ...)`. The facade path communicates the
 owner and intended dependency direction, while `pub(crate)` provides the visibility required to

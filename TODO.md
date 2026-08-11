@@ -273,12 +273,6 @@ promoting any item here, so acceptance comparisons remain evidence-based.
 
 ### Crate boundary corrections
 
-- [session.facade-glob] (P4 · low) Replace wildcard facade exports with explicit supported
-  lists, as the facade rule requires. Current crate-root examples are
-  `signal_capture_session::live_capture_store::*`, `logic_analyzer_graph_plan::plan::*`, and
-  `logic_analyzer_graph_runtime::runtime::*`. Treat the lists as API contracts and remove duplicate
-  public paths while doing [node-graph.single-import-path].
-  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#derived-payload-builtin-registration).
 - [node-graph.category-ordering] (P4 · low) Replace the `category.label == "External Sigrok"` sort key in
   `node_graph`'s add-menu construction with an ordering value supplied by the category metadata.
   It is the one place a generic widget branches on a protocol name.

@@ -39,4 +39,12 @@ pub use live_capture::{
     CaptureSettingCombination, CaptureStatus, CaptureValidationError, CaptureWriteError,
     ConfiguredAcquisition, PreparedAcquisition, bounded_capture_event_queue, bounded_capture_queue,
 };
-pub use live_capture_store::*;
+pub use live_capture_store::{
+    CaptureCursor, CaptureCursorItem, CaptureRandomReader, CaptureReclamationReport,
+    CaptureRecordingGate, CaptureRecoveryReport, CaptureSessionCleanupPlan, CaptureSessionMetadata,
+    CaptureSessionOutcome, CaptureSessionPin, CaptureSessionRepository,
+    CaptureSessionRepositoryConfig, CaptureSessionSummary, CaptureStore, CaptureStoreConfig,
+    CaptureStoreCursor, CaptureStoreDescriptor, CaptureStoreError, CaptureStoreManifest,
+    CaptureStoreResult, CaptureStoreSnapshot, CaptureStoreWriter, CaptureTimelineMetadata,
+    FinalizedCapture, RecordingCaptureCursor,
+};
