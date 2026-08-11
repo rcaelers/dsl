@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use logic_analyzer_graph_runtime as runtime;
 use node_graph::NodeId;
 
 use super::confirmation_dialog::{
@@ -9,6 +8,7 @@ use super::confirmation_dialog::{
 };
 use super::state::{FileCommand, GuardedAction};
 use crate::app::App;
+use crate::capture_provider::{CaptureDataProvider, PreparedCaptureProvider};
 use crate::host_service::{HostCommand, OpenDialog, SaveDialog};
 use crate::live_capture::{CaptureCoordinatorContract, CaptureRawExportFormat};
 use crate::panel_presentation::{LOGIC_ANALYZER_PANEL_ICON, NODE_GRAPH_PANEL_ICON};
@@ -139,73 +139,24 @@ impl App {
         }
     }
 
-    pub(crate) fn platform_sync_capture(&mut self) {
+    pub(crate) fn platform_sync_capture(&mut self) -> bool {
         if self.logic_analyzer.has_growing_capture() {
-            return;
+            return false;
         }
-        let update = self
+        let readiness = self
             .graph_run
-            .service_mut()
-            .synchronize_prepared_capture(self.node_graph.graph());
-        match update {
-            runtime::SourcePreparationUpdate::Unchanged => {}
-            runtime::SourcePreparationUpdate::Preparing(preparing) => {
-                if self.platform.capture_presentation_identity()
-                    != Some(preparing.identity.as_str())
-                {
-                    self.clear_capture_presentation();
-                }
-                self.logic_analyzer
-                    .set_visible_capture_channels(preparing.visible_channels);
-                self.platform
-                    .set_capture_presentation_identity(Some(preparing.identity.clone()));
-                self.mark_capture_index_building(
-                    preparing.identity,
-                    preparing.metadata,
-                    preparing.progress,
-                );
-            }
-            runtime::SourcePreparationUpdate::Cleared => {
-                self.platform.set_capture_presentation_identity(None);
-                self.clear_capture_presentation();
-            }
-            runtime::SourcePreparationUpdate::Failed(error) => {
-                self.platform.set_capture_presentation_identity(None);
-                self.clear_capture_presentation();
-                self.toasts
-                    .error(format!("Could not prepare capture source: {error}"));
-            }
-            runtime::SourcePreparationUpdate::Ready(prepared) => {
-                self.logic_analyzer
-                    .set_visible_capture_channels(prepared.visible_channels);
-                self.platform
-                    .set_capture_presentation_identity(Some(prepared.identity.clone()));
-                match prepared.data {
-                    runtime::PreparedCaptureData::Indexed(index) => {
-                        self.set_prepared_capture(prepared.identity, index)
-                    }
-                    runtime::PreparedCaptureData::InMemory {
-                        signals,
-                        duration_us,
-                    } => self.set_capture_preview(signals, duration_us),
-                    runtime::PreparedCaptureData::Channels(channels) => {
-                        self.set_capture_channel_metadata(prepared.identity, channels)
-                    }
-                }
-            }
-        }
-        match self.graph_run.service().source_preparation_status() {
-            runtime::SourcePreparationStatus::Ready => self.publish_file_source_ready(),
-            runtime::SourcePreparationStatus::Failed(error) => {
-                self.publish_file_source_failure(&error)
-            }
-            runtime::SourcePreparationStatus::Empty
-            | runtime::SourcePreparationStatus::Preparing => {}
-        }
+            .run()
+            .map(|run| run.source_readiness().clone());
+        let mut provider = PreparedCaptureProvider::new(
+            self.graph_run.service_mut(),
+            self.node_graph.graph(),
+            readiness,
+        );
+        let poll = provider.poll();
+        self.apply_capture_provider_poll(poll)
     }
 
     pub(crate) fn platform_restore_graph_capture(&mut self) {
-        self.platform.set_capture_presentation_identity(None);
         self.graph_run.service_mut().reset_prepared_capture();
     }
 

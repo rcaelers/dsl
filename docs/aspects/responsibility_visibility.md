@@ -84,7 +84,11 @@ The crate boundaries in `AGENTS.md` are enforced at both dependency and symbol l
   calls its private `UiGraphService`, which composes `GraphLowerer` and `GraphRuntime` directly;
   the private `GraphRun` trait remains the execution-lifecycle boundary between local `LiveRun`
   and worker-backed runs. UI tests exercise the concrete service with injected repositories and
-  executors. Its public `HostService` port owns file and directory dialogs, graph-document
+  executors. Its private capture-provider port maps prepared finite sources and active acquisition
+  sources onto one presentation, readiness, cache/index-availability, and data-access vocabulary.
+  Acquisition control is an optional capability implemented only by the live adapter, while
+  `CaptureAnalysisLifecycle` owns the current presentation identity and storage snapshot. Its
+  public `HostService` port owns file and directory dialogs, graph-document
   persistence, derived-cache commands and diagnostics, and native-shell state exchange. Native and
   web application roots implement that application-facing port by adapting low-level host
   mechanisms. Its plugin-panel facade owns registration validation and source-bearing persisted-state

@@ -35,6 +35,9 @@ use trigger_editor::{TriggerEditor, TriggerEditorChannel};
 use crate::about::AboutWindow;
 use crate::app_services::AppServiceParts;
 use crate::capture_analysis_lifecycle::CaptureAnalysisLifecycle;
+use crate::capture_provider::{
+    CaptureDataProvider, CapturePresentationUpdate, CaptureProviderPoll, LiveCaptureProvider,
+};
 use crate::collected_output_presentation::waveform_presentation_registry;
 use crate::decoder_panel::{DecoderPanels, DecoderTableRegistry};
 use crate::decoder_table_presentation::decoder_table_registry;
@@ -244,14 +247,6 @@ impl From<&SavedViewerRowHeightSettings> for ViewerRowHeightSettings {
                 .collect(),
         }
     }
-}
-
-fn planned_waveform_span_us(plan: &signal_capture_session::CaptureSessionPlan) -> Option<f64> {
-    let samples = plan.capture_window_samples?;
-    if plan.sample_rate_hz == 0 {
-        return None;
-    }
-    Some(samples as f64 * 1_000_000.0 / plan.sample_rate_hz as f64)
 }
 
 #[derive(serde::Deserialize)]
@@ -708,8 +703,9 @@ impl App {
         self.refresh_timeline_markers();
     }
 
-    pub(crate) fn set_capture_preview(
+    fn set_capture_preview(
         &mut self,
+        identity: String,
         signals: Vec<CapturePresentationSignal>,
         duration_us: f64,
     ) {
@@ -721,11 +717,7 @@ impl App {
             })
             .sum::<usize>() as u64;
         self.capture_analysis.set_storage(CaptureStorageSnapshot {
-            name: self
-                .platform
-                .capture_presentation_identity()
-                .map(str::to_owned)
-                .unwrap_or_else(|| "Raw capture".to_owned()),
+            name: identity,
             status: "In-memory capture ready".to_owned(),
             backing: CaptureStorageBacking::InMemory,
             channels: signals.len(),
@@ -747,25 +739,32 @@ impl App {
             .set_channels_with_duration(channels, duration_us);
     }
 
-    pub(crate) fn set_prepared_capture(
+    fn set_indexed_capture(
         &mut self,
         identity: String,
-        index: Box<dyn signal_capture::CaptureIndex + Send>,
+        index: Box<dyn signal_capture::CaptureIndex>,
+        growing: bool,
+        planned_span_us: Option<f64>,
     ) {
         self.capture_analysis
             .set_storage(capture_storage_from_index(
                 &identity,
                 index.as_ref(),
-                CaptureStorageBacking::Indexed,
+                if growing {
+                    CaptureStorageBacking::GrowingIndex
+                } else {
+                    CaptureStorageBacking::Indexed
+                },
             ));
-        self.logic_analyzer.set_prepared_capture(identity, index);
+        if growing {
+            self.logic_analyzer
+                .set_growing_capture_with_planned_span(index, planned_span_us);
+        } else {
+            self.logic_analyzer.set_prepared_capture(identity, index);
+        }
     }
 
-    pub(crate) fn set_capture_channel_metadata(
-        &mut self,
-        identity: String,
-        channels: Vec<(usize, String)>,
-    ) {
+    fn set_capture_channel_metadata(&mut self, identity: String, channels: Vec<(usize, String)>) {
         self.capture_analysis.set_storage(CaptureStorageSnapshot {
             name: identity,
             status: "Channel metadata ready".to_owned(),
@@ -789,7 +788,7 @@ impl App {
         );
     }
 
-    pub(crate) fn mark_capture_index_building(
+    fn mark_capture_index_building(
         &mut self,
         identity: String,
         metadata: Option<signal_capture::CaptureMetadata>,
@@ -820,8 +819,83 @@ impl App {
     }
 
     pub(crate) fn clear_capture_presentation(&mut self) {
+        self.capture_analysis.set_presentation_identity(None);
         self.capture_analysis.clear_storage();
         self.logic_analyzer.clear_capture();
+    }
+
+    pub(crate) fn apply_capture_provider_poll(&mut self, poll: CaptureProviderPoll) -> bool {
+        let poll_again = poll.poll_again;
+        if let Some(readiness) = poll.readiness {
+            readiness.publish();
+        }
+        match poll.presentation {
+            CapturePresentationUpdate::Unchanged => {}
+            CapturePresentationUpdate::Clear { restore_prepared } => {
+                self.clear_capture_presentation();
+                if restore_prepared {
+                    self.platform_restore_graph_capture();
+                }
+            }
+            CapturePresentationUpdate::Preparing {
+                identity,
+                visible_channels,
+                metadata,
+                progress,
+            } => {
+                if self.capture_analysis.presentation_identity() != Some(identity.as_str()) {
+                    self.clear_capture_presentation();
+                }
+                self.logic_analyzer
+                    .set_visible_capture_channels(visible_channels);
+                self.capture_analysis
+                    .set_presentation_identity(Some(identity.clone()));
+                self.mark_capture_index_building(identity, metadata, progress);
+            }
+            CapturePresentationUpdate::Indexed {
+                identity,
+                visible_channels,
+                index,
+                growing,
+                planned_span_us,
+            } => {
+                if let Some(visible_channels) = visible_channels {
+                    self.logic_analyzer
+                        .set_visible_capture_channels(visible_channels);
+                }
+                self.capture_analysis
+                    .set_presentation_identity(Some(identity.clone()));
+                self.set_indexed_capture(identity, index, growing, planned_span_us);
+            }
+            CapturePresentationUpdate::InMemory {
+                identity,
+                visible_channels,
+                signals,
+                duration_us,
+            } => {
+                self.logic_analyzer
+                    .set_visible_capture_channels(visible_channels);
+                self.capture_analysis
+                    .set_presentation_identity(Some(identity.clone()));
+                self.set_capture_preview(identity, signals, duration_us);
+            }
+            CapturePresentationUpdate::Channels {
+                identity,
+                visible_channels,
+                channels,
+            } => {
+                self.logic_analyzer
+                    .set_visible_capture_channels(visible_channels);
+                self.capture_analysis
+                    .set_presentation_identity(Some(identity.clone()));
+                self.set_capture_channel_metadata(identity, channels);
+            }
+            CapturePresentationUpdate::Failed(error) => {
+                self.clear_capture_presentation();
+                self.toasts.error(error.to_string());
+            }
+        }
+        poll_again
     }
 
     fn set_presented_derived_lanes(&mut self, lanes: signal_derived::DerivedLanes) {
@@ -2031,7 +2105,11 @@ impl App {
     }
 
     fn poll_capture(&mut self, ctx: &egui::Context) {
-        self.capture_analysis.coordinator_mut().poll();
+        let mut acquisition_provider =
+            LiveCaptureProvider::new(self.capture_analysis.coordinator_mut(), None);
+        if let Some(acquisition) = acquisition_provider.acquisition() {
+            acquisition.poll();
+        }
         if let Some(attachment) = self
             .capture_analysis
             .coordinator_mut()
@@ -2039,39 +2117,14 @@ impl App {
         {
             self.start_capture_analysis(attachment);
         }
-        let planned_span_us = self
+        let readiness = self
             .capture_analysis
-            .coordinator()
-            .status()
-            .and_then(|status| status.session_plan.as_ref())
-            .and_then(planned_waveform_span_us);
-        if let Some(update) = self
-            .capture_analysis
-            .coordinator_mut()
-            .take_waveform_update()
-        {
-            match update {
-                Some(index) => {
-                    let identity = self.capture_analysis.coordinator().status().map_or_else(
-                        || "Live capture".to_owned(),
-                        |status| status.source_title.clone(),
-                    );
-                    self.capture_analysis
-                        .set_storage(capture_storage_from_index(
-                            &identity,
-                            index.as_ref(),
-                            CaptureStorageBacking::GrowingIndex,
-                        ));
-                    self.logic_analyzer
-                        .set_growing_capture_with_planned_span(index, planned_span_us);
-                    self.publish_live_source_artifacts(true, true);
-                }
-                None => {
-                    self.clear_capture_presentation();
-                    self.platform_restore_graph_capture();
-                }
-            }
-        }
+            .analysis()
+            .map(|run| run.source_readiness().clone());
+        let mut provider =
+            LiveCaptureProvider::new(self.capture_analysis.coordinator_mut(), readiness);
+        let poll = provider.poll();
+        let _ = self.apply_capture_provider_poll(poll);
         self.sync_capture_analysis(ctx);
         let graph_processed = self.capture_analysis_progress();
         self.capture_analysis
@@ -2094,75 +2147,6 @@ impl App {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
         } else if self.capture_analysis.analysis().is_none() {
             self.capture_analysis.clear_capture_graph();
-        }
-    }
-
-    fn publish_live_source_artifacts(&self, cache: bool, index: bool) {
-        let Some(run) = self.capture_analysis.analysis() else {
-            return;
-        };
-        let registry = run.source_readiness();
-        for mut readiness in registry
-            .snapshot()
-            .into_iter()
-            .filter(|readiness| readiness.kind == runtime::SourceDataKind::Live)
-        {
-            if cache {
-                readiness.cache = runtime::SourceArtifactReadiness::Available;
-            }
-            if index {
-                readiness.index = runtime::SourceArtifactReadiness::Available;
-            }
-            readiness.data = runtime::SourceArtifactReadiness::Available;
-            registry.publish(readiness);
-        }
-    }
-
-    pub(crate) fn publish_file_source_ready(&self) {
-        let Some(run) = self.graph_run.run() else {
-            return;
-        };
-        let registry = run.source_readiness();
-        for mut readiness in registry
-            .snapshot()
-            .into_iter()
-            .filter(|readiness| readiness.kind == runtime::SourceDataKind::File)
-        {
-            for artifact in [
-                &mut readiness.preload,
-                &mut readiness.cache,
-                &mut readiness.index,
-                &mut readiness.data,
-            ] {
-                if *artifact == runtime::SourceArtifactReadiness::Pending {
-                    *artifact = runtime::SourceArtifactReadiness::Available;
-                }
-            }
-            registry.publish(readiness);
-        }
-    }
-
-    pub(crate) fn publish_file_source_failure(&self, error: &runtime::SourcePreparationError) {
-        let Some(run) = self.graph_run.run() else {
-            return;
-        };
-        let registry = run.source_readiness();
-        for mut readiness in registry
-            .snapshot()
-            .into_iter()
-            .filter(|readiness| readiness.kind == runtime::SourceDataKind::File)
-        {
-            for artifact in [
-                &mut readiness.preload,
-                &mut readiness.cache,
-                &mut readiness.index,
-                &mut readiness.data,
-            ] {
-                if *artifact != runtime::SourceArtifactReadiness::Unsupported {
-                    *artifact = runtime::SourceArtifactReadiness::Failed(error.to_string());
-                }
-            }
-            registry.publish(readiness);
         }
     }
 
@@ -2206,9 +2190,10 @@ impl App {
             .start_live_analysis(&graph, &mut ctx, source)
         {
             Ok(run) => {
+                let readiness = run.source_readiness().clone();
                 self.bind_run_data(ctx.run_data());
                 self.capture_analysis.install_analysis(run);
-                self.publish_live_source_artifacts(true, false);
+                LiveCaptureProvider::analysis_ready(readiness).publish();
             }
             Err(errors) => {
                 self.report_compile_errors(&errors);
@@ -3552,11 +3537,7 @@ impl eframe::App for App {
 
         let viewport_rect = ui.available_rect_before_wrap();
         self.poll_capture(ui.ctx());
-        self.platform_sync_capture();
-        if matches!(
-            self.graph_run.service().source_preparation_status(),
-            runtime::SourcePreparationStatus::Preparing
-        ) {
+        if self.platform_sync_capture() {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(100));
         }

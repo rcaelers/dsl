@@ -52,7 +52,6 @@ pub(crate) struct PlatformState {
     confirm_clear_recent: bool,
     confirm_clear_derived_caches: bool,
     derived_cache_nodes: HashSet<NodeId>,
-    capture_presentation_identity: Option<String>,
 }
 
 impl PlatformState {
@@ -81,7 +80,6 @@ impl PlatformState {
             confirm_clear_recent: false,
             confirm_clear_derived_caches: false,
             derived_cache_nodes: HashSet::new(),
-            capture_presentation_identity: None,
         }
     }
 
@@ -177,14 +175,6 @@ impl PlatformState {
 
     pub(crate) fn clear_derived_cache_nodes(&mut self) {
         self.derived_cache_nodes.clear();
-    }
-
-    pub(crate) fn capture_presentation_identity(&self) -> Option<&str> {
-        self.capture_presentation_identity.as_deref()
-    }
-
-    pub(crate) fn set_capture_presentation_identity(&mut self, identity: Option<String>) {
-        self.capture_presentation_identity = identity;
     }
 
     pub(crate) fn save(

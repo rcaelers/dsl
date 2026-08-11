@@ -14,6 +14,7 @@ mod app_services;
 mod application_settings;
 mod capture_analysis_lifecycle;
 mod capture_export_service;
+mod capture_provider;
 mod collected_output_presentation;
 mod decoder_panel;
 mod decoder_table_presentation;

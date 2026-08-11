@@ -22,6 +22,7 @@ pub(crate) struct CaptureAnalysisLifecycle {
     epoch_observed_graph: Option<Vec<u8>>,
     epoch_request_in_flight: bool,
     last_epoch_sync: f64,
+    presentation_identity: Option<String>,
     storage: Option<CaptureStorageSnapshot>,
 }
 
@@ -40,6 +41,7 @@ impl CaptureAnalysisLifecycle {
             epoch_observed_graph: None,
             epoch_request_in_flight: false,
             last_epoch_sync: -1.0,
+            presentation_identity: None,
             storage: None,
         }
     }
@@ -157,6 +159,14 @@ impl CaptureAnalysisLifecycle {
 
     pub(crate) fn mark_epoch_sync(&mut self, now: f64) {
         self.last_epoch_sync = now;
+    }
+
+    pub(crate) fn presentation_identity(&self) -> Option<&str> {
+        self.presentation_identity.as_deref()
+    }
+
+    pub(crate) fn set_presentation_identity(&mut self, identity: Option<String>) {
+        self.presentation_identity = identity;
     }
 
     pub(crate) fn storage(&self) -> Option<&CaptureStorageSnapshot> {
