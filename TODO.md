@@ -269,8 +269,3 @@ promoting any item here, so acceptance comparisons remain evidence-based.
   Prepare `panel-layout` for independent publication: replace workspace-inherited package and
   dependency metadata, move its documentation and examples with the crate, add standalone CI, and
   verify that its persisted layout, area, panel, and view contracts remain application-neutral.
-
-### Enforcement and documentation
-
-- [docs.index-deduplication] (P4 · low) Reduce `docs/INDEX.md` to one entry per document. Most crates appear
-  in three lists, so the index has become a table of contents for itself.

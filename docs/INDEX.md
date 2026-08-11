@@ -1,130 +1,111 @@
 # Architecture Documentation Index
 
-## Workspace structure
+This index contains one entry per narrative document. Public API details live at crate and
+public-module facades in Rustdoc; planning documents are reached from the backlog items that use
+them.
 
-- [Vocabulary and Concepts](architecture/vocabulary_and_concepts.md) defines the shared terms and
-  identities used by graph, runtime, capture, storage, and presentation designs.
-- [Crate Responsibilities](architecture/crate_responsibility.md) describes every workspace crate,
-  its relevant public modules, its ownership boundary, and dependency direction.
-- [Responsibility and Visibility Design](aspects/responsibility_visibility.md) defines module
-  facades, public API visibility, platform ownership, and enforcement.
-- [Graph Composition Design](architecture/graph_composition.md) defines graph capabilities, registry,
-  built-in-node, compiler, UI, and compatibility ownership.
-- [Processing Graph Workflows](architecture/processing_workflows.md) explains lowering, capability
-  negotiation, Run, retained derived data, cache reuse, sampling points, and live reconciliation.
-- [Application Composition Design](architecture/application_composition.md) defines application
-  composition and graph interaction.
+## Start here
 
-## Cross-cutting aspects
+- [Vocabulary and Concepts](architecture/vocabulary_and_concepts.md) — shared graph, runtime,
+  capture, storage, and presentation terminology.
+- [Crate Responsibilities](architecture/crate_responsibility.md) — positive ownership, principal
+  handoffs, and workspace dependency direction.
+- [Graph Composition Design](architecture/graph_composition.md) — graph capabilities, registries,
+  built-in features, lowering, UI integration, and compatibility.
+- [Processing Graph Workflows](architecture/processing_workflows.md) — lowering, execution,
+  retained data, caching, sampling points, and live reconciliation.
+- [Application Composition Design](architecture/application_composition.md) — native/web roots,
+  host adaptation, application services, and graph interaction.
 
-- [Responsibility and Visibility Design](aspects/responsibility_visibility.md)
-- [Unified Native and Web Storage Platform Design](aspects/native_web_storage.md)
-- [Live Capture and Trigger Control](aspects/live_capture_trigger.md)
-- [Plugin-Extensible Payload and Presentation Design](aspects/plugin_extensible_payload.md)
-- [Performance Design and Measurement Record](aspects/performance.md) defines the reference
-  workloads, the acceptance rule, the retained baseline, and the experiments performed, including
-  the approaches that were measured and rejected.
-- [Testing Strategy](aspects/testing_strategy.md)
+## Cross-cutting designs
+
+- [Responsibility and Visibility Design](aspects/responsibility_visibility.md) — crate/module
+  ownership, facades, supported public namespaces, and structural enforcement.
+- [Unified Native and Web Storage Platform Design](aspects/native_web_storage.md) — portable data
+  planes, host mechanisms, source parity, and target-selection boundaries.
+- [Live Capture and Trigger Control](aspects/live_capture_trigger.md) — acquisition lifecycle,
+  trigger editing, storage publication, and UI coordination.
+- [Plugin-Extensible Payload and Presentation Design](aspects/plugin_extensible_payload.md) —
+  payload inventory, viewer lanes, and plug-in presentation contracts.
+- [Performance Design and Measurement Record](aspects/performance.md) — reference workloads,
+  acceptance rules, retained baselines, and measured/rejected experiments.
+- [Testing Strategy](aspects/testing_strategy.md) — component, integration, architecture, platform,
+  and hardware validation.
+
+## Crate narratives
+
+These pages explain cross-owner rationale or substantial internal domains that do not fit one
+public API namespace. Rustdoc remains the consumer-facing contract reference.
+
+### Runtime and data plane
+
+- [platform_artifacts](crates/platform_artifacts.md) — byte sources, artifacts, repositories, and
+  replication.
+- [platform_runtime](crates/platform_runtime.md) — portable work execution and worker operations.
+- [signal_runtime](crates/signal_runtime.md) — typed-stream execution and pipeline supervision.
+- [signal_capture](crates/signal_capture.md) — immutable captures, queries, and finite indexes.
+- [signal_derived](crates/signal_derived.md) — derived payloads, lanes, queries, and storage.
+- [signal_capture_session](crates/signal_capture_session.md) — acquisition, recording, and capture
+  source lifecycles.
+- [Processing domain crates](crates/processing_domains.md) — transforms, sinks, generators, and
+  protocol decoders.
+- [logic_analyzer_capture_formats](crates/logic_analyzer_capture_formats.md) — DSL and Sigrok
+  readers, indexes, and replay sources.
+- [logic_analyzer_trigger](crates/logic_analyzer_trigger.md) — trigger schemas, programs, edits, and
+  validation.
+- [logic_analyzer_acquisition](crates/logic_analyzer_acquisition.md) — device-neutral acquisition
+  and logic-analyzer source contracts.
+
+### Graph and presentation
+
+- [logic_analyzer_graph_capabilities](crates/logic_analyzer_graph_capabilities.md) — graph feature
+  and payload contracts.
+- [logic_analyzer_graph_registry](crates/logic_analyzer_graph_registry.md) — inventory validation
+  and immutable capability catalogs.
+- [logic_analyzer_graph_editor_registry](crates/logic_analyzer_graph_editor_registry.md) — product
+  integration for reusable node-editor definitions.
+- [logic_analyzer_graph_nodes](crates/logic_analyzer_graph_nodes.md) — built-in node features,
+  migrations, builders, and presentation metadata.
+- [logic_analyzer_graph_plan](crates/logic_analyzer_graph_plan.md) — immutable compiler/runtime
+  processing-plan boundary.
+- [logic_analyzer_graph_orchestration](crates/logic_analyzer_graph_orchestration.md) — graph worker
+  protocol and compiler/runtime composition.
+- [node_graph_document](crates/node_graph_document.md) — portable graph records and semantic
+  identities.
+- [node_graph](crates/node_graph.md) — reusable node-definition API and editor widget.
+- [logic_analyzer_viewer](crates/logic_analyzer_viewer.md) — waveform and derived-lane viewer.
+
+### Applications and integration tests
+
+- [Application shells](crates/application_shells.md) — native/web composition roots and host
+  adapters.
+- [Workspace examples and integration tests](crates/logic_analyzer_examples.md) — reference graphs,
+  cross-crate checks, benchmarks, and performance regression tooling.
+
+## External integrations
+
+- [Sigrok Python Decoder Host](integrations/sigrok_python_decoder.md) — embedded decoder execution
+  and host contract.
+- [Sigrok Decoder Distribution](integrations/sigrok_decoder_distribution.md) — decoder discovery,
+  packaging, and licensing policy.
+- [DSLogic U3Pro16 Protocol](integrations/dslogic_u3pro16_protocol.md) — hardware protocol and
+  acquisition sequences.
+
+## Supporting references and project work
+
+- [CCD AFE register map](references/ccd_afe_registers.md) — standalone CCD framebuffer hardware
+  reference.
+- [Project backlog](../TODO.md) — proposed features, refactorings, performance work, and links to
+  active implementation plans.
 
 ## Public API documentation
 
-The supported public API is documented at its crate and public-module facade with Rustdoc.
-Generate it locally with:
+Generate the supported crate and public-module API locally with:
 
 ```sh
 cargo doc --workspace --no-deps --lib --open
 ```
 
-The owner pages below remain narrative companions: Rustdoc is the entry point for consumers and
-plugin authors, while these pages retain longer design rationale that spans public contracts.
-
-## Cross-component crate narratives
-
-The remaining crate narratives describe relationships that cannot belong to one public API
-namespace. All other crate contracts are documented in Rustdoc.
-
-- [logic_analyzer_graph_nodes](crates/logic_analyzer_graph_nodes.md)
-- [logic_analyzer_graph_capabilities](crates/logic_analyzer_graph_capabilities.md)
-- [logic_analyzer_graph_registry](crates/logic_analyzer_graph_registry.md)
-- [logic_analyzer_graph_editor_registry](crates/logic_analyzer_graph_editor_registry.md)
-- [logic_analyzer_graph_plan](crates/logic_analyzer_graph_plan.md)
-- [logic_analyzer_graph_orchestration](crates/logic_analyzer_graph_orchestration.md)
-- [node_graph](crates/node_graph.md)
-- [node_graph_document](crates/node_graph_document.md)
-- [logic_analyzer_viewer](crates/logic_analyzer_viewer.md)
-- [Application shells](crates/application_shells.md)
-- [Workspace examples and integration tests](crates/logic_analyzer_examples.md)
-- [platform_artifacts](crates/platform_artifacts.md)
-- [platform_runtime](crates/platform_runtime.md)
-- [logic_analyzer_capture_formats](crates/logic_analyzer_capture_formats.md)
-- [logic_analyzer_trigger](crates/logic_analyzer_trigger.md)
-- [logic_analyzer_acquisition](crates/logic_analyzer_acquisition.md)
-- [signal_capture](crates/signal_capture.md)
-- [signal_derived](crates/signal_derived.md)
-- [signal_capture_session](crates/signal_capture_session.md)
-- [signal_runtime](crates/signal_runtime.md)
-- [Processing domain crates](crates/processing_domains.md)
-
-## Public modules
-
-These supported namespaces are documented at their source facades in Rustdoc:
-
-- `platform_artifacts`: no public modules; its crate root is the artifact-contract facade
-- `platform_runtime`: no public modules; its crate root is the host-execution-contract facade
-- `signal_capture`: no public modules; its crate root is the immutable capture facade
-- `signal_derived`: `derived_word_store`
-- `signal_capture_session`: `live_capture` and `live_capture_store`
-- `signal_runtime`: no public modules; its crate root is the execution-contract facade
-- `logic_analyzer_trigger`: no public modules; its crate root is the trigger-domain facade
-- `logic_analyzer_acquisition`: no public modules; its crate root is the acquisition-contract facade
-- `logic_analyzer_capture_formats`: `dsl_file` and `sigrok_file`
-- `logic_analyzer_device_dslogic`: no public modules; its crate root is the device facade
-- `logic_analyzer_protocol_decoders`: `i2c_decoder`, `packet_framer`, `parallel_decoder`,
-  `sigrok_decoder`, `spi_decoder`, `types`, and `uart_decoder`
-- `signal_transforms`: one public module per transform
-- `signal_sinks`: one public module per sink
-- `signal_generators`: `synthetic_capture_source` and `synthetic_uart_source`
-- `logic_analyzer_graph_capabilities`: `node` and `node_support`
-- `node_graph`: `api`
-
-## Generic runtime and data plane
-
-- [`platform_artifacts` Design](crates/platform_artifacts.md)
-- [`platform_runtime` Design](crates/platform_runtime.md)
-- [`signal_capture` Design](crates/signal_capture.md)
-- [`signal_derived` Design](crates/signal_derived.md)
-- [`signal_capture_session` Design](crates/signal_capture_session.md)
-- [`logic_analyzer_trigger` Design](crates/logic_analyzer_trigger.md)
-- [`logic_analyzer_acquisition` Design](crates/logic_analyzer_acquisition.md)
-- [`signal_runtime` Design](crates/signal_runtime.md)
-- [`signal_runtime` Rustdoc](../crates/signal_runtime/src/lib.rs)
-- [Unified Native and Web Storage Platform Design](aspects/native_web_storage.md)
-- [`signal_derived::derived_word_store` Rustdoc](../crates/signal_derived/src/derived_word_store/mod.rs)
-- [Live Capture and Trigger Control](aspects/live_capture_trigger.md)
-
-## Reusable widgets and presentation
-
-- [`node_graph` Design](crates/node_graph.md)
-- [`logic_analyzer_viewer` Design](crates/logic_analyzer_viewer.md)
-- [Plugin-Extensible Payload and Presentation Design](aspects/plugin_extensible_payload.md)
-
-## External integrations
-
-- [Sigrok Python Decoder Host](integrations/sigrok_python_decoder.md)
-- [Sigrok Decoder Distribution](integrations/sigrok_decoder_distribution.md)
-- [DSLogic U3Pro16 Protocol](integrations/dslogic_u3pro16_protocol.md)
-
-## Quality and supporting references
-
-- [Testing Strategy](aspects/testing_strategy.md)
-- [Performance Design and Measurement Record](aspects/performance.md)
-- [Project backlog](../TODO.md)
-- [CCD AFE register map](references/ccd_afe_registers.md)
-
-## Owner-document convention
-
-Each non-trivial public crate and allowlisted public module documents its supported contract at its
-source facade through Rustdoc. A crate-owner or module narrative in `docs/` remains only when it
-explains cross-owner rationale, a substantial internal domain, or a relationship that cannot belong
-to one API namespace. Those documents describe only implemented architecture in present tense and
-link back to the aspect designs above. Actionable work belongs in `TODO.md`.
+The public-module allowlist is maintained by Responsibility and Visibility Design. Narrative crate
+pages remain only for relationships that span public contracts; actionable work remains in the
+project backlog.
