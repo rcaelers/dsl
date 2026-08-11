@@ -154,6 +154,20 @@ impl GraphRuntime {
         cache_policy::inspect_entry(config)
     }
 
+    /// Fingerprints the exact finalized data represented by one persistent cache entry.
+    pub fn fingerprint_derived_cache_entry(
+        &self,
+        config: &PersistentStoreConfig,
+    ) -> Result<Option<[u8; 32]>, DerivedCacheError> {
+        signal_derived::IndexedAnnotationStore::open_persistent(
+            config,
+            self.decoded_block_cache.clone(),
+        )?
+        .map(|store| store.committed_data_fingerprint())
+        .transpose()
+        .map_err(DerivedCacheError::Store)
+    }
+
     /// Loads cached presentation data from an already-lowered plan.
     pub fn load_cached_data(
         &self,

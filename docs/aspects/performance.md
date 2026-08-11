@@ -65,6 +65,49 @@ Two failure modes this rule exists to catch have both occurred in practice:
 
 These are design commitments, not tuning parameters. Each is the durable form of a measured result.
 
+### Reproducible regression comparisons
+
+The `performance-regression` binary in `logic-analyzer-examples` owns opt-in end-to-end baseline
+recording and comparison. A workload JSON document identifies the graph, working directory,
+capture-path injection points, warmup count, measured-run count, and metrics allowed to justify a
+retention decision. Large captures remain outside the repository; `--capture` or the workload's
+named environment variable supplies one. The runner fingerprints the complete capture before the
+warmups and retains its byte length and canonical path as diagnostic metadata.
+
+Each measured invocation runs `logic-conduit run <temporary-graph> --json --progress-interval 0`.
+Unix process accounting supplies wall time, user-plus-system CPU time, and peak resident memory.
+The application report supplies execution time, exact item/block/byte counts, cache identities,
+and fingerprints of finalized derived data. A mismatch between runs, the retained baseline, or an
+A/B reference is a hard failure.
+
+Recording a baseline and comparing a candidate use the checked-in reference workload as follows:
+
+```sh
+cargo build --release -p logic-analyzer-app-native -p logic-analyzer-examples \
+  --bin logic-conduit --bin performance-regression
+
+target/release/performance-regression record \
+  --workload benchmarks/performance/spi_controlled_decode.json \
+  --capture /path/to/reference.dsl \
+  --binary target/release/logic-conduit \
+  --baseline /path/to/baseline.json
+
+target/release/performance-regression compare \
+  --workload benchmarks/performance/spi_controlled_decode.json \
+  --capture /path/to/reference.dsl \
+  --baseline /path/to/baseline.json \
+  --candidate /path/to/candidate/logic-conduit \
+  --reference /path/to/reference/logic-conduit \
+  --output /path/to/comparison.json
+```
+
+When both executables are supplied, their order reverses for every warmup and measured pair. Every
+metric reports its median, minimum, maximum, and spread. A configured acceptance metric counts as
+improved only when the candidate's complete range is below the reference's complete range; overlap
+is inconclusive and cannot produce `retain`. A non-overlapping CPU, peak-RSS, or execution-time
+regression rejects the candidate as a guardrail. Viewer p50/p95/p99 latency remains the documented
+manual concurrent-viewer step and is called out in every baseline and comparison report.
+
 ### Segment artifacts, not per-item files
 
 Both the waveform index and the derived-word store publish a bounded number of large immutable

@@ -10,30 +10,6 @@ P3 items are planned work, often alongside related changes. The module-ownership
 [`responsibility_visibility.md`](../aspects/responsibility_visibility.md#module-ownership) guide
 the remaining UI decompositions.
 
-## performance.regression-harness (P3 · medium) {#performance-regression-harness}
-
-**Current state.** One Criterion-style bench (`benches/compiler_capture.rs`) and three focused
-benchmark binaries live in the top-level package alongside ad-hoc `logic-conduit run … --json`
-comparisons. The acceptance rule is documented in
-[`docs/aspects/performance.md`](../aspects/performance.md).
-
-**Direction.** A comparison *runner*, not more benchmarks — a bin target in
-`logic-analyzer-examples`:
-
-1. Input: a workload spec (graph JSON path, capture path via environment/flag since the large
-   reference captures are not in the repository — keep them out of ordinary tests) and a
-   baseline JSON file.
-2. Per run: fixed warmup count, then N measured runs of `logic-conduit run <graph> --json`,
-   capturing the report's artifact counts, byte totals, fingerprints, wall time, plus peak RSS
-   and CPU time from process accounting.
-3. Output: median and spread per metric, exact-identity comparison (fingerprints, word counts,
-   bytes — any mismatch is a hard failure, not a statistic), and a stored baseline with metadata
-   (git commit, date, host, capture identity). Alternating A/B ordering between two binaries when
-   comparing builds.
-4. Wire the viewer-latency percentiles in only if cheap; otherwise record that they remain a
-   manual step. The harness must make it *hard to accept* a noisy improvement — refuse a
-   "retain" verdict when spread overlaps — which is the actual requirement from the TODO item.
-
 ## naming.implementation-files (P3 · low) {#naming-implementation-files}
 
 46 files named `implementation.rs`. Mechanical, low risk, high navigation payoff. Per module:

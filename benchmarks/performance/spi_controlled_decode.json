@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "name": "spi-controlled-decode",
+  "graph": "../../graphs/spi_controlled_decode.json",
+  "working_directory": "../..",
+  "capture": {
+    "graph_json_pointers": [
+      "/nodes/0/state/file/value",
+      "/nodes/0/state/metadata_path"
+    ],
+    "path_environment": "LOGIC_CONDUIT_REFERENCE_CAPTURE"
+  },
+  "warmup_runs": 1,
+  "measured_runs": 5,
+  "acceptance_metrics": [
+    "wall_seconds"
+  ]
+}

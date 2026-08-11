@@ -289,8 +289,9 @@ panel without creating dependencies from generic host infrastructure back to the
 #### `logic-analyzer-examples`
 
 Is the top-level integration package. It owns workspace-spanning integration and architecture
-tests, graph examples, benchmarks, and the standalone CCD framebuffer example. Production
-composition and reusable behavior remain in their owning crates.
+tests, graph examples, focused benchmarks, the reproducible performance-regression runner, and the
+standalone CCD framebuffer example. Production composition and reusable behavior remain in their
+owning crates.
 
 ## Dependency direction
 

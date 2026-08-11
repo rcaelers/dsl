@@ -377,6 +377,13 @@ impl UiGraphService {
         self.runtime.inspect_derived_cache_entry(config)
     }
 
+    pub(crate) fn fingerprint_derived_cache_entry(
+        &self,
+        config: &PersistentStoreConfig,
+    ) -> Result<Option<[u8; 32]>, DerivedCacheError> {
+        self.runtime.fingerprint_derived_cache_entry(config)
+    }
+
     pub(crate) fn set_output_subscriptions(&mut self, subscriptions: OutputSubscriptionPlan) {
         self.compiler.set_output_subscriptions(subscriptions);
     }

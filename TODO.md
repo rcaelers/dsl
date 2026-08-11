@@ -138,8 +138,9 @@ there to every item below: compare both reference captures, exact output and art
 wall and CPU time, peak memory, cancellation bounds, native/wasm behavior, and concurrent viewer
 p99 latency. Do not retain a throughput change that harms foreground response.
 Every unchecked item in this section is P4 until new profiling evidence promotes it; the numbered
-order below is the internal priority. Build [performance.regression-harness] before promoting any
-item here, so acceptance comparisons stop being ad-hoc.
+order below is the internal priority. Use the reproducible regression comparison described in the
+[performance record](docs/aspects/performance.md#reproducible-regression-comparisons) before
+promoting any item here, so acceptance comparisons remain evidence-based.
 
 1. **Avoid repeated work across cache and graph generations.** This has the highest likely payoff
    because it can remove complete reads, decompressions, decodes, or encodes instead of making an
@@ -242,11 +243,6 @@ item here, so acceptance comparisons stop being ad-hoc.
      owning core crates, inject the neutral capability at composition roots, and expose
      availability/fallback diagnostics. Never make cache identity depend on the selected device.
 
-- [performance.regression-harness] (P3 · medium) Turn the existing capture benchmarks into an opt-in reproducible
-  comparison report with warmup policy, alternating A/B order, median and spread, exact identity
-  checks, peak RSS, CPU, viewer percentiles, and retained baseline metadata. Keep large captures out
-  of ordinary unit tests, but make it difficult to accept noisy or microbenchmark-only improvements.
-  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#performance-regression-harness).
 - [performance.telemetry-overhead] (P4 · low) Measure profiling counters disabled and enabled; sample or aggregate
   hot-path metrics so observability cannot become the bottleneck it is intended to diagnose.
 - [performance.web-baselines] (P4 · medium) Establish equivalent browser-worker baselines for waveform generation,

@@ -67,6 +67,7 @@ pub struct HeadlessCacheReport {
     pub node_id: u32,
     pub node_title: String,
     pub cache_key: String,
+    pub data_fingerprint: String,
     pub total_bytes: u64,
     pub data_bytes: u64,
     pub index_bytes: u64,
@@ -394,11 +395,18 @@ impl HeadlessGraphRunner {
                 self.graph_service
                     .inspect_derived_cache_entry(config)
                     .transpose()
-                    .map(|result| result.map(|snapshot| (cache_key, node, snapshot)))
+                    .map(|result| result.map(|snapshot| (cache_key, node, config, snapshot)))
             })
             .map(|result| {
-                let (cache_key, node, snapshot) =
+                let (cache_key, node, config, snapshot) =
                     result.map_err(|error| HeadlessRunError::new(error.to_string()))?;
+                let data_fingerprint = self
+                    .graph_service
+                    .fingerprint_derived_cache_entry(config)
+                    .map_err(|error| HeadlessRunError::new(error.to_string()))?
+                    .ok_or_else(|| {
+                        HeadlessRunError::new("derived cache disappeared while fingerprinting")
+                    })?;
                 Ok(HeadlessCacheReport {
                     node_id: node.0,
                     node_title: graph
@@ -407,6 +415,7 @@ impl HeadlessGraphRunner {
                         .map(|node| node.title.clone())
                         .unwrap_or_else(|| "Removed node".to_owned()),
                     cache_key: hex(cache_key),
+                    data_fingerprint: hex(&data_fingerprint),
                     total_bytes: snapshot.total_bytes,
                     data_bytes: snapshot.data_bytes,
                     index_bytes: snapshot.index_bytes,

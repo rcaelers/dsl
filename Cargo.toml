@@ -68,6 +68,11 @@ test = false
 bench = false
 
 [[bin]]
+name = "performance-regression"
+path = "src/bin/performance-regression/main.rs"
+bench = false
+
+[[bin]]
 name = "u3pro16-streaming-bench"
 path = "src/bin/u3pro16-streaming-bench/main.rs"
 required-features = ["developer-tools"]
@@ -78,6 +83,7 @@ bench = false
 developer-tools = ["logic-analyzer-device-dslogic/developer-tools"]
 
 [dependencies]
+blake3 = { workspace = true }
 clap = { workspace = true }
 crossbeam-channel = { workspace = true }
 logic-analyzer-capture-formats = { path = "crates/logic_analyzer_capture_formats" }
@@ -91,11 +97,15 @@ signal-capture = { path = "crates/signal_capture" }
 signal-derived = { path = "crates/signal_derived" }
 signal-runtime = { path = "crates/signal_runtime" }
 signal-sinks = { path = "crates/signal_sinks" }
+serde = { workspace = true }
+serde_json = { workspace = true }
 tempfile = { workspace = true }
 tracing-subscriber = { workspace = true }
 
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
 [dev-dependencies]
-blake3 = { workspace = true }
 egui = { workspace = true }
 example-plugin = { path = "plugins/example-plugin" }
 logic-analyzer-capture-export = { path = "crates/logic_analyzer_capture_export" }
@@ -116,11 +126,6 @@ node-graph-document = { path = "crates/node_graph_document" }
 signal-capture-session = { path = "crates/signal_capture_session" }
 signal-generators = { path = "crates/signal_generators" }
 signal-transforms = { path = "crates/signal_transforms" }
-serde = { workspace = true }
-serde_json = { workspace = true }
-
-[target.'cfg(unix)'.dev-dependencies]
-libc = { workspace = true }
 
 [profile.release]
 debug = true

@@ -130,6 +130,11 @@ nodes write to the destinations saved in the graph. Progress is written to
 standard error so JSON standard output can be redirected directly into a
 benchmark report.
 
+Reproducible baseline recording and alternating A/B comparisons use the
+`performance-regression` developer binary and an external reference capture. See
+[`docs/aspects/performance.md`](docs/aspects/performance.md#reproducible-regression-comparisons) for
+the workload contract and commands.
+
 If a pipeline appears stuck, the built-in watchdog logs which node is blocked on which
 port after ~5 seconds.
 
