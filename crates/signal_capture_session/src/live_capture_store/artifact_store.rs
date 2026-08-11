@@ -11,7 +11,7 @@ use signal_capture::{
     CaptureChannelId, CaptureSampledChannel, CaptureSampledWindow, CaptureTransition, Error,
 };
 
-use super::implementation::{
+use super::records::{
     CaptureCursorItem, CaptureReclamationReport, CaptureRecoveryReport, CaptureSessionMetadata,
     CaptureSessionOutcome, CaptureStoreCursor, CaptureStoreDescriptor, CaptureStoreError,
     CaptureStoreManifest, CaptureStoreResult, CaptureStoreSnapshot, CaptureTimelineMetadata,

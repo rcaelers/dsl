@@ -14,6 +14,6 @@
 //! It owns SPI signal decoding from generic sampled inputs, not graph sockets,
 //! panel controls, protocol tables, or execution lifecycle.
 
-mod implementation;
+mod decoder;
 
-pub use implementation::{SPI_TRANSACTION_PROTOCOL_ID, SpiDecoder, SpiMode};
+pub use decoder::{SPI_TRANSACTION_PROTOCOL_ID, SpiDecoder, SpiMode};

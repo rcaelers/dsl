@@ -156,7 +156,7 @@ impl LiveCaptureFeatureProvider for TestLiveCaptureSourceBuilder {
         state: &Value,
         edit: &LiveCaptureEdit,
     ) -> Result<Option<Value>, LiveCaptureFeatureError> {
-        super::implementation::apply_live_capture_edit(state, edit).map(Some)
+        super::live_edit::apply_live_capture_edit(state, edit).map(Some)
     }
 }
 

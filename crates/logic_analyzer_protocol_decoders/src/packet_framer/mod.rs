@@ -14,6 +14,6 @@
 //! It frames generic words without treating any protocol name or presentation as
 //! special. Concrete renderers consume the explicit payload metadata it produces.
 
-mod implementation;
+mod framer;
 
-pub use implementation::{GatePolarity, PACKET_FRAME_PROTOCOL_ID, PacketFramer};
+pub use framer::{GatePolarity, PACKET_FRAME_PROTOCOL_ID, PacketFramer};

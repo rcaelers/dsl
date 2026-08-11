@@ -9,19 +9,19 @@
 mod acquisition_state;
 #[cfg(test)]
 mod architecture_tests;
+mod contract;
 mod coordinator;
 mod error;
-mod implementation;
 mod status_projection;
 mod storage_publication;
 #[cfg(test)]
 mod test_acquisition_tests;
 
-pub(crate) use coordinator::CaptureCoordinator;
-pub(crate) use implementation::{
+pub(crate) use contract::{
     CaptureAnalysisAttachment, CaptureAvailability, CaptureCoordinatorContract,
     CaptureFeatureDiscovery, CaptureReplayAttachment, ConfigurationEpochResolution,
     capture_availability,
 };
+pub(crate) use coordinator::CaptureCoordinator;
 
 pub(crate) use crate::capture_export_service::CaptureExportFormat as CaptureRawExportFormat;

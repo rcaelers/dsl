@@ -15,6 +15,6 @@
 //! It owns UART signal decoding and word/diagnostic production from generic sampled
 //! inputs. Graph definition and presentation behavior belong to the node feature.
 
-mod implementation;
+mod decoder;
 
-pub use implementation::{UartDecoder, UartParity, UartStopBits};
+pub use decoder::{UartDecoder, UartParity, UartStopBits};

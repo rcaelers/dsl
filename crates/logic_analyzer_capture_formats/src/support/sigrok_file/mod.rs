@@ -1,5 +1,5 @@
 //! Random-access sigrok v2 (`.sr`) capture-file support.
 
-mod implementation;
+mod reader;
 
-pub(crate) use implementation::{SigrokCapture, SigrokFileCaptureDataSource};
+pub(crate) use reader::{SigrokCapture, SigrokFileCaptureDataSource};

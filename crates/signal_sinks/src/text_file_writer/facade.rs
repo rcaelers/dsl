@@ -3,7 +3,7 @@ use std::sync::Arc;
 use signal_runtime::ProcessNodeConstruction;
 
 use super::super::output_storage::UnavailableOutputStorage;
-use super::implementation::TextFileWriter;
+use super::writer::TextFileWriter;
 use crate::{OutputOrigin, OutputStorage, WriterConstructionError};
 
 /// Platform-neutral construction contract for a text file writer.

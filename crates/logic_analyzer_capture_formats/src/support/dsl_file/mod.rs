@@ -1,7 +1,7 @@
 //! Random-access support for DSLogic `.dsl` capture files.
 
-mod implementation;
+mod reader;
 
 #[cfg(test)]
-pub(crate) use implementation::DslCaptureReader;
-pub(crate) use implementation::{DslChunkedCaptureReader, DslFileCaptureDataSource, parse_header};
+pub(crate) use reader::DslCaptureReader;
+pub(crate) use reader::{DslChunkedCaptureReader, DslFileCaptureDataSource, parse_header};

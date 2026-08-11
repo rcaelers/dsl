@@ -3,7 +3,7 @@ use std::time::Duration;
 use super::super::errors::PipelineError;
 use super::super::manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec};
 use super::super::node::{ConfigurationBoundary, NodeConfig, ProcessNode};
-use super::implementation::AppManager;
+use super::manager::AppManager;
 
 /// Execution behavior behind the portable application-runtime facade.
 pub trait AppManagerBackend {

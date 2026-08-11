@@ -14,6 +14,6 @@
 //! It implements runtime buffering only; graph configuration and host scheduling
 //! remain outside this concrete processing behavior.
 
-mod implementation;
+mod relay;
 
-pub use implementation::BufferNode;
+pub use relay::BufferNode;

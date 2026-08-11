@@ -24,11 +24,11 @@ use signal_capture_session::{
     TriggerTimeoutAction, bounded_capture_event_queue,
 };
 
+use super::contract::{
+    CaptureAnalysisAttachment, ConfigurationEpochResolution, PreparedConfigurationEpoch,
+};
 use super::error::{
     CaptureAttachmentKind, CaptureCoordinatorError, CaptureStoreOperation, CaptureWaveformOperation,
-};
-use super::implementation::{
-    CaptureAnalysisAttachment, ConfigurationEpochResolution, PreparedConfigurationEpoch,
 };
 use super::status_projection::CaptureStartProjection;
 use super::storage_publication::{

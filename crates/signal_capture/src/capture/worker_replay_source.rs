@@ -6,10 +6,10 @@ use signal_runtime::{
     RuntimeExecutionMode, Sender, WorkError, WorkOutcome, WorkResult,
 };
 
+use super::contracts::{BlockData, CaptureMetadata, packed_bit};
 use super::host_protocol::{
     CaptureWorkerMessage, CaptureWorkerReplayBlock, CaptureWorkerReplayRequest,
 };
-use super::implementation::{BlockData, CaptureMetadata, packed_bit};
 use super::preparation::CaptureIndexPreparationRequest;
 use super::worker_client::CaptureWorkerClient;
 use crate::{Sample, SampleBlock};

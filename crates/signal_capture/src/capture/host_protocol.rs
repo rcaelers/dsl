@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use platform_artifacts::SourceIdentity;
 
-use super::implementation::{CaptureIndexBuildProgress, CaptureMetadata, CaptureSampledWindow};
+use super::contracts::{CaptureIndexBuildProgress, CaptureMetadata, CaptureSampledWindow};
 use super::preparation::CaptureIndexPreparationRequest;
 use super::query::CaptureIndexQuery;
 use super::worker_errors::{CaptureWorkerCodecError, CaptureWorkerFailure, CaptureWorkerFrame};

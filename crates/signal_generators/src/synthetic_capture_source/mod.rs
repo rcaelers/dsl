@@ -15,8 +15,8 @@
 //! This is an explicit portable test/demo source selected through configuration,
 //! not a target-dependent substitute for a concrete capture device.
 
-mod implementation;
 mod presentation;
+mod source;
 
-pub use implementation::SyntheticCaptureSource;
 pub use presentation::synthetic_presentation;
+pub use source::SyntheticCaptureSource;

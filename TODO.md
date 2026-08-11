@@ -102,11 +102,10 @@ resulting architecture belongs in `docs/architecture/` or `docs/aspects/`, and p
 evidence, including rejected approaches, belongs in
 [Performance Design and Measurement Record](docs/aspects/performance.md).
 
-Every P1–P3 item has design and implementation direction — current wiring, target shape,
+Every P1–P2 item has design and implementation direction — current wiring, target shape,
 ordered steps, and acceptance checks — in
-[P1/P2 Refactoring Directions](docs/plans/refactoring_p1_p2.md) and
-[P3 Refactoring Directions](docs/plans/refactoring_p3.md). Read the item's section, and the
-ground rules at the top of the P1/P2 document, before starting one of these items.
+[P1/P2 Refactoring Directions](docs/plans/refactoring_p1_p2.md). Read the item's section and the
+ground rules at the top of that document before starting one of these items.
 The dependency graph is consistent with the priority ordering: ordering constraints are stated on
 the affected items, and no P3 item gates a P2.
 
@@ -279,9 +278,3 @@ promoting any item here, so acceptance comparisons remain evidence-based.
   is genuinely surprising.
 - [docs.index-deduplication] (P4 · low) Reduce `docs/INDEX.md` to one entry per document. Most crates appear
   in three lists, so the index has become a table of contents for itself.
-- [naming.implementation-files] (P3 · low) Rename the repeated `implementation.rs` leaves after the behavior
-  they hold. The name carries no information, collides in editor tabs and search results, and
-  appears 46 times across the node crates. The capability decomposition made this more urgent:
-  `logic_analyzer_graph_nodes` averages about 100 lines per file, so file names now do the
-  navigation work that file contents used to.
-  Direction: [refactoring_p3.md](docs/plans/refactoring_p3.md#naming-implementation-files).

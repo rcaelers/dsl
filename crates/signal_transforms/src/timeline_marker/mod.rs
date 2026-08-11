@@ -14,9 +14,9 @@
 //! This module owns the runtime representation and stream conversions, while
 //! editor actions and viewer presentation use explicit graph/UI contracts.
 
-mod implementation;
+mod transforms;
 
-pub use implementation::{
+pub use transforms::{
     MarkerRelation, TimelineMarkerRelation, TimelineMarkerSource, TimelineMarkerToEvent,
     TimelineMarkerWindow,
 };

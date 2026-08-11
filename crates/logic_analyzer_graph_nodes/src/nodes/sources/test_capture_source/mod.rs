@@ -2,8 +2,8 @@
 
 mod builder;
 mod definition;
-mod implementation;
 mod live_builder;
 mod live_capture;
+mod live_edit;
 mod registration;
 mod trigger;

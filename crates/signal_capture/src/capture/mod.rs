@@ -19,8 +19,8 @@
 //! these contracts above `signal_capture`; formats, devices, paths, and viewer
 //! policy are intentionally absent.
 
+mod contracts;
 mod host_protocol;
-mod implementation;
 mod preparation;
 mod query;
 mod worker_client;
@@ -29,17 +29,17 @@ mod worker_operation_errors;
 mod worker_replay_source;
 mod worker_runtime;
 
-pub use host_protocol::{
-    CaptureWorkerMessage, CaptureWorkerReplayBlock, CaptureWorkerReplayRequest,
-    CaptureWorkerRequest, decode_capture_worker_messages, decode_capture_worker_request,
-    encode_capture_worker_messages, encode_capture_worker_request,
-};
-pub use implementation::{
+pub use contracts::{
     BlockCaptureSource, BlockData, CaptureDataSource, CaptureFingerprint, CaptureIndex,
     CaptureIndexBuildProfile, CaptureIndexBuildProgress, CaptureIndexFactory, CaptureIndexOpenStep,
     CaptureIndexOpenTask, CaptureMetadata, CaptureSampledChannel, CaptureSampledWindow,
     CaptureSampledWindowPoll, CaptureSource, CaptureTransition, CaptureWaveformSegment,
     IndexedCapturePresentation, packed_bit,
+};
+pub use host_protocol::{
+    CaptureWorkerMessage, CaptureWorkerReplayBlock, CaptureWorkerReplayRequest,
+    CaptureWorkerRequest, decode_capture_worker_messages, decode_capture_worker_request,
+    encode_capture_worker_messages, encode_capture_worker_request,
 };
 pub use preparation::CaptureIndexPreparationRequest;
 pub use query::{

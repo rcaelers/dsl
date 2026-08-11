@@ -3,7 +3,7 @@ use std::sync::Arc;
 use platform_runtime::WorkExecutor;
 
 use super::contract::{AppManagerBackend, AppManagerFactory};
-use super::implementation::AppManager;
+use super::manager::AppManager;
 use crate::errors::PipelineError;
 use crate::manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec, PipelineManager};
 use crate::node::{ConfigurationBoundary, NodeConfig, ProcessNode};

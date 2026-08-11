@@ -18,8 +18,8 @@ use signal_capture_session::{
 use signal_runtime::ProcessNode;
 
 use super::capture_configuration::capture_config;
+use super::capture_policy::requested_capture_policy;
 use super::definition::U3Pro16State;
-use super::implementation::requested_capture_policy;
 
 struct U3Pro16GraphSourceFactory {
     channels: Arc<[CaptureAnalysisChannel]>,

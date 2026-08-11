@@ -16,8 +16,8 @@
 
 mod configuration;
 mod facade;
-mod implementation;
+mod writer;
 
 pub use configuration::{BinaryFileWriterConfig, WriteWidth};
 pub use facade::{BinaryFileWriterFactory, unavailable_writer_factory, writer_factory};
-pub use implementation::BinaryFileWriter;
+pub use writer::BinaryFileWriter;

@@ -15,7 +15,7 @@ use signal_capture_session::{
     CaptureStoreCursor, CaptureStoreDescriptor, GrowingCaptureIndex, bounded_capture_event_queue,
 };
 
-use super::implementation::DsLogicU3Pro16;
+use super::driver::DsLogicU3Pro16;
 use super::streaming::StreamingProvider;
 use super::transport::{LinkSpeed, UsbError, UsbTransport};
 

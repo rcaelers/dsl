@@ -18,7 +18,7 @@
 
 mod acquisition;
 mod analysis;
-mod implementation;
+mod contracts;
 mod validation;
 
 pub use acquisition::{
@@ -26,7 +26,7 @@ pub use acquisition::{
     ConfiguredAcquisition, PreparedAcquisition,
 };
 pub use analysis::{CaptureAnalysisChannel, CaptureAnalysisSource};
-pub use implementation::{
+pub use contracts::{
     CAPTURE_CHUNK_FORMAT_VERSION, CaptureAcquisitionPhase, CaptureBufferLease, CaptureBufferPool,
     CaptureBufferPoolError, CaptureBufferPoolMetrics, CaptureBytes, CaptureChunk,
     CaptureChunkError, CaptureChunkPayload, CaptureChunkWriter, CaptureCommandCapabilities,

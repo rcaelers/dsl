@@ -13,6 +13,6 @@
 //! It owns the UI-independent set/reset stream state machine; controls and graph
 //! configuration remain in the graph-node feature.
 
-mod implementation;
+mod latch;
 
-pub use implementation::SrLatch;
+pub use latch::SrLatch;

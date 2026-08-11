@@ -185,7 +185,7 @@ capture_validation = File.read(File.join(
 ))
 capture_implementation = File.read(File.join(
   ROOT,
-  "crates/signal_capture_session/src/live_capture/implementation.rs"
+  "crates/signal_capture_session/src/live_capture/contracts.rs"
 ))
 capture_analysis = File.read(File.join(
   ROOT,
@@ -254,17 +254,17 @@ sigrok_runtime_contracts.each do |contract, pattern|
 end
 sigrok_output_implementation = File.read(File.join(
   ROOT,
-  "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/implementation.rs"
+  "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/decoder.rs"
 ))
 unless sigrok_output_implementation.match?(/struct SigrokOutputError\s*\{/) &&
        sigrok_output_implementation.match?(
          /fn\s+convert_output\b.*?Result<ConvertedOutput,\s*SigrokOutputError>/m
        ) &&
        sigrok_output_implementation.include?(".map_err(WorkError::node_source)")
-  errors << "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/implementation.rs: malformed decoder output must remain typed through WorkError"
+  errors << "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/decoder.rs: malformed decoder output must remain typed through WorkError"
 end
 if sigrok_output_implementation.match?(/Result<.*?,\s*String>/m)
-  errors << "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/implementation.rs: Sigrok output conversion must not collapse failures into strings"
+  errors << "crates/logic_analyzer_protocol_decoders/src/sigrok_decoder/decoder.rs: Sigrok output conversion must not collapse failures into strings"
 end
 sigrok_decoder_error = sigrok_runtime_source[/pub enum SigrokDecoderRuntimeError\s*\{(?<body>.*?)^\}/m, :body].to_s
 sigrok_decoder_error_contracts = {
@@ -1322,7 +1322,7 @@ intentional_string_result_files = %w[
   crates/logic_analyzer_graph_nodes/src/nodes/logic/word_value.rs
   crates/logic_analyzer_graph_nodes/src/nodes/sources/dslogic_u3pro16/capture_configuration.rs
   crates/logic_analyzer_graph_nodes/src/nodes/sources/dslogic_u3pro16/definition.rs
-  crates/logic_analyzer_graph_nodes/src/nodes/sources/dslogic_u3pro16/implementation.rs
+  crates/logic_analyzer_graph_nodes/src/nodes/sources/dslogic_u3pro16/capture_policy.rs
   crates/logic_analyzer_graph_nodes/src/nodes/sources/dslogic_u3pro16/trigger.rs
   crates/logic_analyzer_graph_nodes/src/nodes/sources/dslogic_u3pro16/trigger_lowering.rs
   crates/logic_analyzer_graph_nodes/src/nodes/sources/test_capture_source/definition.rs
@@ -1331,7 +1331,7 @@ intentional_string_result_files = %w[
   crates/logic_analyzer_graph_nodes/src/nodes/sources/test_capture_source/trigger.rs
   crates/logic_analyzer_graph_runtime/src/runtime/execution.rs
   crates/logic_analyzer_ui/src/app.rs
-  crates/logic_analyzer_ui/src/decoder_panel/implementation.rs
+  crates/logic_analyzer_ui/src/decoder_panel/panel.rs
   crates/logic_analyzer_ui/src/live_capture/status_projection.rs
 ].freeze
 

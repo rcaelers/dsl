@@ -10,7 +10,7 @@ fn capture_sessions_do_not_leak_provider_application_or_lower_owner_details() {
     // Cargo metadata proves dependency direction, but it cannot detect name-based provider cases,
     // application-selected namespaces, or public re-exports, so these remain source assertions.
     let sources = [
-        include_str!("live_capture/implementation.rs"),
+        include_str!("live_capture/contracts.rs"),
         include_str!("live_capture_store/mod.rs"),
         include_str!("live_capture_store/artifact_store.rs"),
     ];

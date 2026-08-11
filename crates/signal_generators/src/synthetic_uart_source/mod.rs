@@ -14,6 +14,6 @@
 //! It produces authored UART-like samples for tests and demonstrations without
 //! changing the generic runtime or viewer behavior.
 
-mod implementation;
+mod source;
 
-pub use implementation::SyntheticUartSource;
+pub use source::SyntheticUartSource;

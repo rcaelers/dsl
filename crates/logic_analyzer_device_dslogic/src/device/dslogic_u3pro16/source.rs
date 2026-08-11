@@ -3,7 +3,7 @@
 use logic_analyzer_acquisition::{LogicAnalyzerResult, LogicAnalyzerSource, LogicCaptureConfig};
 use signal_runtime::{InputPort, OutputPort, ProcessNode, WorkResult};
 
-use super::implementation::DsLogicU3Pro16;
+use super::driver::DsLogicU3Pro16;
 use super::transport::UsbTransport;
 
 /// A DSLogic U3Pro16 source node for a conventional processing pipeline.

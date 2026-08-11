@@ -4,7 +4,7 @@ use signal_runtime::ProcessNodeConstruction;
 
 use super::super::output_storage::UnavailableOutputStorage;
 use super::configuration::CsvWordWriterConfig;
-use super::implementation::CsvWordWriter;
+use super::writer::CsvWordWriter;
 use crate::{OutputOrigin, OutputStorage, WriterConstructionError};
 
 /// Platform-neutral construction contract for a CSV word writer.

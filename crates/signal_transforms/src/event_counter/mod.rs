@@ -13,6 +13,6 @@
 //! It applies protocol-neutral counting semantics to event streams; capture
 //! policy, UI editing, and graph composition are outside this module.
 
-mod implementation;
+mod counter;
 
-pub use implementation::EventCounter;
+pub use counter::EventCounter;

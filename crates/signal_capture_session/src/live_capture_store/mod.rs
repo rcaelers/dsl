@@ -16,14 +16,14 @@
 //! contracts. Physical backing is injected through generic artifact capabilities.
 
 mod artifact_store;
-mod implementation;
+mod records;
 mod session_repository;
 
 pub use artifact_store::{
     CaptureCursor, CaptureRandomReader, CaptureStore, CaptureStoreConfig, CaptureStoreWriter,
     FinalizedCapture,
 };
-pub use implementation::{
+pub use records::{
     CaptureCursorItem, CaptureReclamationReport, CaptureRecordingGate, CaptureRecoveryReport,
     CaptureSessionMetadata, CaptureSessionOutcome, CaptureStoreCursor, CaptureStoreDescriptor,
     CaptureStoreError, CaptureStoreManifest, CaptureStoreResult, CaptureStoreSnapshot,

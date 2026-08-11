@@ -4,7 +4,7 @@ use signal_runtime::ProcessNodeConstruction;
 
 use super::super::output_storage::UnavailableOutputStorage;
 use super::configuration::BinaryFileWriterConfig;
-use super::implementation::BinaryFileWriter;
+use super::writer::BinaryFileWriter;
 use crate::{OutputOrigin, OutputStorage, WriterConstructionError};
 
 /// Platform-neutral construction contract for a binary file writer.

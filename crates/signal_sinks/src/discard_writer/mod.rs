@@ -14,6 +14,6 @@
 //! These explicit sinks intentionally consume data without persistence. They are a
 //! portable authored behavior, not an implicit replacement for unavailable I/O.
 
-mod implementation;
+mod writers;
 
-pub use implementation::{DiscardTextWriter, DiscardWordWriter};
+pub use writers::{DiscardTextWriter, DiscardWordWriter};

@@ -4,7 +4,7 @@ use std::path::Path;
 
 use logic_analyzer_acquisition::{LogicAnalyzer, LogicCaptureConfig};
 
-use super::implementation::DsLogicU3Pro16;
+use super::driver::DsLogicU3Pro16;
 use super::transport::DsLogicU3Pro16TransportFactory;
 
 /// Loads an explicit FPGA image into a connected U3Pro16 and verifies its HDL version.

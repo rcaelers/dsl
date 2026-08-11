@@ -14,11 +14,11 @@
 //! Sinks use this narrow capability rather than selecting paths, dialogs, or host
 //! implementations themselves.
 
-mod implementation;
+mod contract;
 #[cfg(test)]
 mod testing;
 
-pub(crate) use implementation::UnavailableOutputStorage;
-pub use implementation::{OutputFile, OutputOrigin, OutputStorage};
+pub(crate) use contract::UnavailableOutputStorage;
+pub use contract::{OutputFile, OutputOrigin, OutputStorage};
 #[cfg(test)]
 pub(crate) use testing::TestOutputStorage;

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use signal_capture_session::FinalizedCapture;
 
 use super::errors::CaptureExportError;
-use super::implementation::{
+use super::streaming_export::{
     CaptureExportObserver as RawCaptureExportObserver,
     CaptureExportProgress as RawCaptureExportProgress, CaptureExportRequest,
 };
@@ -99,7 +99,7 @@ pub fn export_finalized_capture(
         destination: destination.to_owned(),
         overwrite: true,
     };
-    let report = super::implementation::export_finalized_capture(
+    let report = super::streaming_export::export_finalized_capture(
         capture,
         &request,
         &mut ObserverAdapter(observer),

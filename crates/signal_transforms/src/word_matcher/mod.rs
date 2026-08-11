@@ -13,6 +13,6 @@
 //! It evaluates configured matches over generic words. Presentation of resulting
 //! events and all editor controls stay with separate owners.
 
-mod implementation;
+mod matcher;
 
-pub use implementation::{MatchOp, MatchTimestamp, PredicateMode, WordMatcher};
+pub use matcher::{MatchOp, MatchTimestamp, PredicateMode, WordMatcher};

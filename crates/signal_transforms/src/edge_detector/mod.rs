@@ -13,6 +13,6 @@
 //! This node converts generic level streams into qualified edge events. Its graph
 //! sockets and UI controls are defined by the owning graph-node feature.
 
-mod implementation;
+mod detector;
 
-pub use implementation::{EdgeDetector, EdgeMode};
+pub use detector::{EdgeDetector, EdgeMode};

@@ -15,6 +15,6 @@
 //! It turns generic sampled inputs into I²C words and diagnostics. Socket layout,
 //! controls, and presentation are owned by the corresponding graph-node feature.
 
-mod implementation;
+mod decoder;
 
-pub use implementation::{I2C_PROTOCOL_ID, I2cDecoder};
+pub use decoder::{I2C_PROTOCOL_ID, I2cDecoder};

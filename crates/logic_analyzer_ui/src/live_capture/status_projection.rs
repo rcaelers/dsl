@@ -10,7 +10,7 @@ use signal_capture_session::{
     CaptureSessionId, CaptureSessionOutcome, CaptureSessionPlan, CaptureSessionState,
 };
 
-use super::implementation::CaptureSessionStatus;
+use super::contract::CaptureSessionStatus;
 
 /// Input needed to establish the UI projection for one newly started capture.
 pub(crate) struct CaptureStartProjection {

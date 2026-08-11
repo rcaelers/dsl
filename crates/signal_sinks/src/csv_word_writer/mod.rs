@@ -16,8 +16,8 @@
 
 mod configuration;
 mod facade;
-mod implementation;
+mod writer;
 
 pub use configuration::{CsvValueFormat, CsvWordWriterConfig};
 pub use facade::{CsvWordWriterFactory, unavailable_writer_factory, writer_factory};
-pub use implementation::CsvWordWriter;
+pub use writer::CsvWordWriter;

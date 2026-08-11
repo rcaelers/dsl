@@ -9,9 +9,9 @@ use platform_runtime::WorkExecutor;
 use signal_runtime::ProcessNode;
 
 use super::contracts::{SigrokCatalogSnapshot, SigrokDecoderDescriptor};
+use super::decoder::SigrokDecoderConfig;
 use super::discovery_error::{SigrokCatalogError, SigrokDecoderDiscoveryError};
 use super::execution_error::SigrokExecutionStartError;
-use super::implementation::SigrokDecoderConfig;
 
 /// Failure reported by a host-provided Sigrok decoder runtime.
 #[derive(Clone, Debug, Error)]

@@ -14,6 +14,6 @@
 //! It extracts configured fields from generic words without owning any concrete
 //! decoder, graph socket definition, or display formatting policy.
 
-mod implementation;
+mod extractor;
 
-pub use implementation::WordFieldExtractor;
+pub use extractor::WordFieldExtractor;

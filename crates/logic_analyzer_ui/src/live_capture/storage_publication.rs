@@ -19,13 +19,13 @@ use signal_capture_session::{
     CaptureStore, FinalizedCapture, GrowingCaptureIndex, GrowingCaptureIndexWorker,
 };
 
+use super::contract::{
+    CaptureAnalysisAttachment, CaptureReplayAttachment, CaptureWaveformUpdate,
+    ConfigurationEpochResolution,
+};
 use super::error::{
     CaptureAttachmentKind, CaptureCoordinatorError, CaptureRepositoryOperation,
     CaptureStoreOperation, CaptureWaveformOperation,
-};
-use super::implementation::{
-    CaptureAnalysisAttachment, CaptureReplayAttachment, CaptureWaveformUpdate,
-    ConfigurationEpochResolution,
 };
 use crate::capture_export_service::{
     CaptureExportCompletion, CaptureExportFormat as CaptureRawExportFormat, CaptureExportService,

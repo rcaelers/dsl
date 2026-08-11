@@ -15,7 +15,7 @@
 //! selection and graph/editor presentation belong to separate owners.
 
 mod facade;
-mod implementation;
+mod writer;
 
 pub use facade::{TextFileWriterFactory, unavailable_writer_factory, writer_factory};
-pub use implementation::TextFileWriter;
+pub use writer::TextFileWriter;

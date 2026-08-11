@@ -15,9 +15,9 @@
 //! It decodes generic sampled parallel inputs using its explicit configuration;
 //! host execution and graph presentation are supplied outside this runtime node.
 
-mod implementation;
+mod decoder;
 mod sampling_provider;
 mod types;
 
-pub use implementation::{ParallelDecoder, ParallelDecoderMetrics, ParallelDecoderMetricsSnapshot};
+pub use decoder::{ParallelDecoder, ParallelDecoderMetrics, ParallelDecoderMetricsSnapshot};
 pub use types::{ParallelInputStrategy, StrobeMode};

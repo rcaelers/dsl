@@ -4,7 +4,7 @@ use std::sync::Arc;
 use platform_artifacts::PreparedByteSource;
 use signal_capture::Result;
 
-use super::implementation::DslFileSource;
+use super::source::DslFileSource;
 use crate::support::capture_archive::FileByteSource;
 use crate::support::capture_index::capture_cache_identity;
 use crate::support::dsl_file::DslFileCaptureDataSource;

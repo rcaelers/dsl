@@ -1,3 +1,3 @@
-mod implementation;
+mod window;
 
-pub(crate) use implementation::PreferencesWindow;
+pub(crate) use window::PreferencesWindow;

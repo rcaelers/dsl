@@ -22,7 +22,7 @@ fn ui_host_ports_have_no_cache_path_or_command_transport_details() {
         );
     }
 
-    let preferences = include_str!("../preferences/implementation.rs");
+    let preferences = include_str!("../preferences/window.rs");
     assert!(
         !preferences.contains("PathBuf"),
         "preferences must delegate directory ownership to NodeCatalogService"

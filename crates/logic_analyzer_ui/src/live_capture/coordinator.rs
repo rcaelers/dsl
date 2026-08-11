@@ -18,12 +18,12 @@ use signal_capture_session::{
 #[cfg(test)]
 use super::acquisition_state::waveform_ready_for_publication;
 use super::acquisition_state::{CaptureAcquisition, WorkerCompletion};
-use super::error::CaptureCoordinatorError;
-use super::implementation::{
+use super::contract::{
     CaptureAnalysisAttachment, CaptureCoordinatorContract, CaptureReplayAttachment,
     CaptureSessionStatus, CaptureWaveformUpdate, ConfigurationEpochResolution,
     PreparedConfigurationEpoch,
 };
+use super::error::CaptureCoordinatorError;
 use super::status_projection::CaptureStatusProjection;
 use super::storage_publication::CapturePublication;
 #[cfg(test)]

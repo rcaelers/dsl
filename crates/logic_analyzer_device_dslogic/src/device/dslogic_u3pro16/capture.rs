@@ -10,7 +10,7 @@ use signal_capture_session::{
 };
 
 use super::buffered::BufferedProvider;
-use super::implementation::DsLogicCapturePlan;
+use super::driver::DsLogicCapturePlan;
 use super::streaming::StreamingProvider;
 use super::transport::{DsLogicU3Pro16TransportFactory, LinkSpeed};
 
@@ -105,7 +105,7 @@ impl DsLogicU3Pro16Capture {
     ) -> AcquisitionResult<Box<dyn PreparedAcquisition>> {
         match self.profile {
             CaptureProfile::Buffered => {
-                let analyzer = super::implementation::DsLogicU3Pro16::new(
+                let analyzer = super::driver::DsLogicU3Pro16::new(
                     self.transport_factory
                         .open()
                         .map_err(super::common::map_analyzer_error)?,
@@ -114,7 +114,7 @@ impl DsLogicU3Pro16Capture {
                 BufferedProvider::new(analyzer, self.config, self.channels)?.prepare(context)
             }
             CaptureProfile::Streaming => {
-                let analyzer = super::implementation::DsLogicU3Pro16::new(
+                let analyzer = super::driver::DsLogicU3Pro16::new(
                     self.transport_factory
                         .open()
                         .map_err(super::common::map_analyzer_error)?,

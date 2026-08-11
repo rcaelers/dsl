@@ -14,6 +14,6 @@
 //! It gates generic timestamped events according to its input stream and configuration;
 //! it does not own graph topology, controls, or viewer behavior.
 
-mod implementation;
+mod gate;
 
-pub use implementation::{EventGate, GatePolarity};
+pub use gate::{EventGate, GatePolarity};

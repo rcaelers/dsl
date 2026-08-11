@@ -15,6 +15,6 @@
 //! socket presentation remain with the corresponding graph-node feature.
 
 mod edge_query;
-mod implementation;
+mod gate;
 
-pub use implementation::{GateOp, LogicGate};
+pub use gate::{GateOp, LogicGate};

@@ -1,8 +1,8 @@
 //! Native raw-capture export implementation and application-facing facade.
 
 mod errors;
-mod implementation;
 mod presentation;
+mod streaming_export;
 
 pub use errors::CaptureExportError;
 pub use presentation::{

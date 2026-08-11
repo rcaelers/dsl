@@ -10,7 +10,7 @@ fn generic_capture_owner_has_no_session_derived_or_application_special_cases() {
     // Cargo metadata proves that higher-level owners are not dependencies, but it cannot detect
     // branching on their type names, so this remains an intentional source-level assertion.
     let sources = [
-        include_str!("capture/implementation.rs"),
+        include_str!("capture/contracts.rs"),
         include_str!("capture/query.rs"),
         include_str!("capture/worker_runtime.rs"),
         include_str!("capture/worker_replay_source.rs"),

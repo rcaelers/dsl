@@ -52,11 +52,11 @@ explicitly rather than approximated in the generic capture or viewer layers.
 - DSL facade and source behavior:
   [crates/logic_analyzer_capture_formats/src/dsl_file/](../../crates/logic_analyzer_capture_formats/src/dsl_file)
 - DSL archive reader:
-  [support/dsl_file/implementation.rs](../../crates/logic_analyzer_capture_formats/src/support/dsl_file/implementation.rs)
+  [support/dsl_file/reader.rs](../../crates/logic_analyzer_capture_formats/src/support/dsl_file/reader.rs)
 - Sigrok archive reader:
-  [support/sigrok_file/implementation.rs](../../crates/logic_analyzer_capture_formats/src/support/sigrok_file/implementation.rs)
+  [support/sigrok_file/reader.rs](../../crates/logic_analyzer_capture_formats/src/support/sigrok_file/reader.rs)
 - Shared archive adapter:
-  [support/capture_archive/implementation.rs](../../crates/logic_analyzer_capture_formats/src/support/capture_archive/implementation.rs)
+  [support/capture_archive/archive.rs](../../crates/logic_analyzer_capture_formats/src/support/capture_archive/archive.rs)
 
 ## Errors and tests
 

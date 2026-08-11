@@ -15,7 +15,7 @@ use signal_capture_session::{
 };
 
 use super::common::{CanonicalTransferAssembler, map_analyzer_error};
-use super::implementation::{DsLogicCapturePlan, DsLogicU3Pro16};
+use super::driver::{DsLogicCapturePlan, DsLogicU3Pro16};
 use super::transport::UsbTransport;
 
 pub(crate) struct StreamingProvider<T: UsbTransport> {

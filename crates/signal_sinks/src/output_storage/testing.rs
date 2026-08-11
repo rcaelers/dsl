@@ -3,7 +3,7 @@ use std::io::{Error, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use super::implementation::{OutputFile, OutputOrigin, OutputStorage};
+use super::contract::{OutputFile, OutputOrigin, OutputStorage};
 
 #[derive(Clone, Default)]
 pub(crate) struct TestOutputStorage {

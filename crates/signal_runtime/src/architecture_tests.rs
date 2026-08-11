@@ -20,7 +20,7 @@ fn runtime_has_no_concrete_signal_domain_special_cases() {
         ),
         (
             "application manager",
-            include_str!("app_manager/implementation.rs"),
+            include_str!("app_manager/manager.rs"),
         ),
         (
             "cooperative manager",

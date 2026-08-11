@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use signal_capture::{CaptureTransition, EdgeQuery, Result};
 
-use super::implementation::GateOp;
+use super::gate::GateOp;
 
 pub(crate) struct LogicGateEdgeQuery {
     op: GateOp,

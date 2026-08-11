@@ -40,7 +40,7 @@ fn substantial_ui_owner_fields_are_private() {
         (
             "decoder panel",
             "DecoderPanels",
-            include_str!("decoder_panel/implementation.rs"),
+            include_str!("decoder_panel/panel.rs"),
         ),
         (
             "headless execution",

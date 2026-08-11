@@ -13,6 +13,6 @@
 //! It formats generic text stream values. UI templates and graph controls are
 //! separate concrete-node concerns.
 
-mod implementation;
+mod formatter;
 
-pub use implementation::TextFormatter;
+pub use formatter::TextFormatter;

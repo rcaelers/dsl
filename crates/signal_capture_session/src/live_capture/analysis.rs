@@ -9,7 +9,7 @@ use signal_runtime::{
     WorkResult,
 };
 
-use super::implementation::CaptureChunk;
+use super::contracts::CaptureChunk;
 use super::validation::CaptureValidationError;
 use crate::live_capture_store::{CaptureCursorItem, CaptureStoreCursor};
 
@@ -357,7 +357,7 @@ mod tests {
 
     use signal_runtime::{ChannelMessage, Sender, Watchdog};
 
-    use super::super::implementation::{CaptureChunk, CaptureSessionId};
+    use super::super::contracts::{CaptureChunk, CaptureSessionId};
     use super::*;
     use crate::live_capture_store::{CaptureCursorItem, CaptureStoreCursor, CaptureStoreResult};
 

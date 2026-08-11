@@ -106,7 +106,7 @@ fn generic_ui_capture_components_have_no_device_or_protocol_special_cases() {
     let sources = [
         ("application", include_str!("../app.rs")),
         ("acquisition", include_str!("acquisition_state.rs")),
-        ("coordinator contract", include_str!("implementation.rs")),
+        ("coordinator contract", include_str!("contract.rs")),
         ("capture coordinator", include_str!("coordinator.rs")),
         ("publication", include_str!("storage_publication.rs")),
         ("status projection", include_str!("status_projection.rs")),

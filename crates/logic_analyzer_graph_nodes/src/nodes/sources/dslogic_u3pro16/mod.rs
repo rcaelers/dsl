@@ -1,7 +1,7 @@
 pub(crate) mod builder;
 mod capture_configuration;
+mod capture_policy;
 mod definition;
-mod implementation;
 mod live_capture;
 mod live_edit;
 mod registration;

@@ -12,8 +12,8 @@
 //! **Explicit exclusions.** It does not decode protocols, execute graph nodes, own derived
 //! storage, arrange application panels, or infer behavior from decoder names.
 
-mod implementation;
 mod model;
+mod panel;
 
-pub(crate) use implementation::{DecoderPanels, DecoderPanelsState};
 pub(crate) use model::{DecoderTableColumn, DecoderTableRegistry, DecoderTableSource};
+pub(crate) use panel::{DecoderPanels, DecoderPanelsState};

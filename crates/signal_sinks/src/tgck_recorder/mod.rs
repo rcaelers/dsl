@@ -14,6 +14,6 @@
 //! It owns TGCK stream recording behavior and delegates output persistence through
 //! its explicit storage contract; it does not select host APIs or UI policy.
 
-mod implementation;
+mod recorder;
 
-pub use implementation::TgckRecorder;
+pub use recorder::TgckRecorder;

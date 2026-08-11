@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use signal_capture::Result;
 
-use super::implementation::SigrokFileSource;
+use super::source::SigrokFileSource;
 use crate::support::capture_archive::FileByteSource;
 
 impl SigrokFileSource {

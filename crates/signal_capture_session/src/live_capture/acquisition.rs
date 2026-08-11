@@ -6,7 +6,7 @@ use thiserror::Error;
 
 use platform_runtime::{InlineWorkExecutor, WorkExecutor};
 
-use super::implementation::{
+use super::contracts::{
     CaptureAcquisitionPhase, CaptureChunk, CaptureChunkWriter, CaptureCompletion,
     CaptureDataDelivery, CaptureEvent, CaptureEventPublishError, CaptureEventPublisher,
     CaptureFailure, CaptureFailureKind, CaptureHealth, CaptureProgress, CaptureSessionId,

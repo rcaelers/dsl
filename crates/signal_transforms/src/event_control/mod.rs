@@ -13,6 +13,6 @@
 //! The runtime behavior is protocol-neutral; product presentation and graph
 //! lifecycle policy are owned by their respective generic and UI components.
 
-mod implementation;
+mod controller;
 
-pub use implementation::EventControl;
+pub use controller::EventControl;

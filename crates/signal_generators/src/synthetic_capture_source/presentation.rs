@@ -1,6 +1,6 @@
 use signal_capture_session::{CaptureSourcePresentation, CaptureSourceSignal};
 
-use super::implementation::SyntheticCaptureSource;
+use super::source::SyntheticCaptureSource;
 
 /// Creates presentation metadata for deterministic synthetic channels.
 ///

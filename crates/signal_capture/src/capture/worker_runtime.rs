@@ -4,12 +4,12 @@ use std::sync::Arc;
 use platform_artifacts::{ArtifactRepository, SourceIdentity};
 use platform_runtime::{WorkExecutor, WorkerOperation};
 
+use super::contracts::{
+    CaptureIndex, CaptureIndexFactory, CaptureIndexOpenStep, CaptureIndexOpenTask,
+};
 use super::host_protocol::{
     CaptureWorkerMessage, CaptureWorkerReplayBlock, CaptureWorkerReplayRequest,
     CaptureWorkerRequest,
-};
-use super::implementation::{
-    CaptureIndex, CaptureIndexFactory, CaptureIndexOpenStep, CaptureIndexOpenTask,
 };
 use super::worker_errors::CaptureWorkerFailure;
 use super::worker_operation_errors::{
@@ -105,7 +105,7 @@ struct PreparedSession {
     display_name: String,
     source_identity: SourceIdentity,
     index_identity: SourceIdentity,
-    metadata: super::implementation::CaptureMetadata,
+    metadata: super::contracts::CaptureMetadata,
     index: Box<dyn CaptureIndex + Send>,
     leases: u64,
 }
@@ -114,7 +114,7 @@ struct PendingPreparation {
     sequences: Vec<u64>,
     display_name: String,
     source_identity: SourceIdentity,
-    metadata: super::implementation::CaptureMetadata,
+    metadata: super::contracts::CaptureMetadata,
     task: Box<dyn CaptureIndexOpenTask>,
 }
 

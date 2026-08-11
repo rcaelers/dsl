@@ -783,7 +783,7 @@ fn configuration_epoch_is_persisted_before_runtime_application_and_resolved() {
     coordinator
         .resolve_configuration_epoch(
             prepared.epoch_id,
-            super::super::implementation::ConfigurationEpochResolution::Applied,
+            super::super::contract::ConfigurationEpochResolution::Applied,
         )
         .unwrap();
     loop {

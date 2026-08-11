@@ -5,7 +5,7 @@ use super::super::errors::PipelineError;
 use super::super::manager::{DisconnectEvent, InputSub, NodeFailure, NodeSpec};
 use super::super::node::{ConfigurationBoundary, NodeConfig, ProcessNode};
 use super::contract::{AppManagerBackend, AppManagerFactory};
-use super::implementation::AppManager;
+use super::manager::AppManager;
 
 /// Portable [`AppManagerBackend`] that runs graph work on the caller's thread.
 pub struct CooperativeAppManagerBackend {

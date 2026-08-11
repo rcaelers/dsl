@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use platform_artifacts::ArtifactRepository;
 
 use super::artifact_store::{FinalizedCapture, discover_sessions, remove_session_artifacts};
-use super::implementation::{
+use super::records::{
     CaptureReclamationReport, CaptureRecoveryReport, CaptureSessionOutcome, CaptureStoreError,
     CaptureStoreResult,
 };
