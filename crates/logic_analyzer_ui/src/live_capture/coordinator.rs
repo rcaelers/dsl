@@ -129,7 +129,7 @@ impl CaptureCoordinator {
     pub(crate) fn start_with_graph(
         &mut self,
         feature: DiscoveredLiveCaptureFeature,
-        graph: &node_graph::GraphState,
+        graph: &node_graph::api::GraphState,
         mode: CaptureStartMode,
     ) -> Result<(), CaptureCoordinatorError> {
         self.start_session(feature, Some(graph), mode)
@@ -138,7 +138,7 @@ impl CaptureCoordinator {
     fn start_session(
         &mut self,
         feature: DiscoveredLiveCaptureFeature,
-        graph: Option<&node_graph::GraphState>,
+        graph: Option<&node_graph::api::GraphState>,
         mode: CaptureStartMode,
     ) -> Result<(), CaptureCoordinatorError> {
         if self.acquisition.is_active() {
@@ -308,7 +308,7 @@ impl CaptureCoordinatorContract for CaptureCoordinator {
 
     fn request_configuration_epoch(
         &mut self,
-        graph: node_graph::GraphState,
+        graph: node_graph::api::GraphState,
     ) -> Result<(), CaptureCoordinatorError> {
         if !self.projection.is_recording() {
             return Err(CaptureCoordinatorError::policy(
@@ -337,7 +337,7 @@ impl CaptureCoordinatorContract for CaptureCoordinator {
         self.acquisition.take_configuration_epoch_notice()
     }
 
-    fn replay_source_node(&self) -> Option<node_graph::NodeId> {
+    fn replay_source_node(&self) -> Option<node_graph::api::NodeId> {
         self.publication.replay_source_node()
     }
 

@@ -52,7 +52,7 @@ enum CaptureCommand {
     Abort,
     ForceTrigger,
     PrepareConfigurationEpoch {
-        graph: Box<node_graph::GraphState>,
+        graph: Box<node_graph::api::GraphState>,
         response: Sender<Result<WorkerPreparedConfigurationEpoch, CaptureCoordinatorError>>,
     },
     ResolveConfigurationEpoch {
@@ -79,7 +79,7 @@ struct ActiveCapture {
 }
 
 struct PendingConfigurationEpoch {
-    graph: node_graph::GraphState,
+    graph: node_graph::api::GraphState,
     response: Receiver<Result<WorkerPreparedConfigurationEpoch, CaptureCoordinatorError>>,
 }
 
@@ -139,7 +139,7 @@ impl CaptureAcquisition {
         &mut self,
         repository: CaptureSessionRepository,
         feature: DiscoveredLiveCaptureFeature,
-        graph: Option<&node_graph::GraphState>,
+        graph: Option<&node_graph::api::GraphState>,
         mode: CaptureStartMode,
     ) -> Result<CaptureStartProjection, CaptureCoordinatorError> {
         if self.is_active() {
@@ -337,7 +337,7 @@ impl CaptureAcquisition {
 
     pub(crate) fn request_configuration_epoch(
         &mut self,
-        graph: node_graph::GraphState,
+        graph: node_graph::api::GraphState,
     ) -> Result<(), CaptureCoordinatorError> {
         if self.pending_configuration_epoch.is_some()
             || self.configuration_epoch_preparation.is_some()

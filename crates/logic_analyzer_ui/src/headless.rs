@@ -24,7 +24,8 @@ use logic_analyzer_graph_runtime::{
     GraphRunContext, PreparedCapture, PreparedCaptureData, SourcePreparationStatus,
     SourcePreparationUpdate, SourceProcessOverrides,
 };
-use node_graph::{GraphState, NodeGraphWidget, NodeId};
+use node_graph::NodeGraphWidget;
+use node_graph::api::{GraphState, NodeId};
 
 use crate::app::supply_saved_timeline_cursors;
 use crate::app_services::{AppServiceParts, AppServices};

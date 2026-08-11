@@ -5,7 +5,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use logic_analyzer_trigger::{SimpleTriggerCondition, TriggerProgram};
-use node_graph::{
+use node_graph::api::{
     BoolValue, EnumValue, FloatValue, InlineControl, InlineControlContext, InputDef, IntValue,
     NodeBadge, NodeDef, OutputDef, PanelSection, PropDef, Socket,
 };
@@ -751,7 +751,7 @@ impl NodeDef for DsLogicU3Pro16 {
         vec![PropDef::control("summary", "", |state| &mut state.summary)]
     }
 
-    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+    fn panels() -> Vec<node_graph::api::NodePanelDef<Self::State>> {
         vec![crate::presentation::viewer_outputs_panel()]
     }
 
@@ -859,7 +859,7 @@ impl NodeDef for DsLogicU3Pro16 {
 #[cfg(test)]
 mod tests {
     use logic_analyzer_trigger::SimpleTriggerCondition::{Falling, High, Ignore};
-    use node_graph::{BadgeSeverity, NodeDef};
+    use node_graph::api::{BadgeSeverity, NodeDef};
 
     use super::super::trigger;
     use super::{
@@ -1043,7 +1043,7 @@ mod tests {
         saved["schema_version"] = serde_json::json!(3);
         saved.as_object_mut().unwrap().remove("duration");
         saved["duration_ms"] =
-            serde_json::to_value(node_graph::IntValue::new(2_000, 1, 60_000)).unwrap();
+            serde_json::to_value(node_graph::api::IntValue::new(2_000, 1, 60_000)).unwrap();
 
         let restored: U3Pro16State = serde_json::from_value(saved).unwrap();
 

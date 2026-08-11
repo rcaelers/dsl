@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use logic_analyzer_graph_plan::OutputSubscriptionPlan;
 use logic_analyzer_graph_runtime::{DerivedCacheClearStats, InlineSourcePreparationExecutor};
-use node_graph::GraphState;
+use node_graph::api::GraphState;
 use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 use platform_runtime::InlineWorkExecutor;
 use signal_derived::DecodedBlockCacheHandle;

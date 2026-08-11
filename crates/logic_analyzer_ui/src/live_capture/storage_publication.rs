@@ -44,18 +44,18 @@ pub(crate) struct CaptureApplicationMetadata {
     pub(crate) source_title: String,
     pub(crate) sample_rate_hz: f64,
     pub(crate) channel_names: Vec<String>,
-    pub(crate) graph: node_graph::GraphState,
+    pub(crate) graph: node_graph::api::GraphState,
     #[serde(default)]
     pub(crate) configuration_epochs: Vec<PersistedConfigurationEpoch>,
 }
 
 impl CaptureApplicationMetadata {
     pub(crate) fn new(
-        source_node: node_graph::NodeId,
+        source_node: node_graph::api::NodeId,
         source_title: String,
         sample_rate_hz: f64,
         channel_names: Vec<String>,
-        graph: node_graph::GraphState,
+        graph: node_graph::api::GraphState,
     ) -> Self {
         Self {
             format_version: APPLICATION_METADATA_VERSION,
@@ -76,7 +76,7 @@ pub(crate) struct PersistedConfigurationEpoch {
     pub(crate) source_sample: u64,
     pub(crate) analysis_sample: u64,
     pub(crate) timestamp_ns: u64,
-    pub(crate) graph: node_graph::GraphState,
+    pub(crate) graph: node_graph::api::GraphState,
     pub(crate) outcome: PersistedConfigurationEpochOutcome,
     pub(crate) message: Option<String>,
 }
@@ -95,7 +95,7 @@ pub(crate) struct PublishedCapture {
     pub(crate) _session_pin: CaptureSessionPin,
     pub(crate) capture: FinalizedCapture,
     pub(crate) waveform: GrowingCaptureIndex,
-    pub(crate) source_node: node_graph::NodeId,
+    pub(crate) source_node: node_graph::api::NodeId,
     pub(crate) graph_source_factory: Arc<dyn CaptureGraphSourceFactory>,
     pub(crate) recording_origin: Option<u64>,
     pub(crate) session_plan: Option<CaptureSessionPlan>,
@@ -366,7 +366,7 @@ impl CapturePublication {
         self.analysis_attachment.take()
     }
 
-    pub(crate) fn replay_source_node(&self) -> Option<node_graph::NodeId> {
+    pub(crate) fn replay_source_node(&self) -> Option<node_graph::api::NodeId> {
         self.completed.as_ref().map(|capture| capture.source_node)
     }
 
@@ -585,7 +585,7 @@ pub(crate) fn prepare_configuration_epoch(
     metadata: &mut Option<CaptureApplicationMetadata>,
     repository: &dyn ArtifactRepository,
     session_id: CaptureSessionId,
-    graph: node_graph::GraphState,
+    graph: node_graph::api::GraphState,
     store: &CaptureStore,
     recording_gate: &CaptureRecordingGate,
     sample_rate_hz: f64,

@@ -1,4 +1,4 @@
-use node_graph::EnumValue;
+use node_graph::api::EnumValue;
 
 const WORD_DISPLAY_FORMATS: &[&str] =
     &["Hex", "Binary", "Octal", "Decimal", "ASCII", "Hex + ASCII"];

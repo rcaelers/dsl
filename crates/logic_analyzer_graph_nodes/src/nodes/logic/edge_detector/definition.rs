@@ -3,7 +3,7 @@
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
-use node_graph::{
+use node_graph::api::{
     EnumValue, InputDef, IntValue, NodeBadge, NodeDef, OutputDef, PanelSection, PropDef, Socket,
 };
 
@@ -82,7 +82,7 @@ impl NodeDef for EdgeDetector {
         );
     }
 
-    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+    fn panels() -> Vec<node_graph::api::NodePanelDef<Self::State>> {
         vec![crate::presentation::viewer_outputs_panel()]
     }
 

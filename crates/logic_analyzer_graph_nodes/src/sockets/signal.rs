@@ -1,6 +1,6 @@
 use egui::Color32;
 
-use node_graph::SocketDef;
+use node_graph::api::SocketDef;
 
 /// Logic level stream (`Sample` at runtime): defined at every instant.
 pub(crate) struct Signal;

@@ -23,3 +23,16 @@ fn node_definition_and_registry_contain_no_decoder_host_special_cases() {
         }
     }
 }
+
+#[test]
+fn crate_root_exposes_only_editor_composition_not_api_or_implementation_facades() {
+    let root = include_str!("lib.rs");
+
+    for facade in ["api", "model", "runtime"] {
+        assert!(
+            !root.contains(&format!("pub use {facade}::")),
+            "node-graph crate root duplicates the canonical {facade} import path"
+        );
+    }
+    assert!(root.contains("pub use widget::{"));
+}

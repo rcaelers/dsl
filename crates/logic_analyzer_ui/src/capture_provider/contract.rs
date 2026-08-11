@@ -159,7 +159,7 @@ pub(crate) trait CaptureDataProvider {
 #[cfg(test)]
 mod contract_tests {
     use logic_analyzer_graph_runtime::{SourceReadiness, SourceReadinessRegistry};
-    use node_graph::NodeId;
+    use node_graph::api::NodeId;
 
     use super::*;
 

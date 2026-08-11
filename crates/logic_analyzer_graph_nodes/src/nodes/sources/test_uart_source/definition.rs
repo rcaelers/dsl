@@ -3,7 +3,7 @@
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
-use node_graph::{InputDef, IntValue, NodeDef, OutputDef, StringValue};
+use node_graph::api::{InputDef, IntValue, NodeDef, OutputDef, StringValue};
 
 use crate::sockets::{COLOR_SOURCES, Signal};
 
@@ -29,8 +29,10 @@ impl NodeDef for TestUartSource {
 
     fn inputs() -> Vec<InputDef<Self::State>> {
         vec![
-            InputDef::control::<node_graph::StrSocket>("Message", |state| &mut state.message),
-            InputDef::control::<node_graph::IntSocket>("Baud Rate", |state| &mut state.baud_rate),
+            InputDef::control::<node_graph::api::StrSocket>("Message", |state| &mut state.message),
+            InputDef::control::<node_graph::api::IntSocket>("Baud Rate", |state| {
+                &mut state.baud_rate
+            }),
         ]
     }
 
@@ -45,7 +47,7 @@ impl NodeDef for TestUartSource {
         }
     }
 
-    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+    fn panels() -> Vec<node_graph::api::NodePanelDef<Self::State>> {
         vec![crate::presentation::viewer_outputs_panel()]
     }
 }

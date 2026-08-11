@@ -19,8 +19,11 @@ impl HostService for FakeHostService {
         self.save_paths.pop_front().flatten()
     }
 
-    fn load_graph(&mut self, _path: &Path) -> Result<node_graph::GraphState, GraphDocumentError> {
-        Ok(node_graph::GraphState::default())
+    fn load_graph(
+        &mut self,
+        _path: &Path,
+    ) -> Result<node_graph::api::GraphState, GraphDocumentError> {
+        Ok(node_graph::api::GraphState::default())
     }
 
     fn save_graph(

@@ -1,6 +1,6 @@
 use egui::Color32;
 
-use node_graph::{FileValue, SocketDef, SocketWithControlDef};
+use node_graph::api::{FileValue, SocketDef, SocketWithControlDef};
 
 use super::text::Text;
 

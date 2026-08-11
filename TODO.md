@@ -276,12 +276,6 @@ promoting any item here, so acceptance comparisons remain evidence-based.
 - [node-graph.category-ordering] (P4 · low) Replace the `category.label == "External Sigrok"` sort key in
   `node_graph`'s add-menu construction with an ordering value supplied by the category metadata.
   It is the one place a generic widget branches on a protocol name.
-- [node-graph.single-import-path] (P4 · low) Stop re-exporting the whole `api` namespace from the `node_graph`
-  crate root. Both `node_graph::NodeDef` and `node_graph::api::NodeDef` resolve today, so the
-  documented split between the compiler-facing namespace and the editor facade is unenforced.
-  The crate root additionally re-exports `model::{GraphState, NodeId, …}` and `runtime::{…}`
-  directly, so the same types resolve through three paths, not two.
-
 ### Enforcement and documentation
 
 - [docs.ownership-statements] (P4 · low) State crate ownership positively. Large parts of

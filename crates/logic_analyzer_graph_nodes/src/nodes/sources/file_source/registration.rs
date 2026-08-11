@@ -14,7 +14,7 @@ inventory::submit! {
 
 #[cfg(test)]
 mod registration_tests {
-    use node_graph::NodeDef;
+    use node_graph::api::NodeDef;
 
     use super::super::definition::DslFileSource;
 

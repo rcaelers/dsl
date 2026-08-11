@@ -5,7 +5,7 @@ use egui::RichText;
 use logic_analyzer_graph_capabilities::node_support::{
     ViewerOutputPanelAction, ViewerOutputPanelModel,
 };
-use node_graph::{NodePanelDef, NodePanelPresentation, PanelContext};
+use node_graph::api::{NodePanelDef, NodePanelPresentation, PanelContext};
 
 struct ViewerOutputsPresentation;
 

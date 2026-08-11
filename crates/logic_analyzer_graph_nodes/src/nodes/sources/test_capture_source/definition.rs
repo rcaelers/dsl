@@ -5,7 +5,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use logic_analyzer_trigger::{SimpleTriggerCondition, TriggerProgram};
-use node_graph::{InputDef, NodeBadge, NodeDef, OutputDef};
+use node_graph::api::{InputDef, NodeBadge, NodeDef, OutputDef};
 
 use crate::sockets::{COLOR_SOURCES, Signal};
 
@@ -200,7 +200,7 @@ impl NodeDef for TestCaptureSource {
         TestCaptureSourceState::default()
     }
 
-    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+    fn panels() -> Vec<node_graph::api::NodePanelDef<Self::State>> {
         vec![crate::presentation::viewer_outputs_panel()]
     }
 
@@ -236,7 +236,7 @@ impl NodeDef for TestLiveCaptureSource {
         TestCaptureSourceState::default()
     }
 
-    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+    fn panels() -> Vec<node_graph::api::NodePanelDef<Self::State>> {
         vec![crate::presentation::viewer_outputs_panel()]
     }
 
@@ -249,7 +249,7 @@ impl NodeDef for TestLiveCaptureSource {
 mod tests {
     use logic_analyzer_trigger::SimpleTriggerCondition::{Falling, High, Ignore};
     use logic_analyzer_trigger::{SimpleTriggerCondition, TriggerPredicate, TriggerProgram};
-    use node_graph::NodeDef;
+    use node_graph::api::NodeDef;
 
     use super::{TEST_CAPTURE_CHANNELS, TestCaptureSource, TestCaptureSourceState};
 

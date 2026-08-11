@@ -5,7 +5,7 @@
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
-use node_graph::{
+use node_graph::api::{
     EnumValue, FileValue, InputDef, IntValue, NodeDef, OutputDef, PanelSection, PropDef,
     StringValue,
 };

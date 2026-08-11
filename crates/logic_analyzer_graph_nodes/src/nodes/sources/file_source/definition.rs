@@ -4,7 +4,7 @@ use egui::Color32;
 use serde::{Deserialize, Serialize};
 
 use logic_analyzer_capture_formats::dsl_file::{DslFileSourceConfig, DslFileSourceFactory};
-use node_graph::{
+use node_graph::api::{
     FileValue, InputDef, IntValue, NodeBadge, NodeDef, NodeInstanceSchema, OutputDef, Socket,
 };
 
@@ -88,7 +88,7 @@ impl NodeDef for DslFileSource {
         NodeInstanceSchema::new(Self::inputs(), outputs).panels(Self::panels())
     }
 
-    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+    fn panels() -> Vec<node_graph::api::NodePanelDef<Self::State>> {
         vec![crate::presentation::viewer_outputs_panel()]
     }
 

@@ -118,7 +118,7 @@ mod demo_graph_tests {
         std::hint::black_box(logic_analyzer_graph_nodes::link());
         let registry = logic_analyzer_ui::build_node_registry();
         for demo in EMBEDDED_DEMOS {
-            let graph: node_graph::GraphState = serde_json::from_str(demo.json).unwrap();
+            let graph: node_graph::api::GraphState = serde_json::from_str(demo.json).unwrap();
             for node in graph.nodes.values() {
                 assert!(
                     registry.category_of(node.def_name()).is_some(),

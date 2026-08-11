@@ -102,7 +102,10 @@ impl HostService for BrowserHostService {
         })
     }
 
-    fn load_graph(&mut self, path: &Path) -> Result<node_graph::GraphState, GraphDocumentError> {
+    fn load_graph(
+        &mut self,
+        path: &Path,
+    ) -> Result<node_graph::api::GraphState, GraphDocumentError> {
         let contents = self
             .documents
             .read_document(path)

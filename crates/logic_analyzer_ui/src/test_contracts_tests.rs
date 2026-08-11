@@ -6,7 +6,7 @@ use logic_analyzer_graph_capabilities::node_support::{
     ResolvedInputs,
 };
 use logic_analyzer_graph_registry::{GraphNodeRegistration, PayloadRegistration};
-use node_graph::{AnySocket, InputDef, NodeDef, NodeTypeRegistry, OutputDef};
+use node_graph::api::{AnySocket, InputDef, NodeDef, NodeTypeRegistry, OutputDef};
 use node_graph_document::SocketReference;
 use signal_derived::Word;
 use signal_runtime::ProcessNode;

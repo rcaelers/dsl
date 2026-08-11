@@ -289,7 +289,10 @@ pub trait HostService {
     ///
     /// # Parameters
     /// - `path`: File path returned by the host picker or command.
-    fn load_graph(&mut self, path: &Path) -> Result<node_graph::GraphState, GraphDocumentError>;
+    fn load_graph(
+        &mut self,
+        path: &Path,
+    ) -> Result<node_graph::api::GraphState, GraphDocumentError>;
 
     /// Persists a serialized graph document through the host adapter.
     ///

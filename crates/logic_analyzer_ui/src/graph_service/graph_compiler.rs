@@ -22,7 +22,7 @@ use logic_analyzer_graph_runtime::{
     LiveAnalysisSource, LiveRun, SourcePreparationExecutor, SourcePreparationStatus,
     SourcePreparationUpdate, SourceProcessOverrides, SourceReadinessRegistry,
 };
-use node_graph::{GraphState, NodeId};
+use node_graph::api::{GraphState, NodeId};
 use platform_runtime::WorkExecutor;
 use signal_derived::{DerivedLanes, PersistentStoreConfig};
 use signal_runtime::{AppManagerFactory, ConfigurationBoundary, DisconnectEvent};

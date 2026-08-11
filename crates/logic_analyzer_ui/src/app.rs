@@ -25,10 +25,11 @@ use logic_analyzer_viewer::{
     TimelineMarkerEdit as ViewerTimelineMarkerEdit, ViewerLaneGroupId, ViewerRowHeight,
     ViewerRowHeightSettings, ViewerRowId, WaveformPresentationRegistry,
 };
-use node_graph::{
-    GraphState, NodeBadge, NodeContextAction, NodeGraphWidget, NodeId, PanelDataProvider,
-    PanelTabDef, SocketDirection, SocketId, SocketIndicatorPresentation,
+use node_graph::api::{
+    GraphState, NodeBadge, NodeId, PanelDataProvider, PanelTabDef, SocketDirection, SocketId,
+    SocketIndicatorPresentation,
 };
+use node_graph::{NodeContextAction, NodeGraphWidget};
 use panel_layout::{BoundaryInteraction, PanelIcon, PanelLayout, PanelSlot, PanelSpec};
 use trigger_editor::{TriggerEditor, TriggerEditorChannel};
 
@@ -946,7 +947,10 @@ impl App {
     /// # Parameters
     /// - `cc`: Eframe creation context used to initialize UI resources.
     /// - `graph`: Initial persisted graph document to restore.
-    pub fn new_with_graph(cc: &eframe::CreationContext, graph: node_graph::GraphState) -> Self {
+    pub fn new_with_graph(
+        cc: &eframe::CreationContext,
+        graph: node_graph::api::GraphState,
+    ) -> Self {
         let mut app = Self::new(cc);
         app.apply_graph_document(graph);
         app
@@ -3823,7 +3827,9 @@ mod font_tests {
     use logic_analyzer_graph_plan::{
         CollectedOutputLane, CollectedOutputSubscription, CollectedTableSubscription,
     };
-    use node_graph::{GraphState, Node, NodeId, Socket, SocketIndicatorPresentation, SocketShape};
+    use node_graph::api::{
+        GraphState, Node, NodeId, Socket, SocketIndicatorPresentation, SocketShape,
+    };
     use signal_derived::Word;
 
     use super::{
@@ -3866,7 +3872,7 @@ mod font_tests {
             schema_id: "out".to_owned(),
             name: "Out".to_owned(),
             type_name: "Word".to_owned(),
-            color: node_graph::GraphColor::from_rgb(255, 255, 255),
+            color: node_graph::api::GraphColor::from_rgb(255, 255, 255),
             shape: SocketShape::Circle,
             allowed: Vec::new(),
             resolved_type: None,
@@ -4031,7 +4037,11 @@ mod font_tests {
     fn derived_lane_visibility_follows_node_delete_and_undo_without_losing_catalog_data() {
         let mut graph = GraphState::default();
         let node_id = graph.next_id();
-        let mut node = Node::blank(node_id, "Test Decoder", node_graph::GraphPosition::ZERO);
+        let mut node = Node::blank(
+            node_id,
+            "Test Decoder",
+            node_graph::api::GraphPosition::ZERO,
+        );
         node.outputs.push(output_socket());
         graph.add_node(node.clone());
         let catalog = vec![output_subscription(node_id)];

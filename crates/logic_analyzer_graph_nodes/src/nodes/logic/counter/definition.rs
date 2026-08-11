@@ -3,7 +3,7 @@
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
-use node_graph::{InputDef, IntValue, NodeDef, OutputDef, PanelSection, PropDef};
+use node_graph::api::{InputDef, IntValue, NodeDef, OutputDef, PanelSection, PropDef};
 
 use crate::sockets::{COLOR_LOGIC, Number, Trigger};
 
@@ -42,7 +42,7 @@ impl NodeDef for Counter {
         }
     }
 
-    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+    fn panels() -> Vec<node_graph::api::NodePanelDef<Self::State>> {
         vec![crate::presentation::viewer_outputs_panel()]
     }
 

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use logic_analyzer_graph_plan as plan;
-use node_graph::{GraphState, NodeId};
+use node_graph::api::{GraphState, NodeId};
 
 use crate::app::SavedViewerRow;
 use crate::decoder_panel::{DecoderPanels, DecoderTableRegistry};

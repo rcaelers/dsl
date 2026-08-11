@@ -16,7 +16,8 @@ use logic_analyzer_graph_runtime::{
     SourceProcessOverrides,
 };
 use logic_analyzer_protocol_decoders::types::{ProtocolPacket, ProtocolValue};
-use node_graph::{GraphState, NodeGraphWidget, NodeId, SocketDirection};
+use node_graph::NodeGraphWidget;
+use node_graph::api::{GraphState, NodeId, SocketDirection};
 use platform_artifacts::{
     ArtifactReplicationReceiver, ArtifactRepository, MemoryArtifactRepository,
 };

@@ -1,6 +1,6 @@
 use egui::Color32;
 
-use node_graph::{SocketDef, SocketShape};
+use node_graph::api::{SocketDef, SocketShape};
 
 /// Structured protocol events exchanged between independently authored decoders.
 pub(crate) struct ProtocolPackets;

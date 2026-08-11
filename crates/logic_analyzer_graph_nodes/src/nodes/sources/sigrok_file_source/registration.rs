@@ -14,7 +14,7 @@ inventory::submit! {
 
 #[cfg(test)]
 mod registration_tests {
-    use node_graph::NodeDef;
+    use node_graph::api::NodeDef;
 
     #[test]
     fn sigrok_file_source_registration_contract_accepts_demo_state() {

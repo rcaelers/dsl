@@ -6,7 +6,7 @@
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
-use node_graph::{
+use node_graph::api::{
     EnumValue, InputDef, IntValue, NodeDef, NodeInstanceSchema, OutputDef, PanelSection, PropDef,
     SocketDef,
 };
@@ -63,7 +63,7 @@ impl NodeDef for Buffer {
         }
     }
 
-    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+    fn panels() -> Vec<node_graph::api::NodePanelDef<Self::State>> {
         vec![crate::presentation::viewer_outputs_panel()]
     }
 
@@ -92,8 +92,7 @@ impl NodeDef for Buffer {
 
 #[cfg(test)]
 mod definition_tests {
-    use node_graph::api::GraphDocumentBuilder;
-    use node_graph::{NodeDef, NodeTypeRegistry};
+    use node_graph::api::{GraphDocumentBuilder, NodeDef, NodeTypeRegistry};
 
     use super::Buffer;
 

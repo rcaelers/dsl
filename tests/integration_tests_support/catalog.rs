@@ -1,6 +1,6 @@
 use logic_analyzer_graph_capabilities::node::GraphNodeSemantics;
 use logic_analyzer_graph_registry::{GraphNodeRegistration, graph_node_registrations};
-use node_graph::NodeTypeRegistry;
+use node_graph::api::NodeTypeRegistry;
 
 fn registration(stable_id: &str) -> &'static GraphNodeRegistration {
     logic_analyzer_graph_nodes::link();

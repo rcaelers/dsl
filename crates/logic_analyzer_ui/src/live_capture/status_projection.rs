@@ -15,7 +15,7 @@ use super::implementation::CaptureSessionStatus;
 /// Input needed to establish the UI projection for one newly started capture.
 pub(crate) struct CaptureStartProjection {
     pub(crate) session_id: CaptureSessionId,
-    pub(crate) source_node: node_graph::NodeId,
+    pub(crate) source_node: node_graph::api::NodeId,
     pub(crate) source_title: String,
     pub(crate) commands: signal_capture_session::CaptureCommandCapabilities,
     pub(crate) session_plan: Option<CaptureSessionPlan>,

@@ -1,6 +1,6 @@
 use egui::Color32;
 
-use node_graph::{SocketDef, SocketShape};
+use node_graph::api::{SocketDef, SocketShape};
 
 /// A persisted point on the shared graph timeline.
 pub(crate) struct TimelineMarker;

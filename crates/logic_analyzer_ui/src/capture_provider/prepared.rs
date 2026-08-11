@@ -2,7 +2,7 @@ use logic_analyzer_graph_runtime::{
     PreparedCaptureData, SourceDataKind, SourcePreparationStatus, SourcePreparationUpdate,
     SourceReadinessRegistry,
 };
-use node_graph::GraphState;
+use node_graph::api::GraphState;
 
 use super::contract::{
     CaptureArtifactUpdate, CaptureDataProvider, CapturePresentationUpdate, CaptureProviderError,

@@ -3,7 +3,7 @@
 
 use egui::Color32;
 
-use node_graph::{InputDef, NodeDef, OutputDef};
+use node_graph::api::{InputDef, NodeDef, OutputDef};
 
 use crate::sockets::{COLOR_OUTPUT, Text};
 

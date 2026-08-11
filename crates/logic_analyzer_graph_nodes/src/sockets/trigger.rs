@@ -1,6 +1,6 @@
 use egui::Color32;
 
-use node_graph::{SocketDef, SocketShape};
+use node_graph::api::{SocketDef, SocketShape};
 
 /// Instantaneous events with no payload beyond time (`TimestampEvent` at runtime).
 pub(crate) struct Trigger;

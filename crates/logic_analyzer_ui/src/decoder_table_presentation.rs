@@ -1,6 +1,6 @@
 use logic_analyzer_graph_plan::CollectedTableSubscription;
 use logic_analyzer_viewer::{DerivedLaneId, ViewerLaneTrackId, viewer_lane_renderer};
-use node_graph::NodeId;
+use node_graph::api::NodeId;
 
 use crate::decoder_panel::{DecoderTableColumn, DecoderTableRegistry, DecoderTableSource};
 use crate::presentation_catalogs::PresentationBindingError;

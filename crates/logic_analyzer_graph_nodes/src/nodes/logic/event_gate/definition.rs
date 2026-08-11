@@ -3,7 +3,7 @@
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
-use node_graph::{EnumValue, InputDef, NodeDef, OutputDef, PanelSection, PropDef};
+use node_graph::api::{EnumValue, InputDef, NodeDef, OutputDef, PanelSection, PropDef};
 
 use crate::sockets::{COLOR_LOGIC, Signal, Trigger};
 
@@ -46,7 +46,7 @@ impl NodeDef for EventGate {
         }
     }
 
-    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+    fn panels() -> Vec<node_graph::api::NodePanelDef<Self::State>> {
         vec![crate::presentation::viewer_outputs_panel()]
     }
 

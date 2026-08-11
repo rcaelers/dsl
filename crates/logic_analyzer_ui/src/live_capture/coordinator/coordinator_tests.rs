@@ -9,7 +9,7 @@ use logic_analyzer_graph_capabilities::node::{
 use logic_analyzer_graph_capabilities::node_support::SimpleTriggerChannel;
 use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
 use logic_analyzer_trigger::SimpleTriggerCondition;
-use node_graph::NodeId;
+use node_graph::api::NodeId;
 use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 use platform_runtime::WorkExecutor;
 use signal_capture::CaptureChannelId;
@@ -681,7 +681,7 @@ fn raw_only_capture_completes_after_its_analysis_attachment_is_dropped() {
 
 #[test]
 fn starting_a_new_capture_discards_the_previous_store_and_index() {
-    let graph = node_graph::GraphState::default();
+    let graph = node_graph::api::GraphState::default();
     let (feature, first_controller) = manual_feature();
     let mut coordinator = CaptureCoordinator::new();
     coordinator
@@ -745,7 +745,7 @@ fn immediate_capture_uses_commands_and_restores_editing_after_finalization() {
 fn configuration_epoch_is_persisted_before_runtime_application_and_resolved() {
     let (feature, controller) = manual_feature();
     let mut coordinator = CaptureCoordinator::new();
-    let graph = node_graph::GraphState::default();
+    let graph = node_graph::api::GraphState::default();
     coordinator
         .start_with_graph(feature, &graph, CaptureStartMode::SavedPolicy)
         .unwrap();
@@ -815,7 +815,7 @@ fn configuration_epoch_is_persisted_before_runtime_application_and_resolved() {
 fn interrupted_pending_configuration_epoch_recovers_as_failed() {
     let (feature, controller) = manual_feature();
     let mut coordinator = CaptureCoordinator::new();
-    let graph = node_graph::GraphState::default();
+    let graph = node_graph::api::GraphState::default();
     coordinator
         .start_with_graph(feature, &graph, CaptureStartMode::SavedPolicy)
         .unwrap();

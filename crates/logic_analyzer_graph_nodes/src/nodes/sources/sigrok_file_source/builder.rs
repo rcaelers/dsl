@@ -194,7 +194,7 @@ mod builder_tests {
     use std::sync::Mutex;
 
     use logic_analyzer_capture_formats::CaptureSourceConstructionError;
-    use node_graph::NodeDef;
+    use node_graph::api::NodeDef;
     use signal_capture::IndexedCapturePresentation;
     use signal_capture_session::{
         CaptureSourceCacheIdentity, CaptureSourceKind, CaptureSourceLifecycle,

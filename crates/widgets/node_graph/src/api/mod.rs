@@ -26,7 +26,7 @@
 //! graph document for lowering and persists the result of its synchronization API.
 //!
 //! ```ignore
-//! let mut registry = node_graph::NodeTypeRegistry::new();
+//! let mut registry = node_graph::api::NodeTypeRegistry::new();
 //! registry.register::<MyNode>();
 //! let mut widget = node_graph::NodeGraphWidget::new(registry);
 //! // In the egui frame:
@@ -107,7 +107,8 @@ pub use panel::{
 pub use socket::{SocketDef, SocketWithControlDef};
 
 pub use crate::model::{
-    Connection, GraphColor, GraphMetadata, GraphPosition, GraphState, Node, NodeId, NodeKind,
-    Socket, SocketDirection, SocketId, SocketReference, SocketShape, VariadicInfo,
+    BadgeSeverity, Connection, Frame, FrameId, GraphColor, GraphMetadata, GraphPosition,
+    GraphState, Node, NodeBadge, NodeId, NodeKind, NodeMetadata, Socket, SocketDirection, SocketId,
+    SocketReference, SocketShape, VariadicInfo,
 };
 pub use crate::runtime::{NodeTemplate, NodeTypeRegistry, SocketTypeStyle};

@@ -5,7 +5,7 @@ use logic_analyzer_graph_capabilities::node_support::{
 };
 use logic_analyzer_graph_compiler::DiscoveredTimelineMarker;
 use logic_analyzer_viewer::TimelineMarker as ViewerTimelineMarker;
-use node_graph::NodeId;
+use node_graph::api::NodeId;
 
 /// Owns the identity and diagnostic state for graph-backed timeline markers.
 ///

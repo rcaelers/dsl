@@ -21,7 +21,7 @@ use logic_analyzer_graph_plan::OutputSubscriptionPlan;
 use logic_analyzer_graph_registry::{
     GraphRegistry, graph_node_registrations, payload_registrations,
 };
-use node_graph::{GraphState, NodeId, NodeKind, SocketDirection, SocketId};
+use node_graph::api::{GraphState, NodeId, NodeKind, SocketDirection, SocketId};
 
 const EXTENSION: &str = "logic_analyzer_graph.viewer_selections";
 const VERSION: u32 = 1;

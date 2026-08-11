@@ -1,6 +1,6 @@
 use egui::Color32;
 
-use node_graph::SocketDef;
+use node_graph::api::SocketDef;
 
 /// Integer level stream (`NumberSample` at runtime).
 pub(crate) struct Number;

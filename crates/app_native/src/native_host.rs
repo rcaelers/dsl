@@ -7,7 +7,7 @@ use logic_analyzer_ui::{
     APPLICATION_ID, ApplicationSettings, GraphDocumentError, HostCommand, HostService,
     HostUiCapabilities, ModifierKeyLabels, OpenDialog, SaveDialog, default_input_bindings,
 };
-use node_graph::{FileDialogRequest, FileDialogService};
+use node_graph::api::{FileDialogRequest, FileDialogService};
 use platform::{FileDialogFilter, FileOpenDialog, FileSaveDialog, NativeDocumentHost};
 
 #[cfg(target_os = "macos")]
@@ -144,7 +144,10 @@ impl HostService for NativeHostService {
         })
     }
 
-    fn load_graph(&mut self, path: &Path) -> Result<node_graph::GraphState, GraphDocumentError> {
+    fn load_graph(
+        &mut self,
+        path: &Path,
+    ) -> Result<node_graph::api::GraphState, GraphDocumentError> {
         let json = self
             .documents
             .read(path)

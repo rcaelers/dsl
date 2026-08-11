@@ -190,7 +190,7 @@ impl GraphNodePresentation for ParallelDecoderBuilder {
 
 #[cfg(test)]
 mod builder_tests {
-    use node_graph::NodeDef;
+    use node_graph::api::NodeDef;
 
     use super::super::definition::ParallelDecoder;
     use super::*;

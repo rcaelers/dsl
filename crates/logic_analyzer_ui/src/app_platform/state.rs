@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use node_graph::NodeId;
+use node_graph::api::NodeId;
 
 pub(crate) enum FileCommand {
     New,

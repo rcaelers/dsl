@@ -128,7 +128,9 @@ pub fn sigrok_decoder_capability_override(
 }
 
 /// Builds graph-node templates from portable Sigrok discovery metadata.
-pub fn sigrok_node_templates(snapshot: &SigrokCatalogSnapshot) -> Vec<node_graph::NodeTemplate> {
+pub fn sigrok_node_templates(
+    snapshot: &SigrokCatalogSnapshot,
+) -> Vec<node_graph::api::NodeTemplate> {
     crate::nodes::decoders::sigrok_decoder::definition::node_templates(snapshot)
 }
 

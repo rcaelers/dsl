@@ -1,6 +1,6 @@
 use logic_analyzer_graph_plan::SamplingOverlayCandidate;
 use logic_analyzer_graph_runtime::DerivedCacheClearTask;
-use node_graph::GraphState;
+use node_graph::api::GraphState;
 
 use crate::graph_service::{
     GraphRevisionPreparationTask, GraphRun, GraphRunFailure, PreparedGraphRevision, UiGraphService,

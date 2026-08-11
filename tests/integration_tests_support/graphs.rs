@@ -1,6 +1,7 @@
 use egui::Pos2;
 
-use node_graph::{NodeGraphWidget, NodeId, SocketDirection, SocketId};
+use node_graph::NodeGraphWidget;
+use node_graph::api::{NodeId, SocketDirection, SocketId};
 
 use super::catalog::node_name;
 

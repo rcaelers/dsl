@@ -9,7 +9,7 @@ use logic_analyzer_viewer::{
 use crate::presentation_catalogs::PresentationBindingError;
 
 struct PendingGroup {
-    source_node: node_graph::NodeId,
+    source_node: node_graph::api::NodeId,
     key: String,
     label: String,
     badge: ViewerLaneBadge,
@@ -123,7 +123,7 @@ mod collected_output_presentation_tests {
     };
     use logic_analyzer_graph_plan::CollectedOutputLane;
     use logic_analyzer_viewer::{DefaultViewerLaneRenderer, ViewerLaneRendererRegistration};
-    use node_graph::NodeId;
+    use node_graph::api::NodeId;
     use signal_derived::Word;
 
     use super::*;

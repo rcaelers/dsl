@@ -8,7 +8,7 @@ use logic_analyzer_protocol_decoders::sigrok_decoder::{
     SigrokCatalogEntry, SigrokCatalogScanner, SigrokCatalogSnapshot, SigrokDecoderDescriptor,
     SigrokOutputKind, SigrokScalarValue,
 };
-use node_graph::{
+use node_graph::api::{
     BoolValue, EnumValue, FloatValue, InlineControl, InlineControlContext, InputDef, IntValue,
     NodeBadge, NodeDef, NodeInstanceSchema, NodeTemplate, OutputDef, PanelSection, PropDef, Socket,
     StringValue,
@@ -489,7 +489,7 @@ impl NodeDef for SigrokDecoderDefinition {
             .panels(Self::panels())
     }
 
-    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+    fn panels() -> Vec<node_graph::api::NodePanelDef<Self::State>> {
         vec![crate::presentation::viewer_outputs_panel()]
     }
 

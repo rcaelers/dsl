@@ -2,7 +2,7 @@
 
 use egui::Color32;
 
-use node_graph::{InputDef, NodeBadge, NodeDef, NodePanelDef, OutputDef, PanelSection};
+use node_graph::api::{InputDef, NodeBadge, NodeDef, NodePanelDef, OutputDef, PanelSection};
 
 use super::definition::{ParallelDecoder, ParallelDecoderState};
 use crate::sockets::{COLOR_DECODERS, Signal, Words};

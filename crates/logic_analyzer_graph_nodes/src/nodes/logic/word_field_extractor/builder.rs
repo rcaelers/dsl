@@ -80,7 +80,7 @@ impl GraphNodePresentation for WordFieldExtractorBuilder {
 
 #[cfg(test)]
 mod builder_tests {
-    use node_graph::NodeDef;
+    use node_graph::api::NodeDef;
     use node_graph_document::SocketDirection;
 
     use super::super::definition::WordFieldExtractor as WordFieldExtractorDef;

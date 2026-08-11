@@ -1042,7 +1042,7 @@ ui_host_contract = File.read(File.join(
   "crates/logic_analyzer_ui/src/host_service/contract.rs"
 ))
 unless ui_host_contract.match?(/pub enum GraphDocumentError\s*\{/) &&
-       ui_host_contract.match?(/fn load_graph\b.*?Result<node_graph::GraphState,\s*GraphDocumentError>/m) &&
+       ui_host_contract.match?(/fn load_graph\b.*?Result<node_graph::api::GraphState,\s*GraphDocumentError>/m) &&
        ui_host_contract.match?(/fn save_graph\b.*?Result<\(\),\s*GraphDocumentError>/m)
   errors << "crates/logic_analyzer_ui/src/host_service/contract.rs: graph persistence must retain GraphDocumentError"
 end

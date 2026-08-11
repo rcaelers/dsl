@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use node_graph::NodeId;
+use node_graph::api::NodeId;
 
 use super::confirmation_dialog::{
     ACCENT_COLOR, ConfirmationChoice, DESTRUCTIVE_BUTTON_COLOR, DESTRUCTIVE_TEXT_COLOR,

@@ -1,6 +1,6 @@
 use egui::Color32;
 
-use node_graph::SocketDef;
+use node_graph::api::SocketDef;
 
 /// Text level stream (`TextSample` at runtime).
 pub(crate) struct Text;

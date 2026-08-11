@@ -2,7 +2,7 @@
 
 use egui::Color32;
 
-use node_graph::{InputDef, NodeDef, OutputDef};
+use node_graph::api::{InputDef, NodeDef, OutputDef};
 
 use crate::sockets::{COLOR_DECODERS, ProtocolPackets, Signal, Words};
 
@@ -36,7 +36,7 @@ impl NodeDef for I2cDecoder {
 
     fn state() -> Self::State {}
 
-    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+    fn panels() -> Vec<node_graph::api::NodePanelDef<Self::State>> {
         vec![crate::presentation::viewer_outputs_panel()]
     }
 }

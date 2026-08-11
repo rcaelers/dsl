@@ -4,7 +4,7 @@ use logic_analyzer_graph_editor_registry::{
     GraphNodeEditorOverride, graph_node_editor_registrations,
 };
 use logic_analyzer_graph_registry::graph_node_registrations;
-use node_graph::NodeTypeRegistry;
+use node_graph::api::NodeTypeRegistry;
 
 use crate::viewer_selection::LEGACY_VIEWER_NODE_ID;
 

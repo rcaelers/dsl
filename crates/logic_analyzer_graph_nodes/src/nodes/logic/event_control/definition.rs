@@ -3,7 +3,7 @@
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
-use node_graph::{InputDef, IntValue, NodeDef, OutputDef, PanelSection, PropDef, Socket};
+use node_graph::api::{InputDef, IntValue, NodeDef, OutputDef, PanelSection, PropDef, Socket};
 
 use crate::sockets::{COLOR_LOGIC, Trigger};
 
@@ -50,7 +50,7 @@ impl NodeDef for EventControl {
         }
     }
 
-    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+    fn panels() -> Vec<node_graph::api::NodePanelDef<Self::State>> {
         vec![crate::presentation::viewer_outputs_panel()]
     }
 
@@ -75,7 +75,7 @@ impl NodeDef for EventControl {
 
 #[cfg(test)]
 mod definition_tests {
-    use node_graph::NodeDef;
+    use node_graph::api::NodeDef;
 
     use super::EventControl;
 

@@ -3,7 +3,7 @@
 use egui::{Align, Color32, Layout, Rect, Ui};
 use serde::{Deserialize, Deserializer, Serialize};
 
-use node_graph::{
+use node_graph::api::{
     EnumValue, InlineControl, InlineControlContext, InputDef, NodeBadge, NodeDef, OutputDef,
     PanelSection, PropDef, StringValue,
 };
@@ -301,8 +301,8 @@ impl NodeDef for CursorMarker {
 
     fn on_update(
         state: &mut Self::State,
-        _inputs: &mut [node_graph::Socket],
-        _outputs: &mut [node_graph::Socket],
+        _inputs: &mut [node_graph::api::Socket],
+        _outputs: &mut [node_graph::api::Socket],
     ) {
         if state.cursor.migrated_from_numeric {
             state.compatibility_warning = Some(
@@ -361,7 +361,7 @@ impl NodeDef for MarkerToTrigger {
 
     fn state() -> Self::State {}
 
-    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+    fn panels() -> Vec<node_graph::api::NodePanelDef<Self::State>> {
         vec![crate::presentation::viewer_outputs_panel()]
     }
 }
@@ -402,7 +402,7 @@ impl NodeDef for MarkerRelation {
         }
     }
 
-    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+    fn panels() -> Vec<node_graph::api::NodePanelDef<Self::State>> {
         vec![crate::presentation::viewer_outputs_panel()]
     }
 
@@ -446,14 +446,14 @@ impl NodeDef for MarkerWindow {
 
     fn state() -> Self::State {}
 
-    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+    fn panels() -> Vec<node_graph::api::NodePanelDef<Self::State>> {
         vec![crate::presentation::viewer_outputs_panel()]
     }
 }
 
 #[cfg(test)]
 mod definition_tests {
-    use node_graph::NodeDef;
+    use node_graph::api::NodeDef;
 
     use super::*;
 

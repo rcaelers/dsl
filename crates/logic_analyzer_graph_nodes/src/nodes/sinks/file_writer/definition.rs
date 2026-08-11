@@ -3,7 +3,7 @@
 use egui::Color32;
 use serde::{Deserialize, Serialize};
 
-use node_graph::{
+use node_graph::api::{
     BoolValue, EnumValue, FileValue, InputDef, NodeDef, OutputDef, PanelSection, PropDef,
 };
 

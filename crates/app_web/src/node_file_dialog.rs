@@ -1,6 +1,6 @@
 //! Adaptation of the browser file-picker mechanism to the node widget port.
 
-use node_graph::{
+use node_graph::api::{
     DroppedFile, FileDialogError, FileDialogProgress, FileDialogRequest, FileDialogService,
 };
 use platform::{
@@ -84,7 +84,7 @@ mod node_file_dialog_tests {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
-    use node_graph::{DroppedFile, FileDialogFilter, FileDialogRequest, FileDialogService};
+    use node_graph::api::{DroppedFile, FileDialogFilter, FileDialogRequest, FileDialogService};
     use platform::{
         DroppedFileData, FilePickerError, FilePickerProgress, FilePickerRequest, FilePickerService,
         FileReference,

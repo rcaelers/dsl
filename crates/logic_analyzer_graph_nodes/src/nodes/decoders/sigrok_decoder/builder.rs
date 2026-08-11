@@ -365,7 +365,7 @@ mod builder_tests {
     use std::sync::Mutex;
 
     use logic_analyzer_graph_capabilities::node_support::ResolvedInput;
-    use node_graph::NodeId;
+    use node_graph::api::NodeId;
 
     use super::*;
     use crate::nodes::test_support::{

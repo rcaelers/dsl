@@ -10,7 +10,7 @@ use logic_analyzer_protocol_decoders::sigrok_decoder::{
     SigrokCatalogError, SigrokCatalogScanner, SigrokCatalogSnapshot,
 };
 use logic_analyzer_ui::{NodeCatalogService, NodeCatalogSnapshot};
-use node_graph::NodeTemplate;
+use node_graph::api::NodeTemplate;
 use platform::{DocumentError, NativeDocumentHost};
 use platform_runtime::{WorkExecutor, WorkTask};
 

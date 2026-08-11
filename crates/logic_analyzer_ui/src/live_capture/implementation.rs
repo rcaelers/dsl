@@ -1,4 +1,4 @@
-use node_graph::{GraphState, NodeId};
+use node_graph::api::{GraphState, NodeId};
 use signal_capture::CaptureIndex;
 use signal_capture_session::{
     CaptureAcquisitionPhase, CaptureCommandCapabilities, CaptureCompletion, CaptureHealth,
@@ -90,7 +90,7 @@ pub(crate) struct PreparedConfigurationEpoch {
     pub(crate) epoch_id: u64,
     pub(crate) source_sample: u64,
     pub(crate) boundary: signal_runtime::ConfigurationBoundary,
-    pub(crate) graph: node_graph::GraphState,
+    pub(crate) graph: node_graph::api::GraphState,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -112,7 +112,7 @@ pub(crate) trait CaptureCoordinatorContract {
     fn take_analysis_attachment(&mut self) -> Option<CaptureAnalysisAttachment>;
     fn request_configuration_epoch(
         &mut self,
-        _graph: node_graph::GraphState,
+        _graph: node_graph::api::GraphState,
     ) -> Result<(), CaptureCoordinatorError> {
         Err(CaptureCoordinatorError::policy(
             "live configuration epochs are unavailable on this platform",

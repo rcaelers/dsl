@@ -29,7 +29,8 @@ use logic_analyzer_protocol_decoders::types::CsPolarity;
 use logic_analyzer_viewer::{
     LogicAnalyzerViewer, ViewerLaneBadge, WaveformPresentationRegistry, viewer_lane_renderer,
 };
-use node_graph::{NodeGraphWidget, NodeId, SocketDirection, SocketId};
+use node_graph::NodeGraphWidget;
+use node_graph::api::{NodeId, SocketDirection, SocketId};
 use platform_artifacts::{
     ArtifactKey, ArtifactMetadata, ArtifactNamespace, ArtifactRepository, MemoryArtifactRepository,
     ReadArtifact, RepositoryCapabilities, RepositoryError, SourceIdentity, WriteArtifact,

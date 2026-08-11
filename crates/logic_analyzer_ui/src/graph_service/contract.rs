@@ -8,7 +8,7 @@ use logic_analyzer_graph_plan::{
 use logic_analyzer_graph_runtime::{
     ApplyError, ApplySummary, GraphRunContext, SourceReadinessRegistry,
 };
-use node_graph::{GraphState, NodeId};
+use node_graph::api::{GraphState, NodeId};
 use signal_derived::PersistentStoreConfig;
 use signal_runtime::{ConfigurationBoundary, DisconnectEvent, NodeFailure};
 

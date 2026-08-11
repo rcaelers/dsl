@@ -16,8 +16,7 @@ inventory::submit! {
 #[cfg(test)]
 mod registration_tests {
     use logic_analyzer_graph_capabilities::node::GraphNodeSemantics;
-    use node_graph::NodeDef;
-    use node_graph::api::{GraphDocumentBuilder, NodeTypeRegistry, SocketDirection};
+    use node_graph::api::{GraphDocumentBuilder, NodeDef, NodeTypeRegistry, SocketDirection};
 
     use super::super::builder::SigrokDecoderBuilder;
     use super::super::definition::{SigrokDecoderDefinition, SigrokDecoderState};

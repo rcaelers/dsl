@@ -3,7 +3,7 @@
 use egui::{Align, Color32, Layout, Rect, Ui, Vec2};
 use serde::{Deserialize, Serialize};
 
-use node_graph::{
+use node_graph::api::{
     EnumValue, InlineControl, InlineControlContext, InputDef, IntValue, NodeBadge, NodeDef,
     NodeInstanceSchema, OutputDef, PanelSection, PropDef, Socket,
 };
@@ -186,7 +186,7 @@ impl NodeDef for WordMatcher {
             .panels(Self::panels())
     }
 
-    fn panels() -> Vec<node_graph::NodePanelDef<Self::State>> {
+    fn panels() -> Vec<node_graph::api::NodePanelDef<Self::State>> {
         vec![crate::presentation::viewer_outputs_panel()]
     }
 
@@ -319,7 +319,7 @@ fn predicate_panel(state: &WordMatcherState) -> Vec<PanelSection<WordMatcherStat
 
 #[cfg(test)]
 mod definition_tests {
-    use node_graph::NodeDef;
+    use node_graph::api::NodeDef;
 
     use super::*;
 

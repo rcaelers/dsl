@@ -1,5 +1,5 @@
 use logic_analyzer_graph_compiler::DiscoveredTriggerConfiguration;
-use node_graph::GraphState;
+use node_graph::api::GraphState;
 
 use crate::graph_service::GraphRun;
 use crate::live_capture::{CaptureAvailability, CaptureCoordinator};

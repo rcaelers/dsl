@@ -1,6 +1,6 @@
 use egui::Color32;
 
-use node_graph::{SocketDef, SocketShape};
+use node_graph::api::{SocketDef, SocketShape};
 
 /// Decoded word events (`Word` at runtime).
 pub(crate) struct Words;
