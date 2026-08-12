@@ -20,7 +20,7 @@
 //! # Getting started
 //!
 //! An embedder registers each supported [`NodeDef`] with a
-//! [`crate::NodeTypeRegistry`], then gives that registry to a
+//! [`NodeTypeRegistry`], then gives that registry to a
 //! [`crate::NodeGraphWidget`]. The widget owns the editable [`GraphState`] document,
 //! undo history, clipboard, interaction, and built-in Node panel. The host reads the
 //! graph document for lowering and persists the result of its synchronization API.
