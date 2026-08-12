@@ -32,9 +32,9 @@ mod worker_runtime;
 pub use contracts::{
     BlockCaptureSource, BlockData, CaptureDataSource, CaptureFingerprint, CaptureIndex,
     CaptureIndexBuildProfile, CaptureIndexBuildProgress, CaptureIndexFactory, CaptureIndexOpenStep,
-    CaptureIndexOpenTask, CaptureMetadata, CaptureSampledChannel, CaptureSampledWindow,
-    CaptureSampledWindowPoll, CaptureSource, CaptureTransition, CaptureWaveformSegment,
-    IndexedCapturePresentation, packed_bit,
+    CaptureIndexOpenTask, CaptureMetadata, CaptureReaderPurpose, CaptureSampledChannel,
+    CaptureSampledWindow, CaptureSampledWindowPoll, CaptureSource, CaptureTransition,
+    CaptureWaveformSegment, IndexedCapturePresentation, packed_bit,
 };
 pub use host_protocol::{
     CaptureWorkerMessage, CaptureWorkerReplayBlock, CaptureWorkerReplayRequest,

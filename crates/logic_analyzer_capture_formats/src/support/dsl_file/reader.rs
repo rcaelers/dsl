@@ -10,9 +10,10 @@ use platform_artifacts::{PreparedByteSource, SourceIdentity};
 use signal_capture::CaptureSampledWindow;
 use signal_capture::{
     BlockCaptureSource, BlockData, CaptureDataSource, CaptureFingerprint, CaptureMetadata,
-    CaptureSource, Error, IndexSampler, Result,
+    CaptureReaderPurpose, CaptureSource, Error, IndexSampler, Result,
 };
 
+use crate::dsl_file::{ArchiveWorkPhase, ArchiveWorkRecorder, active_archive_work};
 use crate::support::capture_archive::{CaptureArchive, ZipCaptureArchive};
 use crate::support::capture_format::{get_packed_bit, parse_sample_rate};
 
@@ -27,6 +28,7 @@ pub(crate) struct DslCaptureReader {
     cache: HashMap<(usize, u64), BlockData>,
     cache_order: VecDeque<(usize, u64)>,
     max_cached_blocks: usize,
+    attribution: Option<ArchiveWorkRecorder>,
 }
 
 impl DslCaptureReader {
@@ -39,11 +41,22 @@ impl DslCaptureReader {
     /// [`DslCaptureReader::with_max_cached_blocks`].
     const DEFAULT_MAX_CACHED_BLOCKS: usize = 1;
 
-    pub(crate) fn open_source(source: &dyn PreparedByteSource) -> Result<Self> {
-        Self::from_archive(Box::new(ZipCaptureArchive::open_source(source)?))
+    pub(crate) fn open_source(
+        source: &dyn PreparedByteSource,
+        purpose: CaptureReaderPurpose,
+    ) -> Result<Self> {
+        let phase = archive_phase(purpose);
+        let attribution = active_archive_work(source.identity(), phase);
+        Self::from_archive_with_attribution(
+            Box::new(ZipCaptureArchive::open_attributed_source(source, phase)?),
+            attribution,
+        )
     }
 
-    pub(crate) fn from_archive(mut archive: Box<dyn CaptureArchive>) -> Result<Self> {
+    fn from_archive_with_attribution(
+        mut archive: Box<dyn CaptureArchive>,
+        attribution: Option<ArchiveWorkRecorder>,
+    ) -> Result<Self> {
         let header = parse_header(archive.as_mut())?;
 
         Ok(Self {
@@ -52,7 +65,14 @@ impl DslCaptureReader {
             cache: HashMap::new(),
             cache_order: VecDeque::new(),
             max_cached_blocks: Self::DEFAULT_MAX_CACHED_BLOCKS,
+            attribution,
         })
+    }
+
+    fn set_purpose(&mut self, identity: SourceIdentity, purpose: CaptureReaderPurpose) {
+        let attribution = active_archive_work(identity, archive_phase(purpose));
+        self.archive.set_attribution(attribution.clone());
+        self.attribution = attribution;
     }
 
     #[cfg(test)]
@@ -96,8 +116,14 @@ impl DslCaptureReader {
 
     fn read_block_cached(&mut self, key: (usize, u64)) -> Result<BlockData> {
         if let Some(data) = self.cache.get(&key).cloned() {
+            if let Some(attribution) = &self.attribution {
+                attribution.record_cache(true);
+            }
             self.touch_cache_key(key);
             return Ok(data);
+        }
+        if let Some(attribution) = &self.attribution {
+            attribution.record_cache(false);
         }
 
         let (channel, block_num) = key;
@@ -172,7 +198,8 @@ impl DslFileCaptureDataSource {
             .open_reader()
             .and_then(|reader| reader.len())
             .map_err(|error| Error::ParseError(error.to_string()))?;
-        let mut archive = ZipCaptureArchive::open_source(source.as_ref())?;
+        let mut archive =
+            ZipCaptureArchive::open_attributed_source(source.as_ref(), ArchiveWorkPhase::Metadata)?;
         let header = parse_header(&mut archive)?;
         Ok(Self {
             source,
@@ -186,8 +213,12 @@ impl DslFileCaptureDataSource {
 impl CaptureDataSource for DslFileCaptureDataSource {
     type Reader = DslCaptureReader;
 
-    fn open_reader(&self) -> Result<Self::Reader> {
-        DslCaptureReader::open_source(self.source.as_ref())
+    fn open_reader(&self, purpose: CaptureReaderPurpose) -> Result<Self::Reader> {
+        DslCaptureReader::open_source(self.source.as_ref(), purpose)
+    }
+
+    fn set_reader_purpose(&self, reader: &mut Self::Reader, purpose: CaptureReaderPurpose) {
+        reader.set_purpose(self.source.identity(), purpose);
     }
 
     fn metadata(&self) -> &CaptureMetadata {
@@ -208,6 +239,14 @@ impl CaptureDataSource for DslFileCaptureDataSource {
 
     fn display_name(&self) -> String {
         self.display_name.clone()
+    }
+}
+
+fn archive_phase(purpose: CaptureReaderPurpose) -> ArchiveWorkPhase {
+    match purpose {
+        CaptureReaderPurpose::IndexBuild => ArchiveWorkPhase::WaveformIndex,
+        CaptureReaderPurpose::PresentationQuery => ArchiveWorkPhase::PresentationQuery,
+        CaptureReaderPurpose::RuntimeDelivery => ArchiveWorkPhase::RuntimeDelivery,
     }
 }
 

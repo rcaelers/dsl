@@ -303,6 +303,16 @@ pub trait BlockCaptureSource: CaptureSource {
 /// File formats, live captures, and generated/test data should implement this
 /// boundary. The indexer only uses this trait; it does not know how the source
 /// is opened, reloaded, or backed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaptureReaderPurpose {
+    /// Reads performed while constructing a finite waveform index.
+    IndexBuild,
+    /// Exact/raw reads performed for an interactive presentation query.
+    PresentationQuery,
+    /// Reads performed while delivering capture data to a processing runtime.
+    RuntimeDelivery,
+}
+
 pub trait CaptureDataSource: Clone + Send + Sync + 'static {
     /// Reader type opened for one source revision.
     type Reader: BlockCaptureSource + Send + 'static;
@@ -312,7 +322,11 @@ pub trait CaptureDataSource: Clone + Send + Sync + 'static {
     /// For finite files this usually opens the file. For live sources this can
     /// return a reader over the latest immutable snapshot or a reloadable
     /// source-specific view.
-    fn open_reader(&self) -> Result<Self::Reader>;
+    fn open_reader(&self, purpose: CaptureReaderPurpose) -> Result<Self::Reader>;
+    /// Reattributes an existing reader when ownership passes between capture work phases.
+    ///
+    /// Sources without diagnostic attribution can retain the default no-op behavior.
+    fn set_reader_purpose(&self, _reader: &mut Self::Reader, _purpose: CaptureReaderPurpose) {}
     /// Returns the currently available capture metadata.
     fn metadata(&self) -> &CaptureMetadata;
     /// Returns the revision used to invalidate cached indexes.

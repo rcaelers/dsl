@@ -20,6 +20,7 @@ signal-generators = { path = "../signal_generators" }
 signal-runtime = { path = "../signal_runtime" }
 blake3 = { workspace = true }
 crossbeam-channel = { workspace = true }
+serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 zip = { workspace = true }

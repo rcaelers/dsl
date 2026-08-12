@@ -40,6 +40,20 @@ The owner validates missing entries and malformed UTF-8 or metadata before expos
 generic capture contracts. The compatibility path constructor is an explicitly allowlisted native
 file-I/O leaf; normal application composition injects a prepared source.
 
+## Archive-work attribution
+
+The `dsl_file` facade exposes an opt-in `DslArchiveWorkAttribution` session keyed by the immutable
+prepared-source identity. While a session is alive, the private archive reader reports ZIP entries
+opened, compressed and expanded bytes, decompressions, prepared-source reads and overlapping
+rereads, block-cache hits and misses, and shared-archive lock wait. Snapshots separate metadata
+discovery, waveform-index construction, runtime delivery, and presentation queries without
+exposing ZIP types or counters through generic capture, runtime, or viewer contracts.
+
+Collection is inactive when no session exists. Developer path compatibility includes a constructor
+for the attribution handle, and `parallel-decoder-bench --archive-work-attribution` emits its
+machine-readable profile. This diagnostic observes work only; archive ownership, cache policy, and
+scheduling remain unchanged.
+
 ## Sigrok archive boundary
 
 The Sigrok reader owns session-metadata interpretation and supported logic-entry layouts. It
@@ -63,4 +77,5 @@ explicitly rather than approximated in the generic capture or viewer layers.
 Archive and parsing failures are reported through `signal_capture::Error` with format-specific
 context at the source boundary. Tests cover in-memory archives, malformed and unsupported layouts,
 prepared-source construction, bounded block reuse, cooperative replay, and native path
-compatibility.
+compatibility. Attribution tests exercise index construction, runtime cache reuse, overlapping
+prepared-source ranges, and independent concurrent presentation readers.

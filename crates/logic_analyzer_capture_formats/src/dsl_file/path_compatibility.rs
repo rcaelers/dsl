@@ -4,12 +4,24 @@ use std::sync::Arc;
 use platform_artifacts::PreparedByteSource;
 use signal_capture::Result;
 
+use super::archive_work_attribution::DslArchiveWorkAttribution;
 use super::source::DslFileSource;
 use crate::support::capture_archive::FileByteSource;
 use crate::support::capture_index::capture_cache_identity;
 use crate::support::dsl_file::DslFileCaptureDataSource;
 
 impl DslFileSource {
+    /// Begins opt-in archive-work attribution for a developer-supplied path.
+    ///
+    /// Keep the returned handle alive while constructing all index, runtime, and presentation
+    /// consumers that should contribute to the same source-generation profile.
+    pub fn begin_archive_work_attribution_from_path(
+        path: impl AsRef<Path>,
+    ) -> Result<DslArchiveWorkAttribution> {
+        let source = FileByteSource::open(path.as_ref())?;
+        Ok(DslArchiveWorkAttribution::begin(source.identity()))
+    }
+
     /// Temporary path entry point for developer tools and format tests.
     ///
     /// # Parameters

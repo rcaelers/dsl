@@ -13,7 +13,7 @@ mod implementation {
 
     use clap::{Parser, ValueEnum};
 
-    use logic_analyzer_capture_formats::dsl_file::DslFileSource;
+    use logic_analyzer_capture_formats::dsl_file::{DslArchiveWorkProfile, DslFileSource};
     use logic_analyzer_protocol_decoders::parallel_decoder::{
         ParallelDecoder, ParallelInputStrategy, StrobeMode,
     };
@@ -275,6 +275,10 @@ mod implementation {
         /// Word interval between random-access restart records.
         #[arg(long, default_value_t = DEFAULT_RESTART_INTERVAL)]
         store_restart_interval: usize,
+
+        /// Emit opt-in DSL archive work attribution for this source generation.
+        #[arg(long)]
+        archive_work_attribution: bool,
     }
 
     struct CountWords {
@@ -488,6 +492,7 @@ mod implementation {
         viewer_append_ns: u64,
         viewer_batches: u64,
         indexed_store: Option<IndexedStoreMetrics>,
+        archive_work: Option<DslArchiveWorkProfile>,
     }
 
     impl BenchResult {
@@ -608,6 +613,9 @@ mod implementation {
                     msamples_per_second,
                     realtime,
                 );
+            }
+            if let Some(profile) = &self.archive_work {
+                println!("archive_work={}", serde_json::to_string(profile).unwrap());
             }
         }
     }
@@ -747,6 +755,10 @@ mod implementation {
     }
 
     fn run(args: &Args, mode: BenchMode) -> Result<BenchResult, Box<dyn std::error::Error>> {
+        let archive_work = args
+            .archive_work_attribution
+            .then(|| DslFileSource::begin_archive_work_attribution_from_path(&args.capture))
+            .transpose()?;
         let decoded_cache_bytes = args
             .decoded_cache_mib
             .checked_mul(1024 * 1024)
@@ -961,6 +973,9 @@ mod implementation {
             (OutputStats::default(), None)
         };
 
+        let archive_work = archive_work
+            .as_ref()
+            .map(|attribution| attribution.snapshot());
         Ok(BenchResult {
             mode,
             sink: args.sink,
@@ -991,6 +1006,7 @@ mod implementation {
             viewer_append_ns: viewer_metrics.append_ns,
             viewer_batches: viewer_metrics.batches,
             indexed_store,
+            archive_work,
         })
     }
 

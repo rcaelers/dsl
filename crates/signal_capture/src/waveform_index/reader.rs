@@ -18,7 +18,8 @@ use super::types::{
 use crate::capture::{
     BlockCaptureSource, BlockData, CaptureDataSource, CaptureIndex, CaptureIndexBuildProfile,
     CaptureIndexBuildProgress, CaptureIndexOpenStep, CaptureIndexOpenTask, CaptureMetadata,
-    CaptureSampledChannel, CaptureSampledWindow, CaptureTransition, packed_bit,
+    CaptureReaderPurpose, CaptureSampledChannel, CaptureSampledWindow, CaptureTransition,
+    packed_bit,
 };
 use crate::{Error, Result};
 
@@ -203,7 +204,7 @@ where
             fingerprint.revision,
         )?;
         let display_name = data_source.display_name();
-        let raw_reader = data_source.open_reader()?;
+        let raw_reader = data_source.open_reader(CaptureReaderPurpose::PresentationQuery)?;
         Ok(Self::new(
             display_name,
             storage,
@@ -230,6 +231,22 @@ where
     where
         S: CaptureDataSource<Reader = R>,
     {
+        Self::open_existing_data_source_for_purpose(
+            data_source,
+            repository,
+            CaptureReaderPurpose::PresentationQuery,
+        )
+    }
+
+    /// Reopens a published index with raw reads attributed to a specific consumer purpose.
+    pub fn open_existing_data_source_for_purpose<S>(
+        data_source: S,
+        repository: Arc<dyn ArtifactRepository>,
+        purpose: CaptureReaderPurpose,
+    ) -> Result<Option<Self>>
+    where
+        S: CaptureDataSource<Reader = R>,
+    {
         let header = data_source.metadata().clone();
         let fingerprint = data_source.fingerprint();
         let identity = data_source
@@ -246,7 +263,7 @@ where
             fingerprint.revision,
         )?;
         let display_name = data_source.display_name();
-        let raw_reader = data_source.open_reader()?;
+        let raw_reader = data_source.open_reader(purpose)?;
         Ok(Some(Self::new(
             display_name,
             storage,
@@ -1113,7 +1130,7 @@ where
                 fingerprint.revision,
             )?;
             let display_name = data_source.display_name();
-            let raw_reader = data_source.open_reader()?;
+            let raw_reader = data_source.open_reader(CaptureReaderPurpose::PresentationQuery)?;
             let ready = Box::new(IndexSampler::new(
                 display_name,
                 storage,
@@ -1139,7 +1156,7 @@ where
             });
         }
 
-        let reader = data_source.open_reader()?;
+        let reader = data_source.open_reader(CaptureReaderPurpose::IndexBuild)?;
         let writer = IndexWriter::create(
             Arc::clone(&repository),
             identity,
@@ -1174,10 +1191,12 @@ where
             self.header.clone(),
             self.source_revision,
         )?;
-        let reader = self
+        let mut reader = self
             .reader
             .take()
             .ok_or_else(|| Error::ParseError("capture reader is unavailable".to_owned()))?;
+        self.data_source
+            .set_reader_purpose(&mut reader, CaptureReaderPurpose::PresentationQuery);
         Ok(CaptureIndexOpenStep::Ready(Box::new(IndexSampler::new(
             self.data_source.display_name(),
             storage,
@@ -1487,7 +1506,7 @@ mod reader_tests {
     impl CaptureDataSource for TestDataSource {
         type Reader = TestReader;
 
-        fn open_reader(&self) -> Result<Self::Reader> {
+        fn open_reader(&self, _purpose: CaptureReaderPurpose) -> Result<Self::Reader> {
             Ok(TestReader {
                 metadata: self.metadata.clone(),
                 blocks: Arc::clone(&self.blocks),

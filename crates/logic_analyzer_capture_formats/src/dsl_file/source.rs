@@ -10,6 +10,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use tracing::{debug, info, warn};
 
@@ -19,14 +20,15 @@ use platform_runtime::{InlineWorkExecutor, WorkExecutor, WorkTask};
 use signal_capture::EdgeQueryProcessNodeExt;
 use signal_capture::{
     BlockData, CaptureDataSource, CaptureIndex, CaptureIndexBuildProgress, CaptureIndexFactory,
-    CaptureIndexOpenTask, CaptureMetadata, CaptureTransition, EdgeQuery, Error, IndexSampler,
-    Result, Sample, SampleBlock,
+    CaptureIndexOpenTask, CaptureMetadata, CaptureReaderPurpose, CaptureTransition, EdgeQuery,
+    Error, IndexSampler, Result, Sample, SampleBlock,
 };
 use signal_runtime::{
     InputPort, OutputPort, PortPayload, ProcessNode, ProtocolKind, RuntimeExecutionMode, Sender,
     WorkOutcome, WorkResult,
 };
 
+use super::archive_work_attribution::{ArchiveWorkPhase, ArchiveWorkRecorder, active_archive_work};
 use super::cooperative::CooperativeDslReader;
 use crate::support::capture_archive::{CaptureArchive, ZipCaptureArchive};
 use crate::support::capture_format::get_packed_bit;
@@ -246,6 +248,7 @@ pub struct DslFileSource {
     archive: SharedCaptureArchive,
     header: CaptureMetadata,
     blocks: BlockCache,
+    archive_work: Option<ArchiveWorkRecorder>,
 
     // Configuration
     num_channels: usize,
@@ -295,7 +298,10 @@ impl DslFileSource {
         source: Arc<dyn PreparedByteSource>,
         display_name: impl Into<String>,
     ) -> Result<Self> {
-        let archive = Box::new(ZipCaptureArchive::open_source(source.as_ref())?);
+        let archive = Box::new(ZipCaptureArchive::open_attributed_source(
+            source.as_ref(),
+            ArchiveWorkPhase::RuntimeDelivery,
+        )?);
         Self::from_archive(source, display_name.into(), archive)
     }
 
@@ -307,6 +313,8 @@ impl DslFileSource {
         let header = parse_header(archive.as_mut())?;
 
         let num_channels = header.total_probes;
+        let archive_work =
+            active_archive_work(source.identity(), ArchiveWorkPhase::RuntimeDelivery);
 
         Ok(Self {
             name: "dsl_file_source".to_string(),
@@ -317,6 +325,7 @@ impl DslFileSource {
             blocks: Arc::new(Mutex::new(BoundedBlockCache::new(
                 num_channels * DEFAULT_BLOCK_CACHE_WINDOWS,
             ))),
+            archive_work,
             num_channels,
             max_samples: None,
             shutdown: Arc::new(AtomicBool::new(false)),
@@ -351,9 +360,10 @@ impl DslFileSource {
                     return None;
                 }
             };
-            match IndexSampler::open_existing_data_source(
+            match IndexSampler::open_existing_data_source_for_purpose(
                 source,
                 Arc::clone(&self.artifact_repository),
+                CaptureReaderPurpose::RuntimeDelivery,
             ) {
                 Ok(Some(sampler)) => *guard = Some(Arc::new(Mutex::new(sampler))),
                 Ok(None) => return None,
@@ -422,7 +432,13 @@ impl DslFileSource {
 
         let sample_in_block = (position % self.header.samples_per_block) as usize;
 
-        let data = Self::load_block(&self.archive, &self.blocks, channel, block_num)?;
+        let data = Self::load_block(
+            &self.archive,
+            &self.blocks,
+            self.archive_work.as_ref(),
+            channel,
+            block_num,
+        )?;
         let result = get_packed_bit(&data, sample_in_block);
         Ok(result)
     }
@@ -454,20 +470,41 @@ impl DslFileSource {
     fn load_block(
         archive: &SharedCaptureArchive,
         blocks: &BlockCache,
+        archive_work: Option<&ArchiveWorkRecorder>,
         channel: usize,
         block_num: u64,
     ) -> Result<BlockData> {
         let key = (channel, block_num);
         if let Some(data) = blocks.lock().unwrap().get(key) {
+            if let Some(archive_work) = archive_work {
+                archive_work.record_cache(true);
+            }
             return Ok(data);
         }
 
         // Archive access is serialized. Recheck the cache after obtaining
         // that lock because another destination may have decompressed this
         // block while this reader was waiting.
-        let mut archive_guard = archive.lock().unwrap();
+        let mut archive_guard = match archive.try_lock() {
+            Ok(archive) => archive,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                let started = Instant::now();
+                let archive = archive.lock().unwrap();
+                if let Some(archive_work) = archive_work {
+                    archive_work.record_archive_wait(started.elapsed());
+                }
+                archive
+            }
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+        };
         if let Some(data) = blocks.lock().unwrap().get(key) {
+            if let Some(archive_work) = archive_work {
+                archive_work.record_cache(true);
+            }
             return Ok(data);
+        }
+        if let Some(archive_work) = archive_work {
+            archive_work.record_cache(false);
         }
         let block_name = format!("L-{channel}/{block_num}");
         let bytes = archive_guard
@@ -492,6 +529,7 @@ impl DslFileSource {
         let ChannelReaderConfig {
             archive,
             blocks,
+            archive_work,
             channel,
             header,
             sender,
@@ -531,7 +569,13 @@ impl DslFileSource {
                 break;
             }
 
-            let block_data = match Self::load_block(&archive, &blocks, channel, block_num) {
+            let block_data = match Self::load_block(
+                &archive,
+                &blocks,
+                archive_work.as_ref(),
+                channel,
+                block_num,
+            ) {
                 Ok(data) => data,
                 Err(error) => {
                     debug!("[{}] Failed to read block {}: {}", label, block_num, error);
@@ -602,6 +646,7 @@ impl DslFileSource {
         let BlockReaderGroupConfig {
             archive,
             blocks,
+            archive_work,
             indexed_blocks,
             destinations,
             group_label,
@@ -644,7 +689,13 @@ impl DslFileSource {
                         .lock()
                         .unwrap()
                         .packed_block(destination.channel, block_num),
-                    None => Self::load_block(&archive, &blocks, destination.channel, block_num),
+                    None => Self::load_block(
+                        &archive,
+                        &blocks,
+                        archive_work.as_ref(),
+                        destination.channel,
+                        block_num,
+                    ),
                 };
                 let block_data = match block_data {
                     Ok(data) => data,
@@ -903,6 +954,7 @@ impl DslFileSource {
             let max_samples = self.max_samples;
             let shutdown = Arc::clone(&self.shutdown);
             let completed = Arc::clone(&self.threads_completed);
+            let archive_work = self.archive_work.clone();
 
             let task = self
                 .work_executor
@@ -912,6 +964,7 @@ impl DslFileSource {
                         Self::channel_reader_thread(ChannelReaderConfig {
                             archive,
                             blocks,
+                            archive_work,
                             channel: channel_idx,
                             header,
                             sender,
@@ -938,6 +991,7 @@ impl DslFileSource {
             let max_samples = self.max_samples;
             let shutdown = Arc::clone(&self.shutdown);
             let completed = Arc::clone(&self.threads_completed);
+            let archive_work = self.archive_work.clone();
 
             let task = self
                 .work_executor
@@ -947,6 +1001,7 @@ impl DslFileSource {
                         Self::block_reader_thread(BlockReaderGroupConfig {
                             archive,
                             blocks,
+                            archive_work,
                             indexed_blocks,
                             destinations,
                             group_label,
@@ -996,6 +1051,7 @@ impl Drop for DslFileSource {
 struct ChannelReaderConfig {
     archive: SharedCaptureArchive,
     blocks: BlockCache,
+    archive_work: Option<ArchiveWorkRecorder>,
     channel: usize,
     header: CaptureMetadata,
     sender: Sender<Sample>,
@@ -1014,6 +1070,7 @@ struct BlockDestination {
 struct BlockReaderGroupConfig {
     archive: SharedCaptureArchive,
     blocks: BlockCache,
+    archive_work: Option<ArchiveWorkRecorder>,
     indexed_blocks: Option<Arc<Mutex<DslChunkedCaptureReader>>>,
     destinations: Vec<BlockDestination>,
     group_label: String,
@@ -1143,9 +1200,10 @@ mod tests {
         let (_directory, path) = dsl_fixture();
 
         let source = FileByteSource::open(&path).unwrap();
-        let mut reader = DslCaptureReader::open_source(&source)
-            .expect("generated DSL capture should open with the windowed reader")
-            .with_max_cached_blocks(4);
+        let mut reader =
+            DslCaptureReader::open_source(&source, CaptureReaderPurpose::PresentationQuery)
+                .expect("generated DSL capture should open with the windowed reader")
+                .with_max_cached_blocks(4);
         assert!(reader.header().total_samples > 0);
         assert!(reader.header().total_probes > 0);
 
@@ -1157,6 +1215,58 @@ mod tests {
 
         assert_eq!(window.channels.len(), channel_count);
         assert!(window.sample_step > 0);
+    }
+
+    #[test]
+    fn archive_work_is_attributed_across_index_runtime_and_viewer_consumers() {
+        let (_directory, path) = dsl_fixture();
+        let prepared_source = Arc::new(FileByteSource::open(&path).unwrap());
+        let attribution = super::super::archive_work_attribution::DslArchiveWorkAttribution::begin(
+            prepared_source.identity(),
+        );
+        let repository: Arc<dyn ArtifactRepository> =
+            Arc::new(platform_artifacts::MemoryArtifactRepository::new());
+        let data_source = DslFileCaptureDataSource::open_source(
+            prepared_source.clone(),
+            path.display().to_string(),
+        )
+        .unwrap();
+        let mut first_viewer = IndexSampler::open_data_source_with_executor_and_progress(
+            data_source,
+            Arc::clone(&repository),
+            Arc::new(InlineWorkExecutor),
+            |_| true,
+        )
+        .unwrap();
+        let second_data_source =
+            DslFileCaptureDataSource::open_source(prepared_source, path.display().to_string())
+                .unwrap();
+        let mut second_viewer =
+            IndexSampler::open_existing_data_source(second_data_source, Arc::clone(&repository))
+                .unwrap()
+                .unwrap();
+
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| first_viewer.packed_block(0, 0).unwrap());
+            let second = scope.spawn(|| second_viewer.packed_block(0, 0).unwrap());
+            let first = first.join().unwrap();
+            let second = second.join().unwrap();
+            assert_eq!(&*first, &*second);
+        });
+
+        let runtime = DslFileSource::new(&path).unwrap();
+        assert_eq!(
+            runtime.read_bit(0, 0).unwrap(),
+            runtime.read_bit(0, 0).unwrap()
+        );
+
+        let profile = attribution.snapshot();
+        assert!(profile.waveform_index.decompressions >= 8);
+        assert_eq!(profile.presentation_queries.decompressions, 4);
+        assert_eq!(profile.runtime_delivery.block_cache_misses, 1);
+        assert_eq!(profile.runtime_delivery.block_cache_hits, 1);
+        assert!(profile.total().source_ranges_reread > 0);
+        assert!(profile.total().source_reread_bytes > 0);
     }
 
     #[test]

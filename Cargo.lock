@@ -2219,6 +2219,7 @@ dependencies = [
  "crossbeam-channel",
  "platform-artifacts",
  "platform-runtime",
+ "serde",
  "signal-capture",
  "signal-capture-session",
  "signal-generators",
@@ -2290,6 +2291,7 @@ dependencies = [
  "signal-transforms",
  "tempfile",
  "tracing-subscriber",
+ "zip",
 ]
 
 [[package]]

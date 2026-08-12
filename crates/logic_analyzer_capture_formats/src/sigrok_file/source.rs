@@ -385,7 +385,7 @@ mod tests {
 
     use platform_artifacts::SourceIdentity;
     use platform_runtime::{CompletedWorkTask, WorkExecutor, WorkExecutorTask, WorkTask};
-    use signal_capture::{CaptureDataSource, CaptureSource};
+    use signal_capture::{CaptureDataSource, CaptureReaderPurpose, CaptureSource};
     use signal_runtime::{OutputPort, Sender, Watchdog};
 
     use super::*;
@@ -455,7 +455,14 @@ mod tests {
             fixture("2", true),
         );
         assert_eq!(source.metadata().total_samples, 8);
-        assert_eq!(source.open_reader().unwrap().metadata().total_probes, 8);
+        assert_eq!(
+            source
+                .open_reader(CaptureReaderPurpose::PresentationQuery)
+                .unwrap()
+                .metadata()
+                .total_probes,
+            8
+        );
         assert_eq!(source.fingerprint().revision, 123);
     }
 
@@ -479,7 +486,11 @@ mod tests {
             capture,
         );
         assert_eq!(
-            data_source.open_reader().unwrap().metadata().total_samples,
+            data_source
+                .open_reader(CaptureReaderPurpose::PresentationQuery)
+                .unwrap()
+                .metadata()
+                .total_samples,
             8
         );
     }

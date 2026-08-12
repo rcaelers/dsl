@@ -29,7 +29,7 @@ mod tests {
     use super::super::reader::IndexSampler;
     use crate::capture::{
         BlockCaptureSource, BlockData, CaptureDataSource, CaptureFingerprint, CaptureMetadata,
-        CaptureSource, CaptureWaveformSegment, packed_bit,
+        CaptureReaderPurpose, CaptureSource, CaptureWaveformSegment, packed_bit,
     };
     use crate::{Error, Result};
 
@@ -119,7 +119,7 @@ mod tests {
     impl CaptureDataSource for MemoryCaptureDataSource {
         type Reader = MemoryCaptureReader;
 
-        fn open_reader(&self) -> Result<Self::Reader> {
+        fn open_reader(&self, _purpose: CaptureReaderPurpose) -> Result<Self::Reader> {
             Ok(MemoryCaptureReader {
                 metadata: self.metadata.clone(),
                 blocks: Arc::clone(&self.blocks),

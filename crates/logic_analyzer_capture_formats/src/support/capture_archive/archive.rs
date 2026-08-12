@@ -1,9 +1,12 @@
 use std::io::{Read, Seek, SeekFrom};
+use std::sync::{Arc, Mutex};
 
 use zip::ZipArchive;
 
 use platform_artifacts::{PreparedByteSource, RandomAccessReader, SourceReadError};
 use signal_capture::{Error, Result};
+
+use crate::dsl_file::{ArchiveWorkPhase, ArchiveWorkRecorder, active_archive_work};
 
 pub(crate) trait CaptureArchive: Send {
     fn entry_names(&self) -> Vec<String>;
@@ -11,21 +14,47 @@ pub(crate) trait CaptureArchive: Send {
     fn entry_size(&mut self, name: &str) -> Result<Option<u64>>;
 
     fn read_entry(&mut self, name: &str) -> Result<Option<Vec<u8>>>;
+
+    fn set_attribution(&mut self, _attribution: Option<ArchiveWorkRecorder>) {}
 }
 
 pub(crate) struct ZipCaptureArchive {
     archive: ZipArchive<Box<dyn ReadSeek + Send>>,
+    attribution: AttributionSlot,
 }
+
+type AttributionSlot = Arc<Mutex<Option<ArchiveWorkRecorder>>>;
 
 impl ZipCaptureArchive {
     pub(crate) fn open_source(source: &dyn PreparedByteSource) -> Result<Self> {
-        let reader = source.open_reader().map_err(prepared_source_error)?;
-        Self::from_reader(Box::new(RandomAccessCursor::new(reader)?))
+        Self::open_source_with_attribution(source, None)
     }
 
-    fn from_reader(reader: Box<dyn ReadSeek + Send>) -> Result<Self> {
+    pub(crate) fn open_attributed_source(
+        source: &dyn PreparedByteSource,
+        phase: ArchiveWorkPhase,
+    ) -> Result<Self> {
+        Self::open_source_with_attribution(source, active_archive_work(source.identity(), phase))
+    }
+
+    fn open_source_with_attribution(
+        source: &dyn PreparedByteSource,
+        attribution: Option<ArchiveWorkRecorder>,
+    ) -> Result<Self> {
+        let attribution = Arc::new(Mutex::new(attribution));
+        let reader = source.open_reader().map_err(prepared_source_error)?;
+        Self::from_reader(
+            Box::new(RandomAccessCursor::new(reader, Arc::clone(&attribution))?),
+            attribution,
+        )
+    }
+
+    fn from_reader(reader: Box<dyn ReadSeek + Send>, attribution: AttributionSlot) -> Result<Self> {
         let archive = ZipArchive::new(reader).map_err(zip_error)?;
-        Ok(Self { archive })
+        Ok(Self {
+            archive,
+            attribution,
+        })
     }
 }
 
@@ -37,15 +66,17 @@ struct RandomAccessCursor {
     reader: Box<dyn RandomAccessReader>,
     position: u64,
     length: u64,
+    attribution: AttributionSlot,
 }
 
 impl RandomAccessCursor {
-    fn new(reader: Box<dyn RandomAccessReader>) -> Result<Self> {
+    fn new(reader: Box<dyn RandomAccessReader>, attribution: AttributionSlot) -> Result<Self> {
         let length = reader.len().map_err(prepared_source_error)?;
         Ok(Self {
             reader,
             position: 0,
             length,
+            attribution,
         })
     }
 }
@@ -56,6 +87,9 @@ impl Read for RandomAccessCursor {
             .reader
             .read_at(self.position, destination)
             .map_err(source_read_io_error)?;
+        if let Some(attribution) = self.attribution.lock().unwrap().as_ref() {
+            attribution.record_source_read(self.position, count as u64);
+        }
         self.position = self.position.saturating_add(count as u64);
         Ok(count)
     }
@@ -86,7 +120,13 @@ impl CaptureArchive for ZipCaptureArchive {
 
     fn entry_size(&mut self, name: &str) -> Result<Option<u64>> {
         match self.archive.by_name(name) {
-            Ok(entry) => Ok(Some(entry.size())),
+            Ok(entry) => {
+                if let Some(attribution) = self.attribution.lock().unwrap().as_ref() {
+                    attribution
+                        .record_entry_open(entry.compression() != zip::CompressionMethod::Stored);
+                }
+                Ok(Some(entry.size()))
+            }
             Err(zip::result::ZipError::FileNotFound) => Ok(None),
             Err(error) => Err(zip_error(error)),
         }
@@ -98,9 +138,21 @@ impl CaptureArchive for ZipCaptureArchive {
             Err(zip::result::ZipError::FileNotFound) => return Ok(None),
             Err(error) => return Err(zip_error(error)),
         };
+        let compressed_bytes = entry.compressed_size();
+        let decompressed = entry.compression() != zip::CompressionMethod::Stored;
+        if let Some(attribution) = self.attribution.lock().unwrap().as_ref() {
+            attribution.record_entry_open(decompressed);
+        }
         let mut data = Vec::new();
         entry.read_to_end(&mut data)?;
+        if let Some(attribution) = self.attribution.lock().unwrap().as_ref() {
+            attribution.record_entry_read(compressed_bytes, data.len() as u64, decompressed);
+        }
         Ok(Some(data))
+    }
+
+    fn set_attribution(&mut self, attribution: Option<ArchiveWorkRecorder>) {
+        *self.attribution.lock().unwrap() = attribution;
     }
 }
 

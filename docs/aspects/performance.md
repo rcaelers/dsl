@@ -265,6 +265,22 @@ decompression capability is justified. Further index acceleration must target ar
 scheduling or reuse, and must begin with evidence of duplicate decompression on a real critical
 path rather than another codec swap.
 
+**Archive work attribution.** The opt-in DSL probe groups archive, prepared-source, cache, and wait
+counters by immutable source identity and by metadata, waveform-index, runtime-delivery, and
+presentation-query phase. On `scan.dsl`, a cold indexed run followed by delivery of the first one
+million samples records 607 index-phase decompressions (253,935,044 compressed bytes expanding to
+1,246,200,448 bytes). Runtime delivery then performs another 11 decompressions for 18,875,048
+expanded bytes. All 183,266 prepared-source bytes read by that runtime phase overlap ranges already
+read earlier in the same source generation. Presentation setup separately rereads all 32,875 source
+bytes it requests.
+
+A controlled two-viewer test opens independent exact-query readers concurrently. Each reader
+expands its own header and requested logic block, producing four presentation-phase decompressions
+for two identical block requests. The runtime reader's local cache reports one miss followed by one
+hit for the same block. The evidence therefore confirms useful expanded-block reuse across index,
+runtime, and viewer readers; it supports evaluating the bounded shared cache next, without yet
+changing archive ownership or scheduling.
+
 ### Derived-data storage
 
 **Profile.** `scan.dsl` published 2,753 immutable block files containing 591 MB and spent 2.61

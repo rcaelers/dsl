@@ -144,12 +144,8 @@ promoting any item here, so acceptance comparisons remain evidence-based.
 1. **Avoid repeated work across cache and graph generations.** This has the highest likely payoff
    because it can remove complete reads, decompressions, decodes, or encodes instead of making an
    already parallel kernel marginally faster.
-   - [ ] [capture.index.archive-work-attribution] Count compressed entries opened, compressed and
-     expanded bytes, source ranges reread, decompressions, cache hits, and wait time per source
-     generation across waveform-index construction, runtime block delivery, and concurrent viewers.
-     Prove duplicate work before changing archive ownership or scheduling.
-   - [ ] [capture.index.shared-expanded-block-cache] If attribution confirms reuse, add a bounded
-     source-generation-keyed cache for immutable expanded capture blocks. Coalesce concurrent misses,
+   - [ ] [capture.index.shared-expanded-block-cache] Attribution confirms cross-consumer reuse; add
+     a bounded source-generation-keyed cache for immutable expanded capture blocks. Coalesce concurrent misses,
      preserve channel/block identity and cancellation, and size it from measured reuse distance rather
      than retaining a whole capture. Keep the cache policy generic and concrete DSL archive behavior
      in `logic_analyzer_capture_formats`.

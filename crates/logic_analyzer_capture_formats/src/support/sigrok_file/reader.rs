@@ -4,7 +4,7 @@ use std::sync::Arc;
 use platform_artifacts::{PreparedByteSource, SourceIdentity};
 use signal_capture::{
     BlockCaptureSource, BlockData, CaptureDataSource, CaptureFingerprint, CaptureMetadata,
-    CaptureSource, Error, Result,
+    CaptureReaderPurpose, CaptureSource, Error, Result,
 };
 
 use crate::support::capture_archive::{CaptureArchive, ZipCaptureArchive};
@@ -248,7 +248,7 @@ impl SigrokFileCaptureDataSource {
 }
 impl CaptureDataSource for SigrokFileCaptureDataSource {
     type Reader = SigrokCaptureReader;
-    fn open_reader(&self) -> Result<Self::Reader> {
+    fn open_reader(&self, _purpose: CaptureReaderPurpose) -> Result<Self::Reader> {
         Ok(SigrokCaptureReader::from_capture(self.capture.clone()))
     }
     fn metadata(&self) -> &CaptureMetadata {

@@ -118,6 +118,7 @@ logic-analyzer-graph-registry = { path = "crates/logic_analyzer_graph_registry" 
 logic-analyzer-graph-runtime = { path = "crates/logic_analyzer_graph_runtime" }
 logic-analyzer-graph-nodes = { path = "crates/logic_analyzer_graph_nodes" }
 logic-analyzer-trigger = { path = "crates/logic_analyzer_trigger" }
+zip = { workspace = true }
 platform = { path = "crates/platform", features = ["developer-tools"] }
 logic-analyzer-ui = { path = "crates/logic_analyzer_ui" }
 logic-analyzer-viewer = { path = "crates/widgets/logic_analyzer_viewer" }

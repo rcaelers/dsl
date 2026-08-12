@@ -14,6 +14,7 @@ use super::types::{
 };
 use crate::capture::{
     BlockCaptureSource, BlockData, CaptureDataSource, CaptureIndexBuildProfile, CaptureMetadata,
+    CaptureReaderPurpose,
 };
 use crate::capture_index_kernel::{CaptureIndexBlockResult, build_capture_index_block_from_packed};
 use crate::{Error, Result};
@@ -191,7 +192,7 @@ where
             let worker_stopped = Arc::clone(&stopped);
             let worker_result_tx = result_tx.clone();
             match work_executor.submit(Box::new(move || {
-                let mut source = match worker_source.open_reader() {
+                let mut source = match worker_source.open_reader(CaptureReaderPurpose::IndexBuild) {
                     Ok(source) => source,
                     Err(error) => {
                         worker_stopped.store(true, Ordering::Release);
@@ -386,7 +387,7 @@ where
         let total_jobs = jobs.len();
         let total_roots = u64::try_from(total_jobs)
             .map_err(|_| Error::ParseError("capture-index job count exceeds u64".into()))?;
-        let mut source = data_source.open_reader()?;
+        let mut source = data_source.open_reader(CaptureReaderPurpose::IndexBuild)?;
         let mut previous_last = vec![None; header.total_probes];
         for (completed, job) in jobs.into_iter().enumerate() {
             let request = Self::read_block_request(&mut source, header, job, job.sequence)?;
@@ -609,7 +610,7 @@ mod tests {
     impl CaptureDataSource for TestSource {
         type Reader = TestReader;
 
-        fn open_reader(&self) -> Result<Self::Reader> {
+        fn open_reader(&self, _purpose: CaptureReaderPurpose) -> Result<Self::Reader> {
             unreachable!("builder helper tests do not open readers")
         }
 

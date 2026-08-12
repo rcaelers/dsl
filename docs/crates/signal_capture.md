@@ -98,6 +98,12 @@ the injected executor's advertised parallelism and the job count. Each worker op
 source reader and builds one summary leaf from packed samples. A bounded collector restores
 channel-major order, patches boundary transitions, and streams leaves into `IndexWriter`.
 
+Every source-reader opening carries a generic `CaptureReaderPurpose`: index construction,
+presentation query, or runtime delivery. The distinction lets a concrete source attribute its own
+work without the generic index knowing its archive format, cache implementation, or consumer name.
+An incremental builder retags its existing reader when the completed index passes to presentation
+queries, preserving the reader while transferring work attribution explicitly.
+
 Progress is reported as completed and total root jobs. Cancellation stops further submission and
 does not publish the root artifact.
 
