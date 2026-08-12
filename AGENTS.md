@@ -132,6 +132,22 @@ See the module layout and public-module allowlist in
 See `docs/aspects/native_web_storage.md` for the unified native/web data-plane,
 host-adapter, source-parity, and exception design.
 
+# Change discipline
+
+- Scope one `TODO.md` item — often one numbered step of one item — per branch. Do not combine
+  items.
+- Refactorings are relocations and rewirings, not redesigns: public behavior, saved-graph
+  compatibility, stable IDs, and output fingerprints do not change. A step that seems to require
+  a behavior change is flagged and decided explicitly, not improvised.
+- After each change: `cargo test -p <crate>` for every touched crate, then the workspace
+  integration package (`cargo test -p logic-analyzer-examples`), then clippy. Keep the web build
+  compiling:
+  `cargo check -p logic-analyzer-app-web --target wasm32-unknown-unknown --all-targets --all-features`.
+- Source-text architecture assertions exist only for semantic constraints that dependency
+  metadata and compiled probes cannot express. When code moves, preserve the constraint and its
+  explanatory comment; delete the textual assertion once the rule is structurally observable in
+  `tests/architecture_dependencies_tests.rs` or a compiled registry check.
+
 # Design documentation
 
 - Design documents describe the current architecture in present tense.

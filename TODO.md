@@ -102,12 +102,10 @@ resulting architecture belongs in `docs/architecture/` or `docs/aspects/`, and p
 evidence, including rejected approaches, belongs in
 [Performance Design and Measurement Record](docs/aspects/performance.md).
 
-Every P1–P2 item has design and implementation direction — current wiring, target shape,
-ordered steps, and acceptance checks — in
-[P1/P2 Refactoring Directions](docs/plans/refactoring_p1_p2.md). Read the item's section and the
-ground rules at the top of that document before starting one of these items.
-The dependency graph is consistent with the priority ordering: ordering constraints are stated on
-the affected items, and no P3 item gates a P2.
+The change-discipline rules in `AGENTS.md` (one item per branch, relocation not redesign, the
+per-step verification commands) apply to every item here. An item large enough to need design
+direction gets a working plan under `docs/plans/`, linked from the item and deleted when the item
+completes.
 
 ### Capture indexing and caching
 
@@ -244,6 +242,23 @@ promoting any item here, so acceptance comparisons remain evidence-based.
   derived caching, graph edits, and viewer input latency using the same artifact identities and
   bounded-memory rules. Native improvements are not assumed to help wasm without measurements.
 
+### Graph-node editor separation
+
+- [graph.nodes.editor-split] (P3 · medium) Split editor definitions out of
+  `logic_analyzer_graph_nodes` so the concrete node bundle is headless. 54 of its 170 files
+  import `node_graph::api` (`NodeDef`, `SocketDef`, `NodeTypeRegistry`, inline controls), so the
+  bundle — and every composition that builds a registry snapshot, including worker-side lowering
+  and headless runs — compiles against the egui widget crate. The seam already exists:
+  `logic_analyzer_graph_editor_registry` binds stable graph-feature IDs to editor definitions,
+  and headless graph crates do not depend on it. Move the `NodeDef`/editor faces into a sibling
+  bundle crate (working name `logic-analyzer-graph-node-editors`) registered through the editor
+  registry under the same stable feature IDs — the same split already executed for the registry
+  itself and for timeline markers. Apply the identical split to the example plugin's two
+  `node_graph::api` imports so a headless-only plugin becomes possible. Acceptance:
+  `logic_analyzer_graph_nodes` and `example-plugin` manifests have no `node-graph` dependency,
+  locked by an edge assertion in `tests/architecture_dependencies_tests.rs`; saved graphs, stable
+  IDs, and registration behavior unchanged.
+
 ### Node-graph extraction
 
 - [graph.extraction.standalone-crate] (P5 · low)
@@ -254,7 +269,44 @@ promoting any item here, so acceptance comparisons remain evidence-based.
 
 ### Application state decomposition
 
+- [ui.app.behavior-migration] (P3 · low) Move the remaining `App` behavior onto the owner types
+  the state decomposition created. `app.rs` is still 4,392 lines because the methods stayed
+  behind when the fields moved: `sync_run` and `start_run` belong on the `graph_run_lifecycle`
+  owner, `sync_capture_analysis` and `show_capture_controls` on `capture_analysis_lifecycle` or a
+  capture panel module, and `synchronize_timeline_marker_references` on
+  `timeline_marker_bindings`. Mechanical moves guided by the borrow checker, per the
+  ui.app.decomposition method already applied to the fields; cross-owner needs become explicit
+  method arguments, never `&mut App`. Target: `app.rs` under about 1,500 lines of composition and
+  panel dispatch.
 - [panel-layout.extraction.standalone-crate] (P4 · low)
   Prepare `panel-layout` for independent publication: replace workspace-inherited package and
   dependency metadata, move its documentation and examples with the crate, add standalone CI, and
   verify that its persisted layout, area, panel, and view contracts remain application-neutral.
+
+`logic_analyzer_ui` is now the largest crate (about 19,700 lines, 21 workspace dependencies).
+Its content is legitimately application composition plus panels, and the module-ownership tests
+police it internally, so no split is scheduled. If it keeps absorbing features, the panels
+(`memory_panel`, `decoder_panel`, `preferences`, `about`) are the extraction seam; revisit when a
+new panel family lands.
+
+### Module ownership
+
+- [modules.large-leaf-ownership] (P4 · low) Bring the remaining large leaves under the
+  module-ownership rule: `parallel_decoder/decoder.rs` (2,880 lines),
+  `derived_word_store/store.rs` (2,399), the DSLogic `driver.rs` (2,398), and
+  `signal_runtime/manager.rs` (2,380) with `cooperative_manager.rs` (1,572). Documentation first:
+  answer the four ownership questions (data/invariants, facade, permitted dependencies,
+  exclusions) in each module doc. Split physically only where it clarifies ownership — these are
+  hot-path files with measured history, so any split must clear the acceptance rule in
+  [Performance Design and Measurement Record](docs/aspects/performance.md); do not decompose the
+  decoder loop for aesthetics.
+
+### Naming
+
+- [naming.platform-prefix] (P4 · low) Resolve the double meaning of the `platform` prefix:
+  `platform_artifacts` and `platform_runtime` are portable contracts nearly everything depends
+  on, while `platform` is the one target-selected adapter crate — a reader of the crate list will
+  guess wrong about at least one of them. Renaming the adapter crate (for example
+  `host-adapters`) is the smaller diff since it has few consumers; renaming the contract crates
+  is the alternative. Decide once and do it soon or not at all — the churn only grows with every
+  new consumer.
