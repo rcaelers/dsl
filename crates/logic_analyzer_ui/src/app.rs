@@ -1203,6 +1203,7 @@ impl App {
             node_file_dialog,
             node_editor_overrides,
             work_executor,
+            system_activity_manager,
             worker_operation_executor,
             capture_export_service,
             artifact_repository,
@@ -1241,6 +1242,7 @@ impl App {
                 .saturating_mul(1024 * 1024 * 1024),
             artifact_repository,
             work_executor,
+            system_activity_manager,
             capture_export_service,
         );
         let capture_availability = capture_availability(

@@ -6,7 +6,9 @@ std::cfg_select! {
         #[allow(unreachable_pub)]
         mod web_worker;
 
-        pub use web::{browser_worker_parallelism, open_browser_artifact_repository};
+        pub use web::{
+            browser_worker_parallelism, open_browser_artifact_repository, system_activity_manager,
+        };
         pub use web_document::{
             BrowserDocumentHost, BrowserDownload, BrowserDownloadFile, queue_browser_downloads,
         };
@@ -18,6 +20,7 @@ std::cfg_select! {
         mod native_file_output;
         mod native_file_source;
         mod native_document;
+        mod native_system_activity;
         mod native_usb;
         mod native_worker;
 
@@ -32,6 +35,7 @@ std::cfg_select! {
             native_path_exists,
         };
         pub use native_file_source::native_file_byte_source;
+        pub use native_system_activity::system_activity_manager;
         pub use native_usb::{
             NativeUsbDevice, NativeUsbDeviceSelector, UsbDeviceOpenError, UsbDeviceOpenOperation,
             UsbLinkSpeed, UsbTransferError,

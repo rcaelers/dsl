@@ -34,6 +34,7 @@ web-sys = { version = "0.3.85", features = ["HtmlCanvasElement"] }
 web-time = "1.1.0"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 inventory = "0.3.24"
+keepawake = "0.6.0"
 pyo3 = "0.29.0"
 
 [package]

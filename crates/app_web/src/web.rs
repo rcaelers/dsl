@@ -257,6 +257,10 @@ async fn application_services(
         crate::node_file_dialog::BrowserNodeFileDialog::new(file_picker),
     ))
     .with_node_editor_overrides(node_editor_overrides)
+    .with_system_activity_manager(platform::system_activity_manager(
+        logic_analyzer_ui::APPLICATION_NAME,
+        logic_analyzer_ui::APPLICATION_ID,
+    ))
     .with_graph_execution_and_capability_overrides(
         source_preparation_executor,
         app_manager_factory,

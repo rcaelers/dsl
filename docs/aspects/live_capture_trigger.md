@@ -21,9 +21,10 @@ channel label, or mode label.
 | `logic_analyzer_graph_nodes` | Concrete live-source graph definition, saved state, migration, capabilities, and presentation metadata |
 | `logic_analyzer_graph_compiler` | Discovery of the one retained live source and lowering of its graph semantics |
 | `logic_analyzer_graph_runtime` | Materialization of the compiled analysis/replay graph and explicit source-process substitution |
+| `platform_runtime` | Product-neutral scoped system-activity and suspend/resume observation contracts |
 | `logic_analyzer_ui` | Capture coordinator, user commands, graph-service orchestration, run exclusion, and presentation binding |
 | `logic_analyzer_viewer` | Generic growing-query rendering, navigation, trigger marker, and neutral per-lane trigger edit events |
-| `platform` | Native USB, work execution, artifact repository, export destination, and whole-adapter target selection |
+| `platform` | Native USB, system sleep inhibition, work execution, artifact repository, export destination, and whole-adapter target selection |
 
 ```mermaid
 flowchart LR
@@ -137,6 +138,14 @@ The application exposes Idle, Preparing, Armed, Triggered, Recording, Stopping, 
 as user-facing states. Device-buffered profiles additionally report on-device capture and upload
 phases; host-streamed profiles report the growing committed duration. Stop is idempotent. Trigger
 waiting and preparation are cancellable.
+
+Every active acquisition owns one injected `SystemActivityLease`. Native composition obtains the
+generic mechanism from `platform`; the adapter inhibits automatic idle system sleep and releases
+that inhibition when the supervisor is reaped. Every lease also compares elapsed wall time with
+active monotonic time. A suspend/resume gap that escapes or replaces inhibition is translated by
+`CaptureAcquisition` into the existing provider-neutral `CaptureFailureKind::Integrity`, aborts the
+provider, rejects its terminal result, and keeps target-specific power APIs out of capture code.
+The browser mechanism is observation-only because browsers expose no system-sleep wake lock.
 
 ## Authoritative store and independent consumers
 
@@ -293,6 +302,8 @@ unavailable service.
 ## Integrity and failure rules
 
 - Sequence gaps, short writes, device/link overflow, and store failures are integrity errors.
+- A host suspend/resume gap during acquisition is an integrity error; it aborts the session rather
+  than silently treating the interrupted timeline as complete.
 - Only fully published chunks belong to the committed prefix; recovery never accepts an
   uncommitted tail.
 - Partial sessions retain an explicit Incomplete, Aborted, CancelledBeforeTrigger, or Corrupt

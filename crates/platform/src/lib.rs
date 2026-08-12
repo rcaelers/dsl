@@ -28,6 +28,7 @@ std::cfg_select! {
         pub use host::{
             BrowserDocumentHost, BrowserDownload, BrowserDownloadFile, WebWorkerAdapter,
             browser_worker_parallelism, open_browser_artifact_repository, queue_browser_downloads,
+            system_activity_manager,
         };
     }
     _ => {
@@ -38,7 +39,7 @@ std::cfg_select! {
             UsbDeviceOpenOperation, UsbLinkSpeed, UsbTransferError, native_append_file,
             native_artifact_repository, native_create_file, native_create_parent_directories,
             native_file_byte_source, native_path_exists, native_work_executor,
-            native_worker_operation_executor,
+            native_worker_operation_executor, system_activity_manager,
         };
     }
 }

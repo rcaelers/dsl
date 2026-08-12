@@ -11,7 +11,9 @@ use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
 use logic_analyzer_trigger::SimpleTriggerCondition;
 use node_graph::api::NodeId;
 use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
-use platform_runtime::WorkExecutor;
+use platform_runtime::{
+    SystemActivityInterruption, SystemActivityLease, SystemActivityManager, WorkExecutor,
+};
 use signal_capture::CaptureChannelId;
 use signal_capture_session::{
     AcquisitionContext, AcquisitionError, AcquisitionResult, CaptureAnalysisChannel,
@@ -64,6 +66,61 @@ impl CaptureCoordinator {
     ) -> Result<(), CaptureCoordinatorError> {
         self.start_session(feature, None, mode)
     }
+
+    fn new_with_system_activity(manager: Arc<dyn SystemActivityManager>) -> Self {
+        let artifacts = Arc::new(MemoryArtifactRepository::new());
+        let repository = signal_capture_session::CaptureSessionRepository::new(
+            signal_capture_session::CaptureSessionRepositoryConfig::new(artifacts),
+        )
+        .unwrap();
+        Self::with_repository_and_export_service(
+            repository,
+            unavailable_capture_export_service(),
+            test_work_executor(),
+            manager,
+        )
+    }
+}
+
+struct InterruptedSystemActivityManager {
+    leases_started: Arc<AtomicUsize>,
+    leases_dropped: Arc<AtomicUsize>,
+}
+
+impl SystemActivityManager for InterruptedSystemActivityManager {
+    fn begin_activity(&self, _reason: &str) -> Box<dyn SystemActivityLease> {
+        self.leases_started.fetch_add(1, Ordering::Relaxed);
+        Box::new(InterruptedSystemActivityLease {
+            interrupted: false,
+            leases_dropped: Arc::clone(&self.leases_dropped),
+        })
+    }
+}
+
+struct InterruptedSystemActivityLease {
+    interrupted: bool,
+    leases_dropped: Arc<AtomicUsize>,
+}
+
+impl SystemActivityLease for InterruptedSystemActivityLease {
+    fn sleep_inhibited(&self) -> bool {
+        false
+    }
+
+    fn poll_interruption(&mut self) -> Option<SystemActivityInterruption> {
+        if self.interrupted {
+            None
+        } else {
+            self.interrupted = true;
+            Some(SystemActivityInterruption::new(Duration::from_secs(12)))
+        }
+    }
+}
+
+impl Drop for InterruptedSystemActivityLease {
+    fn drop(&mut self) {
+        self.leases_dropped.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 #[test]
@@ -74,6 +131,7 @@ fn configured_coordinator_retains_the_injected_artifact_repository() {
         20 * 1024 * 1024 * 1024,
         Arc::clone(&artifacts),
         test_work_executor(),
+        Arc::new(platform_runtime::ObservedSystemActivityManager),
         unavailable_capture_export_service(),
     );
 
@@ -490,6 +548,40 @@ fn poll_until(
         coordinator.poll();
         std::thread::yield_now();
     }
+}
+
+#[test]
+fn host_suspend_is_reported_as_integrity_failure_and_releases_its_lease() {
+    let leases_started = Arc::new(AtomicUsize::new(0));
+    let leases_dropped = Arc::new(AtomicUsize::new(0));
+    let manager = Arc::new(InterruptedSystemActivityManager {
+        leases_started: Arc::clone(&leases_started),
+        leases_dropped: Arc::clone(&leases_dropped),
+    });
+    let (feature, _controller) = manual_feature();
+    let mut coordinator = CaptureCoordinator::new_with_system_activity(manager);
+
+    coordinator
+        .start(feature, CaptureStartMode::SavedPolicy)
+        .unwrap();
+    assert_eq!(leases_started.load(Ordering::Relaxed), 1);
+
+    coordinator.poll();
+    let status = coordinator.status().unwrap();
+    assert_eq!(status.state, CaptureSessionState::Error);
+    assert!(
+        status
+            .error
+            .as_deref()
+            .is_some_and(|message| message.contains("system suspend interrupted acquisition"))
+    );
+
+    poll_until(&mut coordinator, |coordinator| !coordinator.is_active());
+    assert_eq!(
+        coordinator.status().unwrap().state,
+        CaptureSessionState::Error
+    );
+    assert_eq!(leases_dropped.load(Ordering::Relaxed), 1);
 }
 
 #[test]

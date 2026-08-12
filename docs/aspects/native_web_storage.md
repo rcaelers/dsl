@@ -88,6 +88,11 @@ Finite-operation worker pools retain queue configuration, native thread-start, a
 browser bootstrap failures through `platform::WorkerAdapterError`. Native application startup
 propagates that typed failure; web composition renders it as the explicit reason for selecting the
 portable cooperative executor.
+The same composition boundary injects the product-neutral
+`platform_runtime::SystemActivityManager`. Native leases hold an OS sleep inhibitor for the exact
+lifetime of active host work. Browser leases are observation-only because the Screen Wake Lock API
+does not inhibit system sleep. Both retain portable suspend/resume observation, while the capture
+owner alone decides that an interruption violates capture integrity.
 Browser artifact-repository opening retains invalid-root, persistence-worker host-stage,
 availability, initialization-protocol, and portable hydration failures through
 `platform::ArtifactRepositoryOpenError`. The web root receives that typed result and reports it only

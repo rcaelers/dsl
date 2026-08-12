@@ -13,7 +13,7 @@ use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use web_time::{Instant, SystemTime, UNIX_EPOCH};
 
 use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
-use platform_runtime::WorkExecutor;
+use platform_runtime::{SystemActivityLease, SystemActivityManager, WorkExecutor};
 use signal_capture::CaptureIndex;
 use signal_capture_session::{
     AcquisitionContext, CaptureCompletion, CaptureDataDelivery, CaptureEvent,
@@ -68,12 +68,15 @@ pub(crate) enum WorkerCompletion {
 }
 
 struct ActiveCapture {
+    session_id: CaptureSessionId,
     commands: Sender<CaptureCommand>,
     completion: Receiver<WorkerCompletion>,
     waveforms: Receiver<GrowingCaptureIndex>,
     analyses: Receiver<CaptureAnalysisAttachment>,
     events: CaptureEventQueueReader,
     worker: Option<Box<dyn platform_runtime::WorkTask>>,
+    system_activity: Box<dyn SystemActivityLease>,
+    host_integrity_failure: Option<String>,
     stop_requested: bool,
     abort_requested: bool,
 }
@@ -116,10 +119,14 @@ pub(crate) struct CaptureAcquisition {
     configuration_epoch_resolutions: Vec<Receiver<Result<(), CaptureCoordinatorError>>>,
     configuration_epoch_notice: Option<Result<(), CaptureCoordinatorError>>,
     work_executor: Arc<dyn WorkExecutor>,
+    system_activity_manager: Arc<dyn SystemActivityManager>,
 }
 
 impl CaptureAcquisition {
-    pub(crate) fn new(work_executor: Arc<dyn WorkExecutor>) -> Self {
+    pub(crate) fn new(
+        work_executor: Arc<dyn WorkExecutor>,
+        system_activity_manager: Arc<dyn SystemActivityManager>,
+    ) -> Self {
         Self {
             active: None,
             pending_configuration_epoch: None,
@@ -127,6 +134,7 @@ impl CaptureAcquisition {
             configuration_epoch_resolutions: Vec::new(),
             configuration_epoch_notice: None,
             work_executor,
+            system_activity_manager,
         }
     }
 
@@ -160,6 +168,9 @@ impl CaptureAcquisition {
         }
 
         let session_id = fresh_session_id();
+        let system_activity = self
+            .system_activity_manager
+            .begin_activity("Live signal acquisition");
         let source_node = feature.source_node();
         let source_title = feature.source_title().to_owned();
         let session_plan = feature.session_plan().cloned().map(|plan| {
@@ -217,12 +228,15 @@ impl CaptureAcquisition {
             .map_err(CaptureCoordinatorError::Executor)?;
 
         self.active = Some(ActiveCapture {
+            session_id,
             commands: command_sender,
             completion: completion_receiver,
             waveforms: waveform_receiver,
             analyses: analysis_receiver,
             events,
             worker: Some(worker),
+            system_activity,
+            host_integrity_failure: None,
             stop_requested: false,
             abort_requested: false,
         });
@@ -277,6 +291,20 @@ impl CaptureAcquisition {
 
     pub(crate) fn poll(&mut self) -> AcquisitionPoll {
         self.poll_configuration_epochs();
+        let interruption = self.active.as_mut().and_then(|active| {
+            (active.host_integrity_failure.is_none())
+                .then(|| active.system_activity.poll_interruption())
+                .flatten()
+        });
+        if let (Some(active), Some(interruption)) = (&mut self.active, interruption) {
+            let message = format!(
+                "system suspend interrupted acquisition for approximately {:.1} seconds",
+                interruption.suspended_for().as_secs_f64()
+            );
+            active.host_integrity_failure = Some(message);
+            active.abort_requested = true;
+            let _ = active.commands.try_send(CaptureCommand::Abort);
+        }
         let analysis = self
             .active
             .as_ref()
@@ -285,6 +313,17 @@ impl CaptureAcquisition {
             .active
             .as_ref()
             .and_then(|active| active.waveforms.try_recv().ok());
+        let integrity_event = self.active.as_ref().and_then(|active| {
+            interruption.and_then(|_| {
+                active.host_integrity_failure.as_ref().map(|message| {
+                    CaptureEvent::Failed(signal_capture_session::CaptureFailure::new(
+                        active.session_id,
+                        signal_capture_session::CaptureFailureKind::Integrity,
+                        message,
+                    ))
+                })
+            })
+        });
         let mut events = Vec::new();
         loop {
             let event = self.active.as_ref().map(|active| active.events.try_recv());
@@ -293,6 +332,7 @@ impl CaptureAcquisition {
                     let triggered = matches!(event, CaptureEvent::Triggered { .. });
                     events.push(event);
                     if triggered {
+                        events.extend(integrity_event);
                         return AcquisitionPoll {
                             analysis,
                             waveform,
@@ -306,18 +346,26 @@ impl CaptureAcquisition {
                 Some(Err(CaptureQueueReceiveError::Timeout)) => unreachable!(),
             }
         }
-        let completion =
-            self.active
-                .as_ref()
-                .and_then(|active| match active.completion.try_recv() {
-                    Ok(completion) => Some(completion),
-                    Err(TryRecvError::Disconnected) => {
-                        Some(WorkerCompletion::Failed(CaptureCoordinatorError::protocol(
-                            "capture supervisor stopped without a result",
-                        )))
-                    }
-                    Err(TryRecvError::Empty) => None,
-                });
+        events.extend(integrity_event);
+        let completion = self.active.as_ref().and_then(|active| {
+            let completion = match active.completion.try_recv() {
+                Ok(completion) => Some(completion),
+                Err(TryRecvError::Disconnected) => {
+                    Some(WorkerCompletion::Failed(CaptureCoordinatorError::protocol(
+                        "capture supervisor stopped without a result",
+                    )))
+                }
+                Err(TryRecvError::Empty) => None,
+            };
+            match (completion, &active.host_integrity_failure) {
+                (Some(WorkerCompletion::Complete(_)), Some(message)) => Some(
+                    WorkerCompletion::Failed(CaptureCoordinatorError::Acquisition(
+                        signal_capture_session::AcquisitionError::Integrity(message.clone()),
+                    )),
+                ),
+                (completion, _) => completion,
+            }
+        });
         if completion.is_some() {
             self.finish_active_worker();
         }

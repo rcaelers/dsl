@@ -212,7 +212,7 @@ nearest owning facade. The allowlist names canonical public namespaces.
 | Crate | Public modules | Rationale |
 | --- | --- | --- |
 | `platform_artifacts` | none | Its crate root exposes immutable byte, source, repository, replication, clock, and integrity contracts; implementation modules remain private. |
-| `platform_runtime` | none | Its crate root exposes host work, worker-operation, kernel, capability, and queue contracts; implementation modules remain private. |
+| `platform_runtime` | none | Its crate root exposes host work, scoped system-activity, interruption-observation, worker-operation, kernel, capability, and queue contracts; implementation modules remain private. |
 | `signal_runtime` | none | Its crate root is the curated stream-execution facade; ports, channels, schedulers, and managers remain private implementation modules. |
 | `signal_capture` | none | Its crate root exposes immutable capture, query, edge-capability, and finite-index contracts; implementation modules remain private. |
 | `signal_derived` | `derived_word_store` | The public module owns the independently usable encoded annotation-store and decoded-block cache contracts; other payload, lane, sampling, index, and typed ingestor-construction contracts are exposed through the crate facade. |

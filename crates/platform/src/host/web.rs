@@ -1,9 +1,22 @@
 use std::sync::Arc;
 
 use platform_artifacts::ArtifactRepository;
+use platform_runtime::{ObservedSystemActivityManager, SystemActivityManager};
 
 use super::web_artifact_repository::BrowserArtifactRepository;
 use crate::ArtifactRepositoryOpenError;
+
+/// Creates the browser system-activity fallback.
+///
+/// Browsers do not expose a system-sleep inhibitor. The returned manager
+/// observes suspend/resume gaps so long-running host work can reject affected
+/// results rather than silently accepting them.
+pub fn system_activity_manager(
+    _application_name: &str,
+    _application_id: &str,
+) -> Arc<dyn SystemActivityManager> {
+    Arc::new(ObservedSystemActivityManager)
+}
 
 /// Opens a browser durable artifact repository under the supplied OPFS root.
 pub async fn open_browser_artifact_repository(

@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use logic_analyzer_graph_compiler::DiscoveredLiveCaptureFeature;
 use platform_artifacts::ArtifactRepository;
-use platform_runtime::WorkExecutor;
+use platform_runtime::{SystemActivityManager, WorkExecutor};
 use signal_capture_session::{
     CaptureSessionId, CaptureSessionRepository, CaptureSessionRepositoryConfig, CaptureStartMode,
 };
@@ -67,6 +67,7 @@ impl CaptureCoordinator {
                 repository,
                 export_service,
                 coordinator_tests::test_work_executor(),
+                Arc::new(platform_runtime::ObservedSystemActivityManager),
             ),
             control,
         )
@@ -77,6 +78,7 @@ impl CaptureCoordinator {
         max_total_bytes: u64,
         artifact_repository: Arc<dyn ArtifactRepository>,
         work_executor: Arc<dyn WorkExecutor>,
+        system_activity_manager: Arc<dyn SystemActivityManager>,
         export_service: Box<dyn CaptureExportService>,
     ) -> Self {
         let config = CaptureSessionRepositoryConfig::new(artifact_repository)
@@ -84,16 +86,22 @@ impl CaptureCoordinator {
             .expect("embedded live-capture limits are valid");
         let repository = CaptureSessionRepository::new(config)
             .expect("the live-capture artifact repository must be available");
-        Self::with_repository_and_export_service(repository, export_service, work_executor)
+        Self::with_repository_and_export_service(
+            repository,
+            export_service,
+            work_executor,
+            system_activity_manager,
+        )
     }
 
     fn with_repository_and_export_service(
         repository: CaptureSessionRepository,
         export_service: Box<dyn CaptureExportService>,
         work_executor: Arc<dyn WorkExecutor>,
+        system_activity_manager: Arc<dyn SystemActivityManager>,
     ) -> Self {
         Self {
-            acquisition: CaptureAcquisition::new(work_executor),
+            acquisition: CaptureAcquisition::new(work_executor, system_activity_manager),
             publication: CapturePublication::new(repository, export_service),
             projection: CaptureStatusProjection::new(),
         }

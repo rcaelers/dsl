@@ -244,13 +244,6 @@ promoting any item here, so acceptance comparisons remain evidence-based.
   derived caching, graph edits, and viewer input latency using the same artifact identities and
   bounded-memory rules. Native improvements are not assumed to help wasm without measurements.
 
-### Capture provider and host architecture
-
-- [capture.live.host-capabilities] (P4 · low) Add a host capability that inhibits automatic system sleep while
-  acquisition is active. Where inhibition is unavailable, observe suspend/resume and report it as
-  a capture-integrity event. Keep the existing generic lifecycle, integrity, and storage contracts
-  in `signal_capture_session`, with no platform conditionals in their consumers.
-
 ### Node-graph extraction
 
 - [graph.extraction.standalone-crate] (P5 · low)

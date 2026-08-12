@@ -9,7 +9,8 @@ use logic_analyzer_graph_runtime::SourcePreparationExecutor;
 use node_graph::api::FileDialogService;
 use platform_artifacts::{ArtifactRepository, MemoryArtifactRepository};
 use platform_runtime::{
-    CooperativeWorkerOperationExecutor, InlineWorkExecutor, WorkExecutor, WorkerOperationExecutor,
+    CooperativeWorkerOperationExecutor, InlineWorkExecutor, ObservedSystemActivityManager,
+    SystemActivityManager, WorkExecutor, WorkerOperationExecutor,
 };
 use signal_derived::{DecodedBlockCacheHandle, portable_worker_kernels};
 use signal_runtime::AppManagerFactory;
@@ -35,6 +36,7 @@ pub struct AppServices {
     node_file_dialog: Option<Box<dyn FileDialogService>>,
     node_editor_overrides: Vec<GraphNodeEditorOverride>,
     work_executor: Arc<dyn WorkExecutor>,
+    system_activity_manager: Arc<dyn SystemActivityManager>,
     worker_operation_executor: Rc<dyn WorkerOperationExecutor>,
     capture_export_service: Box<dyn CaptureExportService>,
     artifact_repository: Arc<dyn ArtifactRepository>,
@@ -50,6 +52,7 @@ pub(crate) struct AppServiceParts {
     pub(crate) node_file_dialog: Option<Box<dyn FileDialogService>>,
     pub(crate) node_editor_overrides: Vec<GraphNodeEditorOverride>,
     pub(crate) work_executor: Arc<dyn WorkExecutor>,
+    pub(crate) system_activity_manager: Arc<dyn SystemActivityManager>,
     pub(crate) worker_operation_executor: Rc<dyn WorkerOperationExecutor>,
     pub(crate) capture_export_service: Box<dyn CaptureExportService>,
     pub(crate) artifact_repository: Arc<dyn ArtifactRepository>,
@@ -94,6 +97,7 @@ impl AppServices {
             node_file_dialog: None,
             node_editor_overrides: Vec::new(),
             work_executor: Arc::new(InlineWorkExecutor),
+            system_activity_manager: Arc::new(ObservedSystemActivityManager),
             worker_operation_executor: Rc::new(CooperativeWorkerOperationExecutor::new(
                 portable_worker_kernels(),
                 "no parallel finite-operation host was supplied",
@@ -107,6 +111,12 @@ impl AppServices {
     /// Supplies the host destination and execution adapter for capture export.
     pub fn with_capture_export_service(mut self, service: Box<dyn CaptureExportService>) -> Self {
         self.capture_export_service = service;
+        self
+    }
+
+    /// Supplies scoped system-activity leases for long-running host work.
+    pub fn with_system_activity_manager(mut self, manager: Arc<dyn SystemActivityManager>) -> Self {
+        self.system_activity_manager = manager;
         self
     }
 
@@ -220,6 +230,7 @@ impl AppServices {
             node_file_dialog: self.node_file_dialog,
             node_editor_overrides: self.node_editor_overrides,
             work_executor: self.work_executor,
+            system_activity_manager: self.system_activity_manager,
             worker_operation_executor: self.worker_operation_executor,
             capture_export_service: self.capture_export_service,
             artifact_repository: self.artifact_repository,

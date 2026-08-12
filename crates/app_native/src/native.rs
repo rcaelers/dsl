@@ -253,6 +253,10 @@ fn application_services() -> Result<
         crate::native_host::NativeNodeFileDialogService::new(),
     ))
     .with_node_editor_overrides(node_editor_overrides)
+    .with_system_activity_manager(platform::system_activity_manager(
+        logic_analyzer_ui::APPLICATION_NAME,
+        APPLICATION_ID,
+    ))
     .with_graph_execution_and_capability_overrides(
         Box::new(logic_analyzer_graph_runtime::ThreadedSourcePreparationExecutor::new()),
         app_manager_factory,
