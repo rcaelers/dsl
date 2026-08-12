@@ -145,6 +145,18 @@ cargo build --release      # release strongly recommended for capture processing
 cargo test                 # workspace tests
 ```
 
+Run the complete GitHub Actions CI command set locally, or select one workflow job:
+
+```bash
+scripts/ci_local.sh
+scripts/ci_local.sh clippy
+scripts/ci_local.sh check-wasm
+```
+
+The jobs run serially and stop at the first failure. On Linux, the script expects the same
+`libwayland-dev` system dependency installed by CI. The wasm job requires the setup described
+below.
+
 ### Testing the browser app on macOS
 
 Install the WebAssembly target and the `wasm-bindgen` CLI once. The CLI version must
