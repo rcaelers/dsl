@@ -1231,10 +1231,11 @@ impl App {
         }
         widget.set_input_bindings(input_bindings.clone());
         widget.set_panel_tabs(vec![PanelTabDef::new("view", "View")]);
-        let platform = crate::app_platform::PlatformState::restore(cc, &mut widget);
         let mut logic_analyzer = LogicAnalyzerViewer::new();
         logic_analyzer.set_input_bindings(input_bindings.clone());
         logic_analyzer.set_color_profile(application_settings.viewer_color_profile());
+        let platform =
+            crate::app_platform::PlatformState::restore(cc, &mut widget, &mut logic_analyzer);
         let capture = CaptureCoordinator::configured(
             application_settings.max_recent_capture_sessions(),
             application_settings
@@ -1697,6 +1698,8 @@ impl App {
         self.show_capture_controls(ui);
         self.show_growing_waveform_controls(ui);
         ui.separator();
+        self.show_viewer_interaction_controls(ui);
+        ui.separator();
         ui.label(egui::RichText::new(self.logic_analyzer.status_summary()).weak());
         if let Some(progress) = self.logic_analyzer.index_progress_fraction() {
             ui.add(
@@ -1704,6 +1707,31 @@ impl App {
                     .desired_width(64.0)
                     .show_percentage(),
             );
+        }
+    }
+
+    /// Viewer measurement and snapping toggles, both on by default.
+    fn show_viewer_interaction_controls(&mut self, ui: &mut egui::Ui) {
+        let measurements = self.logic_analyzer.measurements_enabled();
+        if ui
+            .selectable_label(measurements, "Measure")
+            .on_hover_text(
+                "Show pulse width, period and frequency under the pointer, and \
+                 measure edge-to-edge distance by clicking an edge",
+            )
+            .clicked()
+        {
+            self.logic_analyzer.set_measurements_enabled(!measurements);
+        }
+        let snapping = self.logic_analyzer.snapping_enabled();
+        if ui
+            .selectable_label(snapping, "Snap")
+            .on_hover_text(
+                "Snap cursors, timeline markers and measurement endpoints to nearby edges",
+            )
+            .clicked()
+        {
+            self.logic_analyzer.set_snapping_enabled(!snapping);
         }
     }
 

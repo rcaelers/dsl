@@ -22,6 +22,29 @@ use crate::types::{
 
 const DEFAULT_VISIBLE_SPAN_US: f64 = 900.0;
 
+/// Persistable viewer interaction toggles that aren't part of any capture or
+/// graph document — whether hover pulse/period and click-to-measure edge
+/// distance readouts are taken, and whether cursors, timeline markers and
+/// measurement endpoints snap to nearby edges. The host app reads this via
+/// [`LogicAnalyzerViewer::ui_prefs`] to save it and restores it via
+/// [`LogicAnalyzerViewer::set_ui_prefs`] on the next launch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ViewerUiPrefs {
+    /// Whether hover period/width and edge-distance measurement are taken.
+    pub measurements_enabled: bool,
+    /// Whether time positions snap to nearby signal edges.
+    pub snapping_enabled: bool,
+}
+
+impl Default for ViewerUiPrefs {
+    fn default() -> Self {
+        Self {
+            measurements_enabled: true,
+            snapping_enabled: true,
+        }
+    }
+}
+
 /// One channel's digital waveform as raw (time, level) transitions — the
 /// generic way for a host application to hand [`LogicAnalyzerViewer::set_channels`]
 /// waveform data it already has in memory.
@@ -73,6 +96,12 @@ pub struct LogicAnalyzerViewer {
     /// A click-to-measure edge delta that remains active until explicitly
     /// stopped, unlike the transient hover pulse measurement.
     pub(crate) edge_delta_measurement: Option<EdgeDeltaMeasurement>,
+    /// Whether `hover_measurement` and `edge_delta_measurement` are taken at
+    /// all. Off leaves the waveform readable without measurement overlays.
+    pub(crate) measurements_enabled: bool,
+    /// Whether cursors, timeline markers and measurement endpoints snap to
+    /// nearby edges. Off places them exactly where the pointer is.
+    pub(crate) snapping_enabled: bool,
     pub(crate) visible_start_us: f64,
     pub(crate) visible_span_us: f64,
     pub(crate) capture_path: Option<PathBuf>,
@@ -144,6 +173,8 @@ impl LogicAnalyzerViewer {
             sample_query_pending: false,
             hover_measurement: None,
             edge_delta_measurement: None,
+            measurements_enabled: true,
+            snapping_enabled: true,
             visible_start_us: 0.0,
             visible_span_us: DEFAULT_VISIBLE_SPAN_US,
             capture_path: None,
@@ -184,6 +215,46 @@ impl LogicAnalyzerViewer {
     /// Selects the color profile used for waveform and lane presentation.
     pub fn set_color_profile(&mut self, color_profile: ColorProfile) {
         self.color_profile = color_profile;
+    }
+
+    /// Returns the persistable interaction toggles.
+    pub fn ui_prefs(&self) -> ViewerUiPrefs {
+        ViewerUiPrefs {
+            measurements_enabled: self.measurements_enabled,
+            snapping_enabled: self.snapping_enabled,
+        }
+    }
+
+    /// Restores interaction toggles saved via [`Self::ui_prefs`].
+    pub fn set_ui_prefs(&mut self, prefs: ViewerUiPrefs) {
+        self.set_measurements_enabled(prefs.measurements_enabled);
+        self.set_snapping_enabled(prefs.snapping_enabled);
+    }
+
+    /// Returns whether hover period/width and edge-distance measurement are taken.
+    pub fn measurements_enabled(&self) -> bool {
+        self.measurements_enabled
+    }
+
+    /// Enables or disables hover period/width and edge-distance measurement.
+    /// Disabling drops any measurement currently on screen.
+    pub fn set_measurements_enabled(&mut self, enabled: bool) {
+        self.measurements_enabled = enabled;
+        if !enabled {
+            self.hover_measurement = None;
+            self.edge_delta_measurement = None;
+        }
+    }
+
+    /// Returns whether time positions snap to nearby signal edges.
+    pub fn snapping_enabled(&self) -> bool {
+        self.snapping_enabled
+    }
+
+    /// Enables or disables snapping to nearby signal edges. Positions already
+    /// placed keep the time they were given.
+    pub fn set_snapping_enabled(&mut self, enabled: bool) {
+        self.snapping_enabled = enabled;
     }
 
     /// Returns a compact status-bar summary of visible channels, span, and capture state.

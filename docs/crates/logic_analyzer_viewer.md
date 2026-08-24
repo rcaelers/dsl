@@ -141,6 +141,12 @@ non-interactive payload does not materialize a second detail snapshot on pointer
 
 ## Measurements
 
+Measurement and edge snapping are each host-toggleable through `ui_prefs` /
+`set_ui_prefs`, both enabled by default. With measurement off the viewer takes no hover pulse
+measurement and starts no edge-delta measurement, and anything already on screen is dropped. With
+snapping off every time position stays where the pointer put it. The host owns presenting the
+toggles and persisting them across sessions.
+
 ### Pulse measurement
 
 The hover measurement reports the high or low run under the pointer. Coarse visible segments do
@@ -188,7 +194,7 @@ snapping as transient cursors; the viewer cannot create or delete persisted mark
 | Drag a named timeline-marker flag or line | Return a persisted-marker move to the host |
 | Double-click a row label | Rename the row locally |
 | Drag a row label | Reorder rows |
-| Click a waveform edge | Start edge-delta measurement |
+| Click a waveform edge | Start edge-delta measurement (when measurement is enabled) |
 | `Escape` or primary click during edge-delta measurement | Stop edge-delta measurement |
 | Header color selector | Switch between DSView and Classic profiles |
 

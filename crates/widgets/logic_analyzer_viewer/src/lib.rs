@@ -75,4 +75,4 @@ pub use sampling_overlay::SamplingOverlay;
 pub use simple_trigger::{SimpleTriggerEdit, SimpleTriggerLane};
 pub use timeline_marker::{TimelineMarker, TimelineMarkerEdit};
 pub use types::{ColorProfile, TimeCursor, ViewerRowHeight, ViewerRowHeightSettings, ViewerRowId};
-pub use viewer::{ChannelSignal, LogicAnalyzerViewer};
+pub use viewer::{ChannelSignal, LogicAnalyzerViewer, ViewerUiPrefs};

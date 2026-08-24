@@ -89,6 +89,9 @@ impl LogicAnalyzerViewer {
         pointer: Option<Pos2>,
     ) {
         let previous = self.hover_measurement.take();
+        if !self.measurements_enabled {
+            return;
+        }
         let Some(pointer) = pointer else {
             return;
         };

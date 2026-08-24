@@ -130,7 +130,11 @@ impl App {
             self.toasts
                 .error(format!("Could not update the graph panel layout: {error}"));
         }
-        self.platform.save(storage, self.node_graph.ui_prefs());
+        self.platform.save(
+            storage,
+            self.node_graph.ui_prefs(),
+            self.logic_analyzer.ui_prefs(),
+        );
     }
 
     pub(crate) fn platform_before_ui(&mut self, ui: &mut egui::Ui) {

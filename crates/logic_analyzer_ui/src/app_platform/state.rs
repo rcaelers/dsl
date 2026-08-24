@@ -58,12 +58,13 @@ impl PlatformState {
     pub(crate) fn restore(
         cc: &eframe::CreationContext,
         widget: &mut node_graph::NodeGraphWidget,
+        viewer: &mut logic_analyzer_viewer::LogicAnalyzerViewer,
     ) -> Self {
         let persisted = cc
             .storage
             .and_then(|storage| eframe::get_value::<PersistedState>(storage, eframe::APP_KEY));
         if let Some(state) = persisted.as_ref() {
-            state.ui.clone().restore(widget);
+            state.ui.clone().restore(widget, viewer);
         }
         let recent_files = persisted
             .map(|state| normalize_recent_files(state.recent_files))
@@ -181,9 +182,10 @@ impl PlatformState {
         &self,
         storage: &mut dyn eframe::Storage,
         graph_ui_prefs: node_graph::GraphUiPrefs,
+        viewer_ui_prefs: logic_analyzer_viewer::ViewerUiPrefs,
     ) {
         let state = PersistedState {
-            ui: super::PersistedUiState::capture(graph_ui_prefs),
+            ui: super::PersistedUiState::capture(graph_ui_prefs, viewer_ui_prefs),
             recent_files: self.recent_files.clone(),
         };
         eframe::set_value(storage, eframe::APP_KEY, &state);
@@ -207,5 +209,32 @@ mod tests {
         });
         let restored: PersistedState = serde_json::from_value(legacy).unwrap();
         assert_eq!(restored.ui.graph_ui_prefs.panel_width, 320.0);
+        // Saved before the viewer toggles existed: both restore enabled.
+        assert!(restored.ui.viewer_measurements_enabled);
+        assert!(restored.ui.viewer_snapping_enabled);
+    }
+
+    #[test]
+    fn viewer_toggles_survive_a_save_and_restore_round_trip() {
+        let state = PersistedState {
+            ui: super::super::PersistedUiState::capture(
+                node_graph::GraphUiPrefs {
+                    panel_width: 320.0,
+                    panel_tab: None,
+                    minimap_visible: true,
+                },
+                logic_analyzer_viewer::ViewerUiPrefs {
+                    measurements_enabled: false,
+                    snapping_enabled: true,
+                },
+            ),
+            recent_files: Vec::new(),
+        };
+
+        let restored: PersistedState =
+            serde_json::from_value(serde_json::to_value(&state).unwrap()).unwrap();
+
+        assert!(!restored.ui.viewer_measurements_enabled);
+        assert!(restored.ui.viewer_snapping_enabled);
     }
 }

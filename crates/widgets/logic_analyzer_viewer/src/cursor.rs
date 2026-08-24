@@ -210,7 +210,7 @@ impl LogicAnalyzerViewer {
     /// ruler or an empty row the time stays free.
     pub(crate) fn snap_cursor_time(&mut self, wave_rect: Rect, pointer: Pos2, time_us: f64) -> f64 {
         const SNAP_DISTANCE_PX: f32 = 8.0;
-        if pointer.y < wave_rect.top() || pointer.y > wave_rect.bottom() {
+        if !self.snapping_enabled || pointer.y < wave_rect.top() || pointer.y > wave_rect.bottom() {
             return time_us;
         }
         let mut channel_row = 0;
@@ -486,6 +486,28 @@ mod cursor_tests {
             viewer.snap_cursor_time(wave_rect, Pos2::new(205.0, 115.0), 20.5),
             20.0
         );
+    }
+
+    #[test]
+    fn disabled_snapping_leaves_the_cursor_at_the_pointer_time() {
+        let mut viewer = LogicAnalyzerViewer::new();
+        viewer.set_channels(vec![crate::ChannelSignal {
+            index: 0,
+            name: "Clock".into(),
+            initial: false,
+            transitions: vec![(20.0, true)],
+        }]);
+        viewer.visible_start_us = 0.0;
+        viewer.visible_span_us = 100.0;
+        viewer.ensure_row_order();
+        let wave_rect = Rect::from_min_max(Pos2::new(0.0, 100.0), Pos2::new(1_000.0, 130.0));
+        let pointer = Pos2::new(205.0, 115.0);
+
+        assert_eq!(viewer.snap_cursor_time(wave_rect, pointer, 20.5), 20.0);
+
+        viewer.set_snapping_enabled(false);
+
+        assert_eq!(viewer.snap_cursor_time(wave_rect, pointer, 20.5), 20.5);
     }
 
     fn edge(time_us: f64, value: bool) -> Transition {

@@ -30,7 +30,7 @@ impl LogicAnalyzerViewer {
             return true;
         }
 
-        if !response.clicked_by(button) {
+        if !self.measurements_enabled || !response.clicked_by(button) {
             return false;
         }
         let Some(pointer) = response.interact_pointer_pos() else {
@@ -84,13 +84,16 @@ impl LogicAnalyzerViewer {
         };
         let raw_time_us = self.x_to_time(layout.wave_rect, pointer.x);
         let target_row = self.row_at_vertical(layout.wave_rect.top(), pointer.y, layout.row_height);
-        let snapped = target_row.and_then(|row| {
-            self.nearest_edge_at_row(row, raw_time_us)
-                .and_then(|edge_us| {
-                    let edge_x = self.time_to_x_unclamped(layout.wave_rect, edge_us);
-                    ((pointer.x - edge_x).abs() <= EDGE_HIT_DISTANCE_PX).then_some((row, edge_us))
-                })
-        });
+        let snapped = target_row
+            .filter(|_| self.snapping_enabled)
+            .and_then(|row| {
+                self.nearest_edge_at_row(row, raw_time_us)
+                    .and_then(|edge_us| {
+                        let edge_x = self.time_to_x_unclamped(layout.wave_rect, edge_us);
+                        ((pointer.x - edge_x).abs() <= EDGE_HIT_DISTANCE_PX)
+                            .then_some((row, edge_us))
+                    })
+            });
         let (end_us, end_y) = if let Some((row, edge_us)) = snapped {
             let row_top = self.row_top(layout.wave_rect.top(), row, layout.row_height);
             let row_height = self.display_row_height(
@@ -185,6 +188,55 @@ mod edge_measurement_tests {
 
         assert_eq!(viewer.nearest_edge_at_row(0, 29.0), Some(30.0));
         assert_eq!(viewer.nearest_edge_at_row(1, 29.0), Some(40.0));
+    }
+
+    /// Disabling measurement drops what is on screen, and disabling snapping
+    /// leaves a still-running measurement's endpoint at the pointer.
+    #[test]
+    fn toggles_drop_measurements_and_free_the_endpoint() {
+        let mut viewer = LogicAnalyzerViewer::new();
+        viewer.set_channels(vec![ChannelSignal {
+            index: 0,
+            name: "Clock".into(),
+            initial: false,
+            transitions: vec![(10.0, true), (40.0, false)],
+        }]);
+        viewer.visible_start_us = 0.0;
+        viewer.visible_span_us = 100.0;
+        let layout = AnalyzerLayout {
+            ruler_rect: Rect::from_min_max(Pos2::ZERO, Pos2::new(100.0, 20.0)),
+            labels_rect: Rect::from_min_max(Pos2::ZERO, Pos2::new(20.0, 100.0)),
+            wave_rect: Rect::from_min_max(Pos2::new(0.0, 20.0), Pos2::new(100.0, 100.0)),
+            row_height: 30.0,
+            trigger_width: 0.0,
+            name_col_width: 0.0,
+            badge_width: 0.0,
+        };
+        let measurement = EdgeDeltaMeasurement {
+            channel_row: 0,
+            start_us: 10.0,
+            end_us: 10.0,
+            end_y: 35.0,
+        };
+
+        // Snapping off: the endpoint stays exactly under the pointer even
+        // though an edge at 40µs is within the snap distance.
+        viewer.edge_delta_measurement = Some(measurement);
+        viewer.set_snapping_enabled(false);
+        viewer.update_edge_measurement(layout, Some(Pos2::new(39.0, 60.0)));
+        let updated = viewer.edge_delta_measurement.expect("measurement runs");
+        // Free at the pointer (pixel→time conversion is f32), not pulled to
+        // the edge at 40µs that snapping would have selected.
+        assert!(
+            (updated.end_us - 39.0).abs() < 0.001,
+            "endpoint stayed free: {}",
+            updated.end_us
+        );
+        assert_eq!(updated.end_y, 60.0);
+
+        // Measurement off: nothing stays on screen.
+        viewer.set_measurements_enabled(false);
+        assert!(viewer.edge_delta_measurement.is_none());
     }
 
     #[test]
