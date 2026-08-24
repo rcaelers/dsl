@@ -62,7 +62,10 @@ impl LogicAnalyzerViewer {
 
         let pointer = response
             .interact_pointer_pos()
-            .or_else(|| ui.input(|input| input.pointer.hover_pos()));
+            .or_else(|| ui.input(|input| input.pointer.hover_pos()))
+            // Cursor lines stay grabbable a few points past the wave area,
+            // which is where the scrollbar column sits; the scrollbar owns it.
+            .filter(|pointer| !self.pointer_over_scrollbar(layout, *pointer));
         let flags = self.cursor_flag_layout(ui, wave_rect, ruler_rect);
 
         // Delete via the flag's close box.

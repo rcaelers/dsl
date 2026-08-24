@@ -54,6 +54,7 @@ mod lanes;
 mod renderer_registration;
 mod sampling;
 mod sampling_overlay;
+mod scrollbar;
 mod simple_trigger;
 mod timeline_marker;
 mod types;

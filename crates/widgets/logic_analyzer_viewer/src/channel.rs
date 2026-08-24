@@ -50,8 +50,16 @@ impl LogicChannel {
 }
 
 impl LogicAnalyzerViewer {
+    /// Top of the row stack in screen coordinates: the viewport top moved up
+    /// by the vertical scroll offset. Every row position derives from this,
+    /// so scrolling is a property of the row coordinate system rather than
+    /// something each drawing and hit-testing site has to remember.
+    pub(crate) fn rows_origin_y(&self, viewport_top: f32) -> f32 {
+        viewport_top - self.scroll_offset_y
+    }
+
     pub(crate) fn row_top(&self, origin_y: f32, row: usize, default_height: f32) -> f32 {
-        origin_y
+        self.rows_origin_y(origin_y)
             + self
                 .row_order
                 .iter()
@@ -60,13 +68,26 @@ impl LogicAnalyzerViewer {
                 .sum::<f32>()
     }
 
+    /// Total height of every row, independent of the viewport.
+    pub(crate) fn rows_total_height(&self, default_height: f32) -> f32 {
+        self.row_order
+            .iter()
+            .map(|key| self.display_row_height(key, default_height))
+            .sum()
+    }
+
     pub(crate) fn row_at_vertical(
         &self,
         origin_y: f32,
         y: f32,
         default_height: f32,
     ) -> Option<usize> {
-        let mut top = origin_y;
+        // Rows scrolled above the viewport are not hit-testable: `origin_y`
+        // is the viewport top, and a pointer above it is over the ruler.
+        if y < origin_y {
+            return None;
+        }
+        let mut top = self.rows_origin_y(origin_y);
         for (row, key) in self.row_order.iter().enumerate() {
             let height = self.display_row_height(key, default_height);
             if y >= top && y < top + height {

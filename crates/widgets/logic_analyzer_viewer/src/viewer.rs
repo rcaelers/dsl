@@ -102,6 +102,12 @@ pub struct LogicAnalyzerViewer {
     /// Whether cursors, timeline markers and measurement endpoints snap to
     /// nearby edges. Off places them exactly where the pointer is.
     pub(crate) snapping_enabled: bool,
+    /// How far the row stack is scrolled up, in points. Always 0 while every
+    /// row fits; `clamp_scroll_offset` re-clamps it whenever the rows or the
+    /// viewport change height.
+    pub(crate) scroll_offset_y: f32,
+    /// Grab offset inside the scrollbar thumb while it is being dragged.
+    pub(crate) scrollbar_drag_grab: Option<f32>,
     pub(crate) visible_start_us: f64,
     pub(crate) visible_span_us: f64,
     pub(crate) capture_path: Option<PathBuf>,
@@ -175,6 +181,8 @@ impl LogicAnalyzerViewer {
             edge_delta_measurement: None,
             measurements_enabled: true,
             snapping_enabled: true,
+            scroll_offset_y: 0.0,
+            scrollbar_drag_grab: None,
             visible_start_us: 0.0,
             visible_span_us: DEFAULT_VISIBLE_SPAN_US,
             capture_path: None,
@@ -681,6 +689,12 @@ impl LogicAnalyzerViewer {
         // all see the same order.
         self.ensure_row_order();
         let mut layout = self.layout(ui, rect);
+        // Rows, row heights and the viewport can all have changed since the
+        // last frame, so re-clamp before any row geometry is derived.
+        self.clamp_scroll_offset(layout);
+        // The scrollbar sits outside `wave_rect` and owns its own column, so
+        // it is resolved before the gestures that read the wave area.
+        let scrollbar_active = self.handle_scrollbar_input(ui, &response, layout);
         self.hovered_input_context = response
             .hover_pos()
             .map(|pointer| {
@@ -727,7 +741,10 @@ impl LogicAnalyzerViewer {
         } else {
             self.handle_timeline_marker_input(ui, &response, layout)
         };
-        let cursor_input = if edge_measurement_active || timeline_marker_input.active.is_some() {
+        let cursor_input = if edge_measurement_active
+            || scrollbar_active
+            || timeline_marker_input.active.is_some()
+        {
             crate::types::CursorInput::default()
         } else {
             self.handle_cursor_input(ui, &response, layout)
@@ -747,6 +764,7 @@ impl LogicAnalyzerViewer {
             .pointer_button(&["logic_analyzer"], "fit_pointer")
             .is_some_and(|button| response.double_clicked_by(button))
             && !cursor_input.add_cursor_double_click
+            && !scrollbar_active
             && !row_rename_started)
             || (response.hovered()
                 && self.input_bindings.consume_shortcut_ctx(
@@ -767,6 +785,7 @@ impl LogicAnalyzerViewer {
                 && !cursor_input.blocks_pan
                 && !timeline_marker_input.blocks_pan
                 && !edge_measurement_active
+                && !scrollbar_active
                 && !row_dragging,
         );
         self.sample_visible_window(layout);
@@ -824,7 +843,7 @@ impl LogicAnalyzerViewer {
         }
     }
 
-    fn layout(&self, ui: &Ui, rect: Rect) -> AnalyzerLayout {
+    pub(crate) fn layout(&self, ui: &Ui, rect: Rect) -> AnalyzerLayout {
         let ruler_height = 34.0;
         let row_height = 30.0;
         let label_pad = 12.0;
@@ -888,9 +907,25 @@ impl LogicAnalyzerViewer {
             Pos2::new(rect.left(), rect.top() + ruler_height),
             Pos2::new(rect.left() + left_width, rect.bottom()),
         );
+        // Reserve the scrollbar column only when the rows actually overflow,
+        // so waveforms keep the full width whenever everything fits. Nothing
+        // is drawn beneath the bar: covering waveform pixels would make the
+        // rightmost samples unreadable.
+        let viewport_height = (rect.bottom() - (rect.top() + ruler_height)).max(0.0);
+        let scrollbar_width =
+            if self.rows_total_height(row_height) > viewport_height && viewport_height > 1.0 {
+                crate::scrollbar::SCROLLBAR_WIDTH
+            } else {
+                0.0
+            };
+        let content_right = (rect.right() - scrollbar_width).max(rect.left() + left_width);
+        let ruler_rect = Rect::from_min_max(
+            ruler_rect.min,
+            Pos2::new(content_right.max(ruler_rect.left()), ruler_rect.bottom()),
+        );
         let wave_rect = Rect::from_min_max(
             Pos2::new(rect.left() + left_width, rect.top() + ruler_height),
-            rect.max,
+            Pos2::new(content_right, rect.bottom()),
         );
 
         AnalyzerLayout {

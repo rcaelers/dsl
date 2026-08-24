@@ -82,7 +82,10 @@ impl LogicAnalyzerViewer {
 
         let pointer = response
             .interact_pointer_pos()
-            .or_else(|| ui.input(|input| input.pointer.hover_pos()));
+            .or_else(|| ui.input(|input| input.pointer.hover_pos()))
+            // Marker lines stay grabbable a few points past the wave area,
+            // which is where the scrollbar column sits; the scrollbar owns it.
+            .filter(|pointer| !self.pointer_over_scrollbar(layout, *pointer));
         let flags = self.timeline_marker_flag_layout(ui, layout.wave_rect, layout.ruler_rect);
         let hovered = pointer.and_then(|pointer| {
             self.timeline_marker_at_pointer(layout.wave_rect, layout.ruler_rect, &flags, pointer)

@@ -89,16 +89,63 @@ impl LogicAnalyzerViewer {
             if wave_rect.contains(pointer)
                 && let Some(measurement) = self.hover_measurement
             {
-                self.draw_pulse_measurement(painter, wave_rect, row_height, measurement);
+                self.draw_pulse_measurement(
+                    &painter.with_clip_rect(wave_rect),
+                    wave_rect,
+                    row_height,
+                    measurement,
+                );
             }
         }
 
+        // Clipped because a measurement's row can be scrolled out of the
+        // viewport while the measurement stays active.
         if let Some(measurement) = self.edge_delta_measurement {
-            self.draw_edge_delta_measurement(painter, wave_rect, row_height, measurement);
+            self.draw_edge_delta_measurement(
+                &painter.with_clip_rect(wave_rect),
+                wave_rect,
+                row_height,
+                measurement,
+            );
         }
 
         self.draw_timeline_markers(painter, ruler_rect, wave_rect, active_timeline_marker);
         self.draw_cursors(painter, ruler_rect, wave_rect, active_cursor);
+        self.draw_vertical_scrollbar(painter, layout, pointer);
+    }
+
+    /// Draws the row scrollbar in its reserved column, or nothing at all when
+    /// every row fits.
+    fn draw_vertical_scrollbar(
+        &self,
+        painter: &Painter,
+        layout: AnalyzerLayout,
+        pointer: Option<Pos2>,
+    ) {
+        let Some(geometry) = self.scrollbar_geometry(layout) else {
+            return;
+        };
+        // The reserved column is outside every content rect, so it is filled
+        // from the ruler's top edge down — otherwise the strip beside the
+        // ruler would be left showing whatever is behind the viewer.
+        painter.rect_filled(
+            Rect::from_min_max(
+                Pos2::new(geometry.track.left(), layout.ruler_rect.top()),
+                geometry.track.right_bottom(),
+            ),
+            0.0,
+            Color32::from_rgb(26, 26, 26),
+        );
+        let hovered = pointer.is_some_and(|pointer| geometry.track.contains(pointer));
+        let active = self.scrollbar_drag_grab.is_some();
+        let thumb = if active {
+            Color32::from_rgb(150, 150, 150)
+        } else if hovered {
+            Color32::from_rgb(122, 122, 122)
+        } else {
+            Color32::from_rgb(92, 92, 92)
+        };
+        painter.rect_filled(geometry.thumb, geometry.thumb.width() * 0.5, thumb);
     }
 
     fn draw_capture_trigger(&self, painter: &Painter, layout: AnalyzerLayout) {
@@ -156,18 +203,26 @@ impl LogicAnalyzerViewer {
         grid: Color32,
     ) {
         let clip = painter.with_clip_rect(wave_rect);
+        // Scrolled rows must not paint over the ruler above them, so labels
+        // and separators are clipped to the row area just as waveforms are.
+        let rows_clip = painter.with_clip_rect(labels_rect.union(wave_rect));
 
-        let mut y_top = labels_rect.top();
+        let mut y_top = self.rows_origin_y(labels_rect.top());
         for key in &self.row_order {
             let display_height = self.display_row_height(key, row_height);
             if y_top > labels_rect.bottom() {
                 break;
             }
+            if y_top + display_height < labels_rect.top() {
+                // Scrolled off the top: nothing of this row is visible.
+                y_top += display_height;
+                continue;
+            }
             let row_rect = Rect::from_min_max(
                 Pos2::new(labels_rect.left(), y_top),
                 Pos2::new(wave_rect.right(), y_top + display_height),
             );
-            painter.line_segment(
+            rows_clip.line_segment(
                 [
                     Pos2::new(labels_rect.left(), row_rect.bottom()),
                     Pos2::new(wave_rect.right(), row_rect.bottom()),
@@ -187,9 +242,9 @@ impl LogicAnalyzerViewer {
                     ),
                     vec2(20.0, 20.0),
                 );
-                self.draw_simple_trigger_icon(painter, key, trigger_rect);
+                self.draw_simple_trigger_icon(&rows_clip, key, trigger_rect);
             }
-            painter.text(
+            rows_clip.text(
                 Pos2::new(
                     labels_rect.left() + 12.0 + trigger_width,
                     row_rect.center().y,
@@ -206,8 +261,8 @@ impl LogicAnalyzerViewer {
                 ),
                 vec2(badge_width, 16.0),
             );
-            painter.rect_filled(badge_rect, 2.0, label.badge_color);
-            painter.text(
+            rows_clip.rect_filled(badge_rect, 2.0, label.badge_color);
+            rows_clip.text(
                 badge_rect.center(),
                 Align2::CENTER_CENTER,
                 &label.badge_text,

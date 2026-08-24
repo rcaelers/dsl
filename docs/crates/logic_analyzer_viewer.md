@@ -38,6 +38,14 @@ rows append. Users reorder rows by dragging labels and rename them by double-cli
 are viewer state and do not mutate the underlying capture or derived data. The header offers the
 DSView Tango-based and Classic muted color profiles.
 
+Rows scroll vertically when they do not all fit. Scrolling is a property of the row coordinate
+system — `rows_origin_y` offsets the whole stack, so drawing, hit-testing, and measurement stay
+aligned without each site tracking the offset. The scrollbar column is reserved on the right only
+while the rows genuinely overflow; when everything fits there is no scrollbar and waveforms keep
+the full width. Nothing is drawn beneath the bar, so no sample is hidden by it. The offset is
+re-clamped every frame, so removing rows or shrinking row heights scrolls back into range instead
+of leaving the view parked past the last row.
+
 Native and wasm hosts supply the same contracts. Browser file import, embedded captures, native
 files, finalized sessions, and growing sessions differ in preparation and storage ownership, not
 in viewer behavior.
@@ -194,6 +202,8 @@ snapping as transient cursors; the viewer cannot create or delete persisted mark
 | Drag a named timeline-marker flag or line | Return a persisted-marker move to the host |
 | Double-click a row label | Rename the row locally |
 | Drag a row label | Reorder rows |
+| Drag the row scrollbar thumb | Scroll rows vertically (shown only when rows overflow) |
+| Press the row scrollbar track | Scroll one page toward the press |
 | Click a waveform edge | Start edge-delta measurement (when measurement is enabled) |
 | `Escape` or primary click during edge-delta measurement | Stop edge-delta measurement |
 | Header color selector | Switch between DSView and Classic profiles |
