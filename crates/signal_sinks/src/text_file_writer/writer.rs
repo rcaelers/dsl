@@ -35,7 +35,8 @@ use super::super::output_storage::{
 /// [`TextSample`] level.
 ///
 /// Inputs: `lines` (0) — `TextSample` events, one written per line;
-/// `filename` (1) — `TextSample` level.
+/// `filename` (1) — `TextSample` level, optional when a static path was set
+/// via [`Self::with_filename`].
 /// Outputs: none.
 pub struct TextFileWriter {
     name: String,
@@ -92,6 +93,14 @@ impl TextFileWriter {
     /// Returns this value with explicit upstream graph provenance for generated files.
     pub fn with_output_origin(mut self, origin: OutputOrigin) -> Self {
         self.output_origin = origin;
+        self
+    }
+
+    /// Fixed output path, used when no `filename` input is connected. A
+    /// connected filename stream takes precedence (its t=0 level replaces
+    /// this before the first line is written).
+    pub fn with_filename(mut self, path: impl Into<String>) -> Self {
+        self.current_name = Some(path.into());
         self
     }
 
@@ -201,14 +210,23 @@ impl ProcessNode for TextFileWriter {
             .first()
             .and_then(|port| port.get::<TextSample>(&mut self.lines_buffer))
             .ok_or_else(|| WorkError::NodeError("Missing lines input".to_string()))?;
+        // Optional when a static filename was set via `with_filename` — an
+        // unconnected input writes everything to that one path.
         let mut names = inputs
             .get(1)
-            .and_then(|port| port.get::<TextSample>(&mut self.name_buffer))
-            .ok_or_else(|| WorkError::NodeError("Missing filename input".to_string()))?;
+            .and_then(|port| port.get::<TextSample>(&mut self.name_buffer));
+        if names.is_none() && self.current_name.is_none() && self.pending_names.is_empty() {
+            return Err(WorkError::NodeError(
+                "No filename: connect the filename input or set a static one".to_string(),
+            ));
+        }
 
         // The initial name is guaranteed by the level-stream contract (sent
         // at t=0), so a blocking wait for it is bounded and only happens once.
-        if self.current_name.is_none() && self.pending_names.is_empty() {
+        if let Some(names) = &mut names
+            && self.current_name.is_none()
+            && self.pending_names.is_empty()
+        {
             let initial = names.recv()?;
             self.pending_names.push_back(initial);
         }
@@ -225,8 +243,10 @@ impl ProcessNode for TextFileWriter {
         };
 
         // Opportunistically drain name changes (never blocks).
-        while let Ok(change) = names.try_recv() {
-            self.pending_names.push_back(change);
+        if let Some(names) = &mut names {
+            while let Ok(change) = names.try_recv() {
+                self.pending_names.push_back(change);
+            }
         }
 
         // Apply every name change the line stream has passed.
@@ -306,6 +326,70 @@ mod tests {
             TextFileWriter::with_output_storage(Arc::new(storage.clone())),
             storage,
         )
+    }
+
+    /// With a static filename set and the `filename` input unconnected,
+    /// everything is written to that one path — the "save dialog on the
+    /// node" case, no formatter needed.
+    #[test]
+    fn static_filename_without_filename_input() {
+        let target = "static.csv";
+
+        let wd = Watchdog::new();
+        let (lines_tx, lines_rx) = bounded::<ChannelMessage<TextSample>>(16);
+        let inputs = vec![
+            InputPort::new_with_watchdog(lines_rx, &wd, "writer", "lines"),
+            InputPort::disconnected().with_watchdog(
+                wd.clone(),
+                "writer".to_string(),
+                "filename".to_string(),
+            ),
+        ];
+        for (line, ts) in [("a,b,c", 10u64), ("1,2,3", 20)] {
+            lines_tx
+                .send(ChannelMessage::Sample(TextSample::new(line, ts)))
+                .unwrap();
+        }
+        drop(lines_tx);
+
+        let (writer, storage) = memory_writer();
+        let mut writer = writer.with_filename(target);
+        loop {
+            match writer.work(&inputs, &[]) {
+                Ok(_) => {}
+                Err(WorkError::Shutdown) => break,
+                Err(e) => panic!("unexpected error: {e}"),
+            }
+        }
+
+        assert_eq!(
+            String::from_utf8(storage.contents(target).unwrap()).unwrap(),
+            "a,b,c\n1,2,3\n"
+        );
+    }
+
+    #[test]
+    fn missing_filename_and_static_is_an_error() {
+        let wd = Watchdog::new();
+        let (lines_tx, lines_rx) = bounded::<ChannelMessage<TextSample>>(4);
+        let inputs = vec![
+            InputPort::new_with_watchdog(lines_rx, &wd, "writer", "lines"),
+            InputPort::disconnected().with_watchdog(
+                wd.clone(),
+                "writer".to_string(),
+                "filename".to_string(),
+            ),
+        ];
+        lines_tx
+            .send(ChannelMessage::Sample(TextSample::new("x", 10)))
+            .unwrap();
+        drop(lines_tx);
+
+        let mut writer = TextFileWriter::new();
+        assert!(matches!(
+            writer.work(&inputs, &[]),
+            Err(WorkError::NodeError(_))
+        ));
     }
 
     #[test]

@@ -106,11 +106,17 @@ pub fn binary_file_writer_capability_override(
     crate::nodes::sinks::file_writer::builder::capability_override(writer_factory)
 }
 
-/// Returns the CSV sink override for one host destination factory.
+/// Returns the CSV sink override for one host destination factory. The text
+/// factory backs the pre-formatted-lines mode (a `TextSample` stream on the
+/// `Data` input is written verbatim).
 pub fn csv_word_writer_capability_override(
     writer_factory: Arc<dyn CsvWordWriterFactory>,
+    text_writer_factory: Arc<dyn TextFileWriterFactory>,
 ) -> GraphNodeCapabilityOverride {
-    crate::nodes::sinks::csv_writer::builder::capability_override(writer_factory)
+    crate::nodes::sinks::csv_writer::builder::capability_override(
+        writer_factory,
+        text_writer_factory,
+    )
 }
 
 /// Returns the text-file sink override for one host destination factory.

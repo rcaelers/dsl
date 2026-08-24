@@ -18,31 +18,46 @@ use signal_sinks::OutputOrigin;
 use signal_sinks::csv_word_writer::{
     CsvValueFormat, CsvWordWriterConfig, CsvWordWriterFactory, unavailable_writer_factory,
 };
+use signal_sinks::text_file_writer::TextFileWriterFactory;
 
 pub(crate) struct CsvWriterBuilder {
     writer_factory: Arc<dyn CsvWordWriterFactory>,
+    /// Materialized instead of the word writer when `Data` resolves to
+    /// pre-formatted CSV lines (`TextSample`, e.g. `TGCK Recorder` rows);
+    /// those are written verbatim, so the header/value-format options don't
+    /// apply.
+    text_writer_factory: Arc<dyn TextFileWriterFactory>,
 }
 
 impl Default for CsvWriterBuilder {
     fn default() -> Self {
         Self {
             writer_factory: unavailable_writer_factory(),
+            text_writer_factory: signal_sinks::text_file_writer::unavailable_writer_factory(),
         }
     }
 }
 
 impl CsvWriterBuilder {
-    pub(crate) fn with_writer_factory(writer_factory: Arc<dyn CsvWordWriterFactory>) -> Self {
-        Self { writer_factory }
+    pub(crate) fn with_writer_factories(
+        writer_factory: Arc<dyn CsvWordWriterFactory>,
+        text_writer_factory: Arc<dyn TextFileWriterFactory>,
+    ) -> Self {
+        Self {
+            writer_factory,
+            text_writer_factory,
+        }
     }
 }
 
 pub(crate) fn capability_override(
     writer_factory: Arc<dyn CsvWordWriterFactory>,
+    text_writer_factory: Arc<dyn TextFileWriterFactory>,
 ) -> GraphNodeCapabilityOverride {
     GraphNodeCapabilityOverride::capabilities("org.logicconduit.graph-node.sinks.csv-writer/v1")
-        .with_materializer(Box::new(CsvWriterBuilder::with_writer_factory(
+        .with_materializer(Box::new(CsvWriterBuilder::with_writer_factories(
             writer_factory,
+            text_writer_factory,
         )))
 }
 
@@ -52,7 +67,9 @@ impl GraphNodeSemantics for CsvWriterBuilder {
     }
     fn accepted_kinds(&self, socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         match socket.definition_index() {
-            0 => vec![PortKind::of::<Word>()],
+            // Words become `id,time_ns,value` rows; TextSample lines are
+            // already CSV and pass through verbatim.
+            0 => vec![PortKind::of::<Word>(), PortKind::of::<TextSample>()],
             1 => vec![PortKind::of::<TextSample>()],
             _ => vec![],
         }
@@ -60,8 +77,9 @@ impl GraphNodeSemantics for CsvWriterBuilder {
     fn offered_kinds(&self, _socket: SocketReference<'_>, _state: &Value) -> Vec<PortKind> {
         vec![]
     }
-    fn input_port(&self, socket: SocketReference<'_>, _: &Value, _: PortKind) -> Option<String> {
+    fn input_port(&self, socket: SocketReference<'_>, _: &Value, kind: PortKind) -> Option<String> {
         match socket.definition_index() {
+            0 if kind == PortKind::of::<TextSample>() => Some("lines".into()),
             0 => Some("data".into()),
             1 => Some("filename".into()),
             _ => None,
@@ -91,13 +109,6 @@ impl RuntimeMaterializer for CsvWriterBuilder {
         _ctx: &mut dyn NodeBuildContext,
     ) -> Result<Box<dyn ProcessNode>, RuntimeMaterializationError> {
         let state: super::definition::CsvWriterState = parse_state(state)?;
-        let format = match state.value_format.selected() {
-            "Hex" => CsvValueFormat::Hex {
-                width: state.hex_digits.value.clamp(1, 16) as usize,
-            },
-            _ => CsvValueFormat::Decimal,
-        };
-        let header = state.header.value.trim();
         // Static fallback only when nothing is wired into Filename — a
         // connected stream always wins.
         let static_filename = state.filename.value.trim();
@@ -106,6 +117,26 @@ impl RuntimeMaterializer for CsvWriterBuilder {
         let source = resolved.get(0, 0).ok_or_else(|| {
             RuntimeMaterializationError::unavailable("CSV Writer data input is not connected")
         })?;
+        let origin = OutputOrigin::new(
+            source.source_node_title.clone(),
+            source.source_output_title.clone(),
+        );
+        // Pre-formatted CSV lines (e.g. TGCK Recorder rows) are written
+        // verbatim; the header/value-format options only shape Word input.
+        if source.kind == PortKind::of::<TextSample>() {
+            return self
+                .text_writer_factory
+                .create(name, static_filename, origin)
+                .map(ProcessNodeConstruction::into_process)
+                .map_err(RuntimeMaterializationError::construction_source);
+        }
+        let format = match state.value_format.selected() {
+            "Hex" => CsvValueFormat::Hex {
+                width: state.hex_digits.value.clamp(1, 16) as usize,
+            },
+            _ => CsvValueFormat::Decimal,
+        };
+        let header = state.header.value.trim();
         self.writer_factory
             .create(
                 name,
@@ -114,10 +145,7 @@ impl RuntimeMaterializer for CsvWriterBuilder {
                     (!header.is_empty()).then(|| header.to_owned()),
                     static_filename,
                 ),
-                OutputOrigin::new(
-                    source.source_node_title.clone(),
-                    source.source_output_title.clone(),
-                ),
+                origin,
             )
             .map(ProcessNodeConstruction::into_process)
             .map_err(RuntimeMaterializationError::construction_source)
@@ -129,7 +157,10 @@ fn platform_parity_capabilities() -> crate::nodes::test_support::PlatformParityC
     let factory = Arc::new(crate::nodes::test_support::TestWriterFactory);
     crate::nodes::test_support::PlatformParityCapabilities::new(
         Box::new(CsvWriterBuilder::default()),
-        Box::new(CsvWriterBuilder::with_writer_factory(factory)),
+        Box::new(CsvWriterBuilder::with_writer_factories(
+            factory.clone(),
+            factory,
+        )),
     )
 }
 

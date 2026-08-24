@@ -159,18 +159,6 @@
     {
       "from": {
         "direction": "Output",
-        "index": 10,
-        "node": 0
-      },
-      "to": {
-        "direction": "Input",
-        "index": 0,
-        "node": 8
-      }
-    },
-    {
-      "from": {
-        "direction": "Output",
         "index": 0,
         "node": 0
       },
@@ -275,6 +263,90 @@
         "index": 0,
         "node": 9
       }
+    },
+    {
+      "from": {
+        "direction": "Output",
+        "index": 0,
+        "node": 8
+      },
+      "to": {
+        "direction": "Input",
+        "index": 0,
+        "node": 12
+      }
+    },
+    {
+      "from": {
+        "direction": "Output",
+        "index": 0,
+        "node": 6
+      },
+      "to": {
+        "direction": "Input",
+        "index": 2,
+        "node": 12
+      }
+    },
+    {
+      "from": {
+        "direction": "Output",
+        "index": 0,
+        "node": 12
+      },
+      "to": {
+        "direction": "Input",
+        "index": 0,
+        "node": 15
+      }
+    },
+    {
+      "from": {
+        "direction": "Output",
+        "index": 1,
+        "node": 12
+      },
+      "to": {
+        "direction": "Input",
+        "index": 1,
+        "node": 15
+      }
+    },
+    {
+      "from": {
+        "direction": "Output",
+        "index": 9,
+        "node": 0
+      },
+      "to": {
+        "direction": "Input",
+        "index": 0,
+        "node": 8
+      }
+    },
+    {
+      "from": {
+        "direction": "Output",
+        "index": 10,
+        "node": 0
+      },
+      "to": {
+        "direction": "Input",
+        "index": 1,
+        "node": 12
+      }
+    },
+    {
+      "from": {
+        "direction": "Output",
+        "index": 0,
+        "node": 1
+      },
+      "to": {
+        "direction": "Input",
+        "index": 0,
+        "node": 16
+      }
     }
   ],
   "extensions": {
@@ -376,6 +448,15 @@
             "ShowInView": {
               "node": 0,
               "output": 10
+            }
+          }
+        },
+        {
+          "payload": "org.logicconduit.digital-sample/v1",
+          "target": {
+            "ShowInView": {
+              "node": 0,
+              "output": 11
             }
           }
         },
@@ -539,6 +620,13 @@
           "endpoint": {
             "node": 0,
             "output": "Ch 10"
+          },
+          "selected": true
+        },
+        {
+          "endpoint": {
+            "node": 0,
+            "output": "Ch 11"
           },
           "selected": true
         },
@@ -730,10 +818,6 @@
         "panels": {}
       }
     },
-    "logic_analyzer_ui.sampling_overlay": [
-      8,
-      1
-    ],
     "logic_analyzer_ui.viewer_lane_heights": {
       "global_scale": 1.0876284837722778,
       "rows": []
@@ -824,7 +908,7 @@
   },
   "frames": [],
   "next_frame_id": 0,
-  "next_id": 12,
+  "next_id": 17,
   "nodes": {
     "0": {
       "collapsed": false,
@@ -885,6 +969,10 @@
         {
           "def_index": 10,
           "schema_id": "Ch 10"
+        },
+        {
+          "def_index": 11,
+          "schema_id": "Ch 11"
         }
       ],
       "pos": {
@@ -894,17 +982,18 @@
       "selected": false,
       "state": {
         "channel_names": [
-          "0",
-          "1",
-          "2",
-          "3",
-          "4",
-          "5",
-          "6",
-          "7",
-          "8",
-          "9",
-          "10"
+          "D0",
+          "D1",
+          "D2",
+          "D3",
+          "D4",
+          "D5",
+          "D6",
+          "D7",
+          "CS",
+          "ADCK",
+          "TGCK",
+          "NC"
         ],
         "file": {
           "dialog_title": "Select DSLogic capture",
@@ -917,9 +1006,9 @@
             }
           ],
           "save": false,
-          "value": "_captures/wipneus5.dsl"
+          "value": "/Volumes/Extreme Pro/src/linevision/_captures/scan-L-20260824-1835/scan-L-20260824-1835.dsl"
         },
-        "metadata_path": "_captures/wipneus5.dsl"
+        "metadata_path": "/Volumes/Extreme Pro/src/linevision/_captures/scan-L-20260824-1835/scan-L-20260824-1835.dsl"
       },
       "title": "DSL File Source",
       "type_name": "DSL File Source"
@@ -1036,6 +1125,130 @@
       },
       "title": "SPI Decoder",
       "type_name": "SPI Decoder"
+    },
+    "12": {
+      "collapsed": false,
+      "header_color": [
+        160,
+        80,
+        60,
+        255
+      ],
+      "id": 12,
+      "inputs": [
+        {
+          "schema_id": "Words"
+        },
+        {
+          "def_index": 1,
+          "schema_id": "TGCK"
+        },
+        {
+          "def_index": 2,
+          "schema_id": "Filename"
+        }
+      ],
+      "kind": "Regular",
+      "muted": false,
+      "outputs": [
+        {
+          "schema_id": "Rows"
+        },
+        {
+          "def_index": 1,
+          "schema_id": "Filename"
+        }
+      ],
+      "pos": {
+        "x": 1811.94140625,
+        "y": 511.0078125
+      },
+      "selected": false,
+      "state": null,
+      "title": "TGCK Recorder",
+      "type_name": "TGCK Recorder"
+    },
+    "15": {
+      "collapsed": false,
+      "header_color": [
+        160,
+        80,
+        60,
+        255
+      ],
+      "id": 15,
+      "inputs": [
+        {
+          "schema_id": "Lines"
+        },
+        {
+          "def_index": 1,
+          "schema_id": "Filename"
+        }
+      ],
+      "kind": "Regular",
+      "muted": false,
+      "outputs": [],
+      "pos": {
+        "x": 2181.546875,
+        "y": 497.44140625
+      },
+      "selected": false,
+      "state": null,
+      "title": "Text File Writer",
+      "type_name": "Text File Writer"
+    },
+    "16": {
+      "collapsed": false,
+      "header_color": [
+        160,
+        80,
+        60,
+        255
+      ],
+      "id": 16,
+      "inputs": [
+        {
+          "schema_id": "Data"
+        },
+        {
+          "def_index": 1,
+          "schema_id": "Filename"
+        }
+      ],
+      "kind": "Regular",
+      "muted": false,
+      "outputs": [],
+      "pos": {
+        "x": 1842.53515625,
+        "y": -74.64643859863281
+      },
+      "selected": false,
+      "state": {
+        "filename": {
+          "dialog_title": "Save CSV as",
+          "filters": [],
+          "save": true,
+          "value": "output/capture.csv"
+        },
+        "header": {
+          "value": "id,time_ns,value"
+        },
+        "hex_digits": {
+          "max": 16,
+          "min": 1,
+          "value": 6
+        },
+        "value_format": {
+          "value": "Hex",
+          "variants": [
+            "Decimal",
+            "Hex"
+          ]
+        }
+      },
+      "title": "CSV Writer",
+      "type_name": "CSV Writer"
     },
     "2": {
       "collapsed": false,
@@ -1331,8 +1544,8 @@
         }
       ],
       "pos": {
-        "x": 1356.36767578125,
-        "y": 54.10887145996094
+        "x": 1358.08251953125,
+        "y": 85.24949645996094
       },
       "selected": false,
       "state": {
@@ -1538,8 +1751,8 @@
       "muted": false,
       "outputs": [],
       "pos": {
-        "x": 2014.4921875,
-        "y": 269.90625
+        "x": 1901.34765625,
+        "y": 292.5078125
       },
       "selected": false,
       "state": {

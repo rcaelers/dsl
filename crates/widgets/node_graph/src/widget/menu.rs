@@ -883,7 +883,7 @@ mod tests {
     #[test]
     fn closing_popup_surrenders_its_keyboard_focus() {
         let ctx = egui::Context::default();
-        let _ = ctx.run_ui(Default::default(), |ui| {
+        let mut output = ctx.run_ui(Default::default(), |ui| {
             let id = egui::Id::new("focused-popup");
             let mut menu = Menu::<()>::new(id);
             menu.open(egui::Pos2::ZERO);
@@ -895,6 +895,7 @@ mod tests {
             assert!(!menu.visible);
             assert_eq!(ui.memory(|memory| memory.focused()), None);
         });
+        output.textures_delta.clear();
     }
 
     #[test]

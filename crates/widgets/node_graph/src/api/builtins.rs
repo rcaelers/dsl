@@ -473,26 +473,29 @@ impl InlineControl for FileValue {
         let dropped = accepts_drop
             .then(|| ui.input(|input| input.raw.dropped_files.first().cloned()))
             .flatten();
-        if let Some(file) = dropped {
+        if let Some(handle) = dropped {
+            let name = handle
+                .path()
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
             let accepted = self.filters.is_empty()
                 || self.filters.iter().any(|filter| {
                     filter.extensions.iter().any(|extension| {
-                        file.name
-                            .rsplit_once('.')
+                        name.rsplit_once('.')
                             .is_some_and(|(_, actual)| actual.eq_ignore_ascii_case(extension))
                     })
                 });
             if accepted {
-                match context.import_dropped_file(super::control::DroppedFile {
-                    name: file.name,
-                    path: file.path,
-                    bytes: file.bytes,
-                }) {
-                    Ok(path) => {
+                match context
+                    .import_dropped_file(request_id, super::control::DroppedFile { name, handle })
+                {
+                    Some(Ok(path)) => {
                         self.value = path;
                         self.dialog_error = None;
                     }
-                    Err(error) => self.dialog_error = Some(error.to_string()),
+                    Some(Err(error)) => self.dialog_error = Some(error.to_string()),
+                    None => {}
                 }
             } else {
                 self.dialog_error = Some("the dropped file does not match this input".to_owned());
@@ -764,11 +767,12 @@ mod builtins_tests {
         let mut value = FileValue::new("");
         let mut changed = false;
 
-        let _ = context.run_ui(Default::default(), |ui| {
+        let mut output = context.run_ui(Default::default(), |ui| {
             let rect = ui.available_rect_before_wrap();
             let mut control_context = InlineControlContext::new(&mut dialog);
             changed = value.draw_widget(ui, "Capture", rect, 1.0, rect, &mut control_context);
         });
+        output.textures_delta.clear();
 
         assert!(changed);
         assert_eq!(value.value, "capture.dsl");

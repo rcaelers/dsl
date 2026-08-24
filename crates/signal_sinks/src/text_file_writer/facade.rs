@@ -12,9 +12,12 @@ pub trait TextFileWriterFactory: Send + Sync {
     ///
     /// # Parameters
     /// - `name`: Input consumed by this operation.
+    /// - `static_filename`: Fixed output path used when no filename stream is
+    ///   connected; a connected stream always wins.
     fn create(
         &self,
         name: &str,
+        static_filename: Option<String>,
         output_origin: OutputOrigin,
     ) -> Result<ProcessNodeConstruction, WriterConstructionError>;
 }
@@ -27,16 +30,16 @@ impl TextFileWriterFactory for StorageTextFileWriterFactory {
     fn create(
         &self,
         name: &str,
+        static_filename: Option<String>,
         output_origin: OutputOrigin,
     ) -> Result<ProcessNodeConstruction, WriterConstructionError> {
-        Ok(ProcessNodeConstruction::new(
-            Box::new(
-                TextFileWriter::with_output_storage(Arc::clone(&self.storage))
-                    .with_name(name)
-                    .with_output_origin(output_origin),
-            ),
-            (),
-        ))
+        let mut writer = TextFileWriter::with_output_storage(Arc::clone(&self.storage))
+            .with_name(name)
+            .with_output_origin(output_origin);
+        if let Some(path) = static_filename {
+            writer = writer.with_filename(path);
+        }
+        Ok(ProcessNodeConstruction::new(Box::new(writer), ()))
     }
 }
 

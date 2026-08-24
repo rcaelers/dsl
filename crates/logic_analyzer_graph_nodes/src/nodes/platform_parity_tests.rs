@@ -309,7 +309,7 @@ const EXPECTATIONS: &str = r###"
           "schema_id": "Data",
           "name": "Data",
           "type_name": "Words",
-          "accepted": [{"kind": "Word", "port": "data"}]
+          "accepted": [{"kind": "Word", "port": "data"}, {"kind": "Text", "port": "lines"}]
         },
         {
           "schema_id": "Filename",

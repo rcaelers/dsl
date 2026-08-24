@@ -18,6 +18,15 @@ use crate::CaptureSourceConstructionError;
 const FILE_SOURCE_LIFECYCLE: CaptureSourceLifecycle =
     CaptureSourceLifecycle::new(CaptureSourceKind::File, true, true, true);
 
+/// Names the path an open failed on — the surrounding error chain otherwise
+/// never says which file the source was trying to read.
+fn open_error(
+    path: &std::path::Path,
+    error: platform_artifacts::SourceReadError,
+) -> CaptureSourceMetadataError {
+    CaptureSourceMetadataError::access_message(format!("cannot open '{}': {error}", path.display()))
+}
+
 struct PreparedDslCaptureIndexFactory {
     path: PathBuf,
     opener: Arc<dyn PreparedByteSourceOpener>,
@@ -29,10 +38,12 @@ impl CaptureIndexFactory for PreparedDslCaptureIndexFactory {
     }
 
     fn metadata(&self) -> signal_capture::Result<signal_capture::CaptureMetadata> {
-        let source = self
-            .opener
-            .open(&self.path)
-            .map_err(|error| signal_capture::Error::ParseError(error.to_string()))?;
+        let source = self.opener.open(&self.path).map_err(|error| {
+            signal_capture::Error::ParseError(format!(
+                "cannot open '{}': {error}",
+                self.path.display()
+            ))
+        })?;
         DslFileSource::indexed_capture_presentation(source, self.path.display().to_string())
             .factory
             .metadata()
@@ -44,10 +55,12 @@ impl CaptureIndexFactory for PreparedDslCaptureIndexFactory {
         work_executor: Arc<dyn WorkExecutor>,
         progress: &mut dyn FnMut(CaptureIndexBuildProgress) -> bool,
     ) -> signal_capture::Result<Box<dyn CaptureIndex + Send>> {
-        let source = self
-            .opener
-            .open(&self.path)
-            .map_err(|error| signal_capture::Error::ParseError(error.to_string()))?;
+        let source = self.opener.open(&self.path).map_err(|error| {
+            signal_capture::Error::ParseError(format!(
+                "cannot open '{}': {error}",
+                self.path.display()
+            ))
+        })?;
         DslFileSource::indexed_capture_presentation(source, self.path.display().to_string())
             .factory
             .open(artifact_repository, work_executor, progress)
@@ -73,7 +86,7 @@ impl CaptureSourceMetadata for PreparedDslFileSourceMetadata {
         let source = self
             .opener
             .open(self.config.path())
-            .map_err(CaptureSourceMetadataError::access)?;
+            .map_err(|error| open_error(self.config.path(), error))?;
         Ok(Some(CaptureSourcePresentation::Indexed(
             IndexedCapturePresentation {
                 identity: source.identity(),
@@ -99,7 +112,7 @@ impl CaptureSourceMetadata for PreparedDslFileSourceMetadata {
         let source = self
             .opener
             .open(self.config.path())
-            .map_err(CaptureSourceMetadataError::access)?;
+            .map_err(|error| open_error(self.config.path(), error))?;
         DslFileSource::from_prepared_source(source, self.config.path().display().to_string())
             .map_err(CaptureSourceMetadataError::decode)
             .map(|source| Some(source.header().probe_names.clone()))

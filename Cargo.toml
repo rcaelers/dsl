@@ -7,11 +7,11 @@ resolver = "2"
 version = "0.1.0"
 
 [workspace.dependencies]
-clap = { version = "4.6.4", features = ["derive"] }
+clap = { version = "4.6.6", features = ["derive"] }
 crossbeam-channel = "0.5.16"
 dirs = "6.0.0"
-eframe = { version = "0.35.0", features = ["persistence"] }
-egui = "0.35.0"
+eframe = { version = "0.36.1", features = ["persistence"] }
+egui = "0.36.1"
 lazy_static = "1.5.0"
 libc = "0.2.189"
 log = "0.4.33"
@@ -23,19 +23,19 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 blake3 = "1.8.5"
 tempfile = "3.27.0"
-thiserror = "2.0.19"
+thiserror = "2.0.20"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-wasm-bindgen = "=0.2.126"
-wasm-bindgen-test = "0.3.76"
-wasm-bindgen-futures = "0.4.58"
-js-sys = "0.3.85"
-web-sys = { version = "0.3.85", features = ["HtmlCanvasElement"] }
+wasm-bindgen = "=0.2.127"
+wasm-bindgen-test = "0.3.77"
+wasm-bindgen-futures = "0.4.77"
+js-sys = "0.3.104"
+web-sys = { version = "0.3.104", features = ["HtmlCanvasElement"] }
 web-time = "1.1.0"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 inventory = "0.3.24"
 keepawake = "0.6.0"
-pyo3 = "0.29.0"
+pyo3 = "0.29.2"
 
 [package]
 name = "logic-analyzer-examples"

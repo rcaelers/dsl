@@ -3548,6 +3548,12 @@ fn install_fonts(ctx: &egui::Context, host_symbol_fonts: Vec<egui::FontData>) {
             .push(font_name);
     }
     ctx.set_fonts(fonts);
+
+    // egui 0.36 stopped enabling this debug-only rectangle/ID diagnostic by
+    // default in debug builds; keep it on, since it has caught real id
+    // collisions in this codebase before.
+    #[cfg(debug_assertions)]
+    ctx.all_styles_mut(|style| style.debug.warn_if_rect_changes_id = true);
 }
 
 impl eframe::App for App {
@@ -4372,7 +4378,8 @@ mod font_tests {
         );
         // `set_fonts` only takes effect at the start of the *next* pass.
         ctx.begin_pass(Default::default());
-        let _ = ctx.end_pass();
+        let mut output = ctx.end_pass();
+        output.textures_delta.clear();
         ctx.begin_pass(Default::default());
         let font_id = egui::FontId::proportional(14.0);
         ctx.fonts_mut(|fonts| {
@@ -4387,6 +4394,7 @@ mod font_tests {
                 );
             }
         });
-        let _ = ctx.end_pass();
+        let mut output = ctx.end_pass();
+        output.textures_delta.clear();
     }
 }

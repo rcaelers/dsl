@@ -61,6 +61,13 @@ impl TgckRecord {
 #[derive(Default)]
 struct Window {
     words: usize,
+    /// Timestamp of the last word counted into this window. Rows emitted at
+    /// close are stamped with it so they sort strictly before the filename
+    /// change that closed the window — a downstream `TextFileWriter` merges
+    /// its `lines` and `filename` inputs by timestamp (name changes apply at
+    /// `change_ts <= line_ts`), so stamping rows with the boundary timestamp
+    /// itself would race them into the next window's file.
+    last_word_ts: u64,
     records: Vec<TgckRecord>,
     current_rising: Option<(usize, u64)>,
     current_falling: Option<(usize, u64)>,
@@ -137,9 +144,6 @@ pub struct TgckRecorder {
     last_tgck: bool,
     tgck_closed: bool,
     filename_closed: bool,
-    /// Timestamp of the last word processed; used to place the rows emitted
-    /// when end-of-stream force-closes the final window.
-    last_position: u64,
     words_buffer: VecDeque<Word>,
     tgck_buffer: VecDeque<signal_capture::Sample>,
     name_buffer: VecDeque<TextSample>,
@@ -156,7 +160,6 @@ impl TgckRecorder {
             last_tgck: false,
             tgck_closed: false,
             filename_closed: false,
-            last_position: 0,
             words_buffer: VecDeque::new(),
             tgck_buffer: VecDeque::new(),
             name_buffer: VecDeque::new(),
@@ -173,8 +176,10 @@ impl TgckRecorder {
     }
 
     /// Closes the current window and, if it produced any records, sends its
-    /// CSV lines through `rows`.
-    fn close_window(&mut self, outputs: &[OutputPort], at: u64) -> WorkResult<()> {
+    /// CSV lines through `rows`, stamped with the window's last word
+    /// timestamp so they stay inside the window they describe (see
+    /// [`Window::last_word_ts`]).
+    fn close_window(&mut self, outputs: &[OutputPort]) -> WorkResult<()> {
         let Some(mut window) = self.window.take() else {
             return Ok(());
         };
@@ -188,7 +193,7 @@ impl TgckRecorder {
             .and_then(|port| port.get::<TextSample>())
             .ok_or_else(|| WorkError::NodeError("Missing rows output".to_string()))?;
         for line in lines {
-            rows.send(TextSample::new(line, at))?;
+            rows.send(TextSample::new(line, window.last_word_ts))?;
         }
         Ok(())
     }
@@ -237,14 +242,13 @@ impl ProcessNode for TgckRecorder {
             match words.recv() {
                 Ok(word) => word,
                 Err(WorkError::Shutdown) => {
-                    self.close_window(outputs, self.last_position)?;
+                    self.close_window(outputs)?;
                     return Err(WorkError::Shutdown);
                 }
                 Err(e) => return Err(e),
             }
         };
         let position = word.timestamp_ns;
-        self.last_position = position;
 
         // Filename changes: never block (level-stream contract), apply those at or before
         // this word — each one closes the current window and, regardless of
@@ -273,7 +277,7 @@ impl ProcessNode for TgckRecorder {
             }
             let sample = self.pending_names.pop_front().expect("peeked");
             debug!("[{}] filename -> '{}'", self.name, sample.value);
-            self.close_window(outputs, sample.start_time_ns)?;
+            self.close_window(outputs)?;
             let derived = tgck_csv_path(&sample.value);
             let filename_out = outputs
                 .get(1)
@@ -337,6 +341,7 @@ impl ProcessNode for TgckRecorder {
             window.need_after_falling = false;
         }
         window.words += 1;
+        window.last_word_ts = position;
 
         Ok(1)
     }
@@ -415,13 +420,22 @@ mod tests {
         }
     }
 
-    fn drain(rx: &crossbeam_channel::Receiver<ChannelMessage<TextSample>>) -> Vec<String> {
+    fn drain_samples(
+        rx: &crossbeam_channel::Receiver<ChannelMessage<TextSample>>,
+    ) -> Vec<TextSample> {
         rx.try_iter()
             .filter_map(|message| match message {
-                ChannelMessage::Sample(sample) => Some(sample.value),
+                ChannelMessage::Sample(sample) => Some(sample),
                 ChannelMessage::Batch(_) => None,
                 ChannelMessage::EndOfStream => None,
             })
+            .collect()
+    }
+
+    fn drain(rx: &crossbeam_channel::Receiver<ChannelMessage<TextSample>>) -> Vec<String> {
+        drain_samples(rx)
+            .into_iter()
+            .map(|sample| sample.value)
             .collect()
     }
 
@@ -452,6 +466,40 @@ mod tests {
         // word@101 is the first word after it; falling@103 at index 3 with
         // word@103 the first after.
         assert_eq!(rows[1], "1,101,3,103,1,101,3,103");
+    }
+
+    #[test]
+    fn close_rows_sort_strictly_before_the_filename_change_that_closed_them() {
+        // A downstream TextFileWriter applies a filename change to any line
+        // with `line_ts >= change_ts`, and the rig's filename changes are
+        // already queued before the first row is emitted (the worst-case
+        // arrival order). Rows must therefore carry the closing window's own
+        // last word timestamp, not the boundary timestamp, or the whole batch
+        // lands in the next window's file.
+        let rig = rig();
+        let mut recorder = TgckRecorder::new();
+        loop {
+            match recorder.work(&rig.inputs, &rig.outputs) {
+                Ok(_) => {}
+                Err(WorkError::Shutdown) => break,
+                Err(e) => panic!("unexpected error: {e}"),
+            }
+        }
+        drop(rig.outputs);
+
+        let boundary_ts = drain_samples(&rig.filenames)
+            .last()
+            .expect("second filename passthrough")
+            .start_time_ns;
+        assert_eq!(boundary_ts, 200);
+
+        let rows = drain_samples(&rig.rows);
+        assert!(!rows.is_empty());
+        for row in &rows {
+            // Last word of the first window is word@104; word@200 triggers
+            // the close before being counted.
+            assert_eq!(row.start_time_ns, 104, "row {:?}", row.value);
+        }
     }
 
     #[test]

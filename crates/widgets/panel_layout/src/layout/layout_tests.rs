@@ -69,7 +69,8 @@ fn rendered_title_interaction_avoids_host_widgets_and_panel_controls() {
             let _ = ui.small_button("Stop");
         }
     });
-    let _ = context.end_pass();
+    let mut output = context.end_pass();
+    output.textures_delta.clear();
     let panel = response.panel("viewer").unwrap();
     let interaction = panel.title_interaction_rect.unwrap();
 
@@ -622,9 +623,9 @@ fn configured_shortcut_maximizes_hovered_area_and_then_restores() {
         let rect = Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
         context.begin_pass(egui::RawInput {
             screen_rect: Some(rect),
-            modifiers,
             events: vec![
                 egui::Event::PointerMoved(egui::pos2(100.0, 100.0)),
+                egui::Event::ModifiersChanged(modifiers),
                 egui::Event::Key {
                     key: egui::Key::Space,
                     physical_key: Some(egui::Key::Space),
@@ -642,7 +643,8 @@ fn configured_shortcut_maximizes_hovered_area_and_then_restores() {
         );
         layout.set_maximize_shortcut(Some(KeyboardShortcut::new(modifiers, egui::Key::Space)));
         layout.show(&mut ui, rect, 0.0, &specs(), |_, _| {});
-        let _ = context.end_pass();
+        let mut output = context.end_pass();
+        output.textures_delta.clear();
     }
 
     let mut layout = PanelLayout::new([("viewer", 0.5), ("graph", 0.5)]);

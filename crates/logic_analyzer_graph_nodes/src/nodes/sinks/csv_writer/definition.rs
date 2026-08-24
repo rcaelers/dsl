@@ -1,6 +1,10 @@
 //! `CSV Writer` graph-node definition — decoded words to CSV rows. Generic replacement for
 //! ad hoc "dump this decoder to CSV" sinks; pairs with `Viewer` for the
 //! console-printer role a one-off example sink used to fill.
+//!
+//! `Data` also accepts pre-formatted CSV lines (a `Text` stream, e.g. `TGCK
+//! Recorder`'s multi-column `Rows`); those are written verbatim, so the
+//! header and value-format options only apply to word input.
 
 use egui::Color32;
 use serde::{Deserialize, Serialize};

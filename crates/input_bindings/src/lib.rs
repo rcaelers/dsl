@@ -774,14 +774,16 @@ mod tests {
         let modifiers = Modifiers::ALT;
         let context = egui::Context::default();
         context.begin_pass(egui::RawInput {
-            modifiers,
-            events: vec![egui::Event::Key {
-                key: Key::A,
-                physical_key: Some(Key::A),
-                pressed: true,
-                repeat: false,
-                modifiers,
-            }],
+            events: vec![
+                egui::Event::ModifiersChanged(modifiers),
+                egui::Event::Key {
+                    key: Key::A,
+                    physical_key: Some(Key::A),
+                    pressed: true,
+                    repeat: false,
+                    modifiers,
+                },
+            ],
             ..Default::default()
         });
 
@@ -792,7 +794,8 @@ mod tests {
         );
         let plain_consumed = manager.consume_shortcut(&mut ui, &["c"], "plain");
         let alternate_consumed = manager.consume_shortcut(&mut ui, &["c"], "alternate");
-        let _ = context.end_pass();
+        let mut output = context.end_pass();
+        output.textures_delta.clear();
 
         assert!(!plain_consumed);
         assert!(alternate_consumed);
@@ -828,7 +831,8 @@ mod tests {
                 manager.consume_shortcut_once(&mut ui, &["drag"], "axis"),
                 expected
             );
-            let _ = context.end_pass();
+            let mut output = context.end_pass();
+            output.textures_delta.clear();
         }
     }
 

@@ -36,7 +36,8 @@ mod symbol_fonts_tests {
         let ctx = egui::Context::default();
         ctx.set_fonts(definitions);
         ctx.begin_pass(Default::default());
-        let _ = ctx.end_pass();
+        let mut output = ctx.end_pass();
+        output.textures_delta.clear();
         ctx.begin_pass(Default::default());
         let font_id = egui::FontId::proportional(14.0);
         ctx.fonts_mut(|fonts| {
@@ -51,6 +52,7 @@ mod symbol_fonts_tests {
                 );
             }
         });
-        let _ = ctx.end_pass();
+        let mut output = ctx.end_pass();
+        output.textures_delta.clear();
     }
 }

@@ -680,7 +680,8 @@ mod frame_tests {
             None,
             None,
         );
-        let _ = context.end_pass();
+        let mut output = context.end_pass();
+        output.textures_delta.clear();
 
         assert_eq!(*renderer.values.lock().unwrap(), vec![7, 9]);
         assert_eq!(

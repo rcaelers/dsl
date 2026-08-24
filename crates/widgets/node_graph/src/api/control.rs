@@ -1,6 +1,4 @@
 use std::fmt;
-use std::path::PathBuf;
-use std::sync::Arc;
 
 use egui::{Rect, Ui};
 use thiserror::Error;
@@ -64,12 +62,13 @@ pub struct FileDialogProgress {
 
 /// Host-neutral file data delivered by drag-and-drop.
 pub struct DroppedFile {
-    /// Host-provided display name.
+    /// Display name derived from the dropped file's path.
     pub name: String,
-    /// Native path when the host exposes one.
-    pub path: Option<PathBuf>,
-    /// File content when the host provides dropped bytes instead of a path.
-    pub bytes: Option<Arc<[u8]>>,
+    /// Host-owned handle used to read the file's path and contents.
+    ///
+    /// Contents are read through this handle rather than eagerly, because on
+    /// the web target reading is only possible asynchronously.
+    pub handle: egui::DroppedFileHandle,
 }
 
 /// Host capability used by inline controls to choose and import files.
@@ -98,12 +97,23 @@ pub trait FileDialogService: Send {
         false
     }
 
-    /// Imports bytes supplied by the host's drag-and-drop mechanism.
-    fn import_dropped(&mut self, file: DroppedFile) -> Result<String, FileDialogError> {
-        let name = file.name;
-        file.path
-            .map(|path| path.display().to_string())
-            .ok_or(FileDialogError::ContentsUnavailable { name })
+    /// Starts importing bytes supplied by the host's drag-and-drop mechanism.
+    ///
+    /// Returns the outcome immediately when the host can resolve it
+    /// synchronously, or `None` when the import is asynchronous; a `None`
+    /// result is later retrieved through `take_picked`/`progress`/`cancel`
+    /// using the same `request_id`.
+    fn import_dropped(
+        &mut self,
+        _request_id: u64,
+        file: DroppedFile,
+    ) -> Option<Result<String, FileDialogError>> {
+        let path = file.handle.path();
+        Some(if path.as_os_str().is_empty() {
+            Err(FileDialogError::ContentsUnavailable { name: file.name })
+        } else {
+            Ok(path.display().to_string())
+        })
     }
 
     /// Installs the wake-up callback used by asynchronous dialog implementations.
@@ -145,9 +155,17 @@ impl<'a> InlineControlContext<'a> {
         self.file_dialog.cancel(request_id)
     }
 
-    /// Imports a host-supplied dropped file into a control value.
-    pub fn import_dropped_file(&mut self, file: DroppedFile) -> Result<String, FileDialogError> {
-        self.file_dialog.import_dropped(file)
+    /// Starts importing a host-supplied dropped file into a control value.
+    ///
+    /// Returns `None` when the import is still pending; poll for its outcome
+    /// with `take_picked_file`/`picked_file_progress` using the same
+    /// `request_id`.
+    pub fn import_dropped_file(
+        &mut self,
+        request_id: u64,
+        file: DroppedFile,
+    ) -> Option<Result<String, FileDialogError>> {
+        self.file_dialog.import_dropped(request_id, file)
     }
 }
 

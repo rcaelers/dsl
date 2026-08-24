@@ -226,6 +226,7 @@ fn application_services() -> Result<
         ),
         logic_analyzer_graph_nodes::csv_word_writer_capability_override(
             signal_sinks::csv_word_writer::writer_factory(Arc::clone(&output_storage)),
+            signal_sinks::text_file_writer::writer_factory(Arc::clone(&output_storage)),
         ),
         logic_analyzer_graph_nodes::text_file_writer_capability_override(
             signal_sinks::text_file_writer::writer_factory(output_storage),

@@ -1,25 +1,49 @@
 //! Adaptation of the browser file-picker mechanism to the node widget port.
 
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
 use node_graph::api::{
     DroppedFile, FileDialogError, FileDialogProgress, FileDialogRequest, FileDialogService,
 };
 use platform::{
-    DroppedFileData, FileDialogFilter as HostFileDialogFilter, FilePickerRequest, FilePickerService,
+    DroppedFileData, FileDialogFilter as HostFileDialogFilter, FilePickerError, FilePickerRequest,
+    FilePickerService,
 };
 
+/// Tracks drag-and-drop imports, which read file contents asynchronously on
+/// the web target (see `begin_async_drop_import`) but resolve synchronously
+/// everywhere else. Completions are retrieved through the same
+/// `take_picked`/`progress`/`cancel` polling already used for the picker
+/// flow, keyed by the widget's `request_id`.
+#[derive(Default)]
+struct DropImportState {
+    /// Request id to the generation that must still be current for its
+    /// eventual result to be published, so a superseded drop is discarded.
+    pending: HashMap<u64, u64>,
+    completed: HashMap<u64, Result<String, FileDialogError>>,
+    #[cfg(target_arch = "wasm32")]
+    next_generation: u64,
+    repaint: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
 pub(crate) struct BrowserNodeFileDialog {
-    picker: Box<dyn FilePickerService>,
+    picker: Arc<Mutex<Box<dyn FilePickerService>>>,
+    drops: Arc<Mutex<DropImportState>>,
 }
 
 impl BrowserNodeFileDialog {
     pub(crate) fn new(picker: Box<dyn FilePickerService>) -> Self {
-        Self { picker }
+        Self {
+            picker: Arc::new(Mutex::new(picker)),
+            drops: Arc::new(Mutex::new(DropImportState::default())),
+        }
     }
 }
 
 impl FileDialogService for BrowserNodeFileDialog {
     fn available(&self, save: bool) -> bool {
-        self.picker.available(save)
+        self.picker.lock().unwrap().available(save)
     }
 
     fn pick(&mut self, request: FileDialogRequest<'_>) -> Option<String> {
@@ -32,6 +56,8 @@ impl FileDialogService for BrowserNodeFileDialog {
             })
             .collect::<Vec<_>>();
         self.picker
+            .lock()
+            .unwrap()
             .pick(FilePickerRequest {
                 request_id: request.request_id,
                 title: request.title,
@@ -42,7 +68,10 @@ impl FileDialogService for BrowserNodeFileDialog {
     }
 
     fn take_picked(&mut self, request_id: u64) -> Option<Result<String, FileDialogError>> {
-        self.picker.take_picked(request_id).map(|result| {
+        if let Some(result) = self.drops.lock().unwrap().completed.remove(&request_id) {
+            return Some(result);
+        }
+        self.picker.lock().unwrap().take_picked(request_id).map(|result| {
             result
                 .map(|reference| reference.into_string())
                 .map_err(FileDialogError::host)
@@ -50,7 +79,15 @@ impl FileDialogService for BrowserNodeFileDialog {
     }
 
     fn progress(&self, request_id: u64) -> Option<FileDialogProgress> {
+        if self.drops.lock().unwrap().pending.contains_key(&request_id) {
+            return Some(FileDialogProgress {
+                completed_bytes: 0,
+                total_bytes: None,
+            });
+        }
         self.picker
+            .lock()
+            .unwrap()
             .progress(request_id)
             .map(|progress| FileDialogProgress {
                 completed_bytes: progress.completed_bytes,
@@ -59,29 +96,102 @@ impl FileDialogService for BrowserNodeFileDialog {
     }
 
     fn cancel(&mut self, request_id: u64) -> bool {
-        self.picker.cancel(request_id)
+        if self.drops.lock().unwrap().pending.remove(&request_id).is_some() {
+            return true;
+        }
+        self.picker.lock().unwrap().cancel(request_id)
     }
 
-    fn import_dropped(&mut self, file: DroppedFile) -> Result<String, FileDialogError> {
-        self.picker
-            .import_dropped(DroppedFileData {
-                name: file.name,
-                path: file.path,
-                bytes: file.bytes,
-            })
-            .map(|reference| reference.into_string())
-            .map_err(FileDialogError::host)
+    fn import_dropped(
+        &mut self,
+        request_id: u64,
+        file: DroppedFile,
+    ) -> Option<Result<String, FileDialogError>> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = request_id;
+            Some(finish_dropped_import(
+                &self.picker,
+                file.name,
+                file.handle.bytes(),
+            ))
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.begin_async_drop_import(request_id, file);
+            None
+        }
     }
 
     fn set_repaint(&mut self, repaint: Box<dyn Fn() + Send + Sync>) {
-        self.picker.set_repaint(repaint);
+        let repaint: Arc<dyn Fn() + Send + Sync> = Arc::from(repaint);
+        self.drops.lock().unwrap().repaint = Some(Arc::clone(&repaint));
+        self.picker
+            .lock()
+            .unwrap()
+            .set_repaint(Box::new(move || repaint()));
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl BrowserNodeFileDialog {
+    fn begin_async_drop_import(&mut self, request_id: u64, file: DroppedFile) {
+        let generation = {
+            let mut drops = self.drops.lock().unwrap();
+            drops.next_generation = drops.next_generation.wrapping_add(1).max(1);
+            let generation = drops.next_generation;
+            drops.pending.insert(request_id, generation);
+            drops.completed.remove(&request_id);
+            generation
+        };
+        let drops = Arc::clone(&self.drops);
+        let picker = Arc::clone(&self.picker);
+        let name = file.name;
+        let handle = file.handle;
+        wasm_bindgen_futures::spawn_local(async move {
+            let bytes = handle.bytes_async().await;
+            let result = finish_dropped_import(&picker, name, bytes);
+            let mut drops = drops.lock().unwrap();
+            if drops.pending.get(&request_id) == Some(&generation) {
+                drops.pending.remove(&request_id);
+                drops.completed.insert(request_id, result);
+                if let Some(repaint) = &drops.repaint {
+                    repaint();
+                }
+            }
+        });
+    }
+}
+
+/// Registers already-read bytes with the host picker, translating a
+/// contents-read failure into the same error shape as an import failure.
+fn finish_dropped_import(
+    picker: &Arc<Mutex<Box<dyn FilePickerService>>>,
+    name: String,
+    bytes: Result<Vec<u8>, String>,
+) -> Result<String, FileDialogError> {
+    let bytes = bytes.map_err(|message| {
+        FileDialogError::host(FilePickerError::Read {
+            name: name.clone(),
+            message,
+        })
+    })?;
+    picker
+        .lock()
+        .unwrap()
+        .import_dropped(DroppedFileData {
+            name,
+            path: None,
+            bytes: Some(Arc::from(bytes)),
+        })
+        .map(|reference| reference.into_string())
+        .map_err(FileDialogError::host)
 }
 
 #[cfg(test)]
 mod node_file_dialog_tests {
     use std::error::Error as _;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
 
     use node_graph::api::{DroppedFile, FileDialogFilter, FileDialogRequest, FileDialogService};
@@ -91,6 +201,30 @@ mod node_file_dialog_tests {
     };
 
     use super::BrowserNodeFileDialog;
+
+    #[derive(Debug)]
+    struct FakeDroppedFile {
+        path: PathBuf,
+    }
+
+    impl eframe::egui::DroppedFile for FakeDroppedFile {
+        fn path(&self) -> &Path {
+            &self.path
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        fn bytes(&self) -> Result<Vec<u8>, String> {
+            Ok(Vec::new())
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        fn bytes_async(
+            &self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>, String>> + '_>>
+        {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+    }
 
     #[derive(Default)]
     struct PickerObservation {
@@ -181,13 +315,20 @@ mod node_file_dialog_tests {
         assert!(error.source().unwrap().is::<FilePickerError>());
         assert_eq!(dialog.progress(7).unwrap().completed_bytes, 4);
         assert!(dialog.cancel(7));
+
+        let handle: eframe::egui::DroppedFileHandle = Arc::new(FakeDroppedFile {
+            path: PathBuf::from("capture.sr"),
+        });
         assert_eq!(
             dialog
-                .import_dropped(DroppedFile {
-                    name: "capture.sr".to_owned(),
-                    path: Some(PathBuf::from("capture.sr")),
-                    bytes: None,
-                })
+                .import_dropped(
+                    42,
+                    DroppedFile {
+                        name: "capture.sr".to_owned(),
+                        handle,
+                    },
+                )
+                .expect("host target resolves the import synchronously")
                 .unwrap(),
             "host-file://dropped"
         );

@@ -996,7 +996,8 @@ mod tests {
             let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
             widget.show(&mut ui);
             let hovered = widget.hovered_input_context();
-            let _ = context.end_pass();
+            let mut output = context.end_pass();
+            output.textures_delta.clear();
             hovered
         }
 

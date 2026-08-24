@@ -249,7 +249,8 @@ mod registry_tests {
         );
         let first_warning = panels.show("org.example.camera/v1", "panel-1", &mut ui);
         let second_warning = panels.show("org.example.camera/v1", "panel-1", &mut ui);
-        let _ = context.end_pass();
+        let mut output = context.end_pass();
+        output.textures_delta.clear();
 
         assert!(first_warning.is_some_and(|warning| {
             warning.to_string().contains("unsupported state version 9")

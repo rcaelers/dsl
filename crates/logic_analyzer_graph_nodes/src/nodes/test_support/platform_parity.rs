@@ -266,6 +266,7 @@ impl TextFileWriterFactory for TestWriterFactory {
     fn create(
         &self,
         name: &str,
+        _static_filename: Option<String>,
         output_origin: OutputOrigin,
     ) -> Result<ProcessNodeConstruction, WriterConstructionError> {
         assert_writer_origin(output_origin);

@@ -764,7 +764,7 @@ mod panel_tests {
         let mut panel_actions = Vec::new();
 
         let context = egui::Context::default();
-        let _ = context.run_ui(Default::default(), |ui| {
+        let mut output = context.run_ui(Default::default(), |ui| {
             widget.show_contributed_panels(
                 ui,
                 Rect::from_min_size(Pos2::ZERO, Vec2::new(300.0, 200.0)),
@@ -773,6 +773,7 @@ mod panel_tests {
                 &mut panel_actions,
             );
         });
+        output.textures_delta.clear();
 
         assert!(widget.take_contributed_panel_state_changed());
         assert!(!widget.take_contributed_panel_state_changed());
@@ -795,7 +796,7 @@ mod panel_tests {
         let mut panel_actions = Vec::new();
 
         let context = egui::Context::default();
-        let _ = context.run_ui(Default::default(), |ui| {
+        let mut output = context.run_ui(Default::default(), |ui| {
             widget.show_contributed_panels(
                 ui,
                 Rect::from_min_size(Pos2::ZERO, Vec2::new(300.0, 200.0)),
@@ -804,6 +805,7 @@ mod panel_tests {
                 &mut panel_actions,
             );
         });
+        output.textures_delta.clear();
 
         let values = panel_actions
             .into_iter()

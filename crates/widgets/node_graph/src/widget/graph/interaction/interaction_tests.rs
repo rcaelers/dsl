@@ -48,7 +48,8 @@ fn outside_click_that_closes_a_menu_does_not_clear_node_selection() {
             egui::UiBuilder::new().max_rect(screen_rect),
         );
         widget.show(&mut ui);
-        let _ = context.end_pass();
+        let mut output = context.end_pass();
+        output.textures_delta.clear();
     }
 
     let context = egui::Context::default();
@@ -223,7 +224,8 @@ fn secondary_press_always_cancels_even_when_another_button_is_configured() {
 
     assert!(widget.cancel_active_drag(&ui));
     assert!(matches!(widget.interaction_state, InteractionState::Idle));
-    let _ = context.end_pass();
+    let mut output = context.end_pass();
+    output.textures_delta.clear();
 }
 
 #[test]
@@ -258,7 +260,8 @@ fn cancelling_a_new_wire_drag_does_not_pop_an_unrelated_undo_step() {
     assert!(widget.cancel_active_drag(&ui));
     assert_eq!(widget.undo_stack.len(), 1);
     assert!(matches!(widget.interaction_state, InteractionState::Idle));
-    let _ = context.end_pass();
+    let mut output = context.end_pass();
+    output.textures_delta.clear();
 }
 
 #[test]
@@ -283,7 +286,8 @@ fn duplicate_primary_filter_restores_a_dragged_node() {
         );
         let origin = ui.available_rect_before_wrap().min;
         widget.show(&mut ui);
-        let _ = context.end_pass();
+        let mut output = context.end_pass();
+        output.textures_delta.clear();
         origin
     }
 
@@ -365,7 +369,8 @@ fn duplicate_primary_filter_cancels_a_new_wire() {
         );
         let origin = ui.available_rect_before_wrap().min;
         widget.show(&mut ui);
-        let _ = context.end_pass();
+        let mut output = context.end_pass();
+        output.textures_delta.clear();
         origin
     }
 

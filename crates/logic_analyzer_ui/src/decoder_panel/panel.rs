@@ -967,7 +967,8 @@ mod tests {
 
         assert_eq!(state.popup_focus, 1);
         assert_eq!(state.hidden_columns, HashSet::from(["start".to_owned()]));
-        let _ = context.end_pass();
+        let mut output = context.end_pass();
+        output.textures_delta.clear();
     }
 
     #[test]
@@ -1038,7 +1039,8 @@ mod tests {
         handle_toolbar_keyboard(&mut ui, &sources, &[], &mut state);
 
         assert_eq!(state.open_menu, Some(ToolbarMenu::Format));
-        let _ = context.end_pass();
+        let mut output = context.end_pass();
+        output.textures_delta.clear();
     }
 
     #[test]
@@ -1063,7 +1065,8 @@ mod tests {
 
         assert_eq!(state.format, DataFormat::Ascii);
         assert_eq!(state.open_menu, None);
-        let _ = context.end_pass();
+        let mut output = context.end_pass();
+        output.textures_delta.clear();
     }
 
     #[test]
@@ -1089,6 +1092,7 @@ mod tests {
 
         assert_eq!(state.selected_source.as_deref(), Some("second"));
         assert_eq!(state.open_menu, None);
-        let _ = context.end_pass();
+        let mut output = context.end_pass();
+        output.textures_delta.clear();
     }
 }

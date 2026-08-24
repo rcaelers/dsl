@@ -103,7 +103,8 @@ mod confirmation_dialog_tests {
         };
         ctx.begin_pass(Default::default());
         assert_eq!(show_destructive_confirmation(&ctx, confirmation()), None);
-        let _ = ctx.end_pass();
+        let mut output = ctx.end_pass();
+        output.textures_delta.clear();
 
         ctx.begin_pass(egui::RawInput {
             events: vec![egui::Event::Key {
@@ -117,7 +118,8 @@ mod confirmation_dialog_tests {
         });
 
         let choice = show_destructive_confirmation(&ctx, confirmation());
-        let _ = ctx.end_pass();
+        let mut output = ctx.end_pass();
+        output.textures_delta.clear();
 
         assert_eq!(choice, Some(ConfirmationChoice::Cancel));
     }

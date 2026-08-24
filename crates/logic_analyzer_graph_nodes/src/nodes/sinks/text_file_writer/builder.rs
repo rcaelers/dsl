@@ -82,6 +82,7 @@ impl RuntimeMaterializer for TextFileWriterBuilder {
         self.writer_factory
             .create(
                 name,
+                None,
                 OutputOrigin::new(
                     source.source_node_title.clone(),
                     source.source_output_title.clone(),
