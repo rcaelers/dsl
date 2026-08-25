@@ -153,13 +153,20 @@ impl NodeGraphWidget {
                 })
                 .unwrap_or(Color32::from_rgb(160, 160, 160));
             socket_highlights.push((*from_canvas, color));
-            draw_wire(
-                painter,
-                self.view.canvas_to_screen(origin, *from_canvas),
-                self.view.canvas_to_screen(origin, preview_end_canvas),
-                color,
-                wire_w,
-            );
+            // A wire is shaped output-first: it leaves the first point
+            // towards the right and enters the second from the left. The
+            // anchored end of this drag is an input whenever a link is being
+            // moved or a wire is pulled off an input socket, and there the
+            // free end plays the output — passing the ends the other way
+            // round is what keeps the preview from looping back on itself.
+            let anchor_screen = self.view.canvas_to_screen(origin, *from_canvas);
+            let free_screen = self.view.canvas_to_screen(origin, preview_end_canvas);
+            let (wire_start, wire_end) = if from.direction == SocketDirection::Output {
+                (anchor_screen, free_screen)
+            } else {
+                (free_screen, anchor_screen)
+            };
+            draw_wire(painter, wire_start, wire_end, color, wire_w);
             if let Some((target, target_canvas)) = snap {
                 let target_socket =
                     self.graph
@@ -630,4 +637,89 @@ fn tooltip_row(ui: &mut egui::Ui, label: &str, value: impl Into<String>) {
         ui.label(RichText::new(format!("{label}:")).weak());
         ui.label(value.into());
     });
+}
+
+#[cfg(test)]
+mod render_tests {
+    use std::collections::HashSet;
+    use std::rc::Rc;
+
+    use egui::Pos2;
+
+    use super::*;
+    use crate::model::SocketDirection;
+    use crate::runtime::NodeTypeRegistry;
+
+    /// The four control points of the drag preview painted for a wire drag
+    /// anchored at a socket of `direction`, in the order `draw_wire`
+    /// emitted them.
+    fn preview_curve(direction: SocketDirection, pointer: Pos2) -> [Pos2; 4] {
+        let context = egui::Context::default();
+        let screen_rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+        let node = widget
+            .add_node_at("Reroute", Pos2::new(400.0, 300.0))
+            .expect("built-in reroute node");
+        let from = SocketId {
+            node,
+            index: 0,
+            direction,
+        };
+
+        context.begin_pass(egui::RawInput {
+            screen_rect: Some(screen_rect),
+            ..Default::default()
+        });
+        let mut ui = egui::Ui::new(
+            context.clone(),
+            egui::Id::new("wire-preview-shape-test"),
+            egui::UiBuilder::new().max_rect(screen_rect),
+        );
+        let origin = ui.available_rect_before_wrap().min;
+        let from_canvas = widget.build_layout(origin).socket_screen_pos[&from];
+        widget.interaction_state = InteractionState::DraggingWire {
+            from,
+            from_canvas: widget.view.screen_to_canvas(origin, from_canvas),
+            current_canvas: widget.view.screen_to_canvas(origin, pointer),
+            restore_on_cancel: false,
+            connectable: Rc::new(HashSet::new()),
+        };
+        widget.show(&mut ui);
+        let mut output = context.end_pass();
+        output.textures_delta.clear();
+
+        let curves: Vec<[Pos2; 4]> = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::CubicBezier(curve) => Some(curve.points),
+                _ => None,
+            })
+            .collect();
+        // The wire is painted twice, as its shadow and its colored stroke.
+        assert_eq!(curves.len(), 2, "expected only the drag preview");
+        curves[0]
+    }
+
+    #[test]
+    fn a_preview_anchored_at_an_output_leaves_it_to_the_right() {
+        let curve = preview_curve(SocketDirection::Output, Pos2::new(700.0, 500.0));
+
+        assert!(curve[1].x > curve[0].x, "leaves the output rightwards");
+        assert!(curve[2].x < curve[3].x, "enters the free end leftwards");
+    }
+
+    #[test]
+    fn a_preview_anchored_at_an_input_enters_it_from_the_left() {
+        // Pointer to the left of the anchor: drawn output-first the curve
+        // would leave the input rightwards and double back, looping.
+        let curve = preview_curve(SocketDirection::Input, Pos2::new(200.0, 500.0));
+
+        assert!(curve[1].x > curve[0].x, "leaves the free end rightwards");
+        assert!(curve[2].x < curve[3].x, "enters the input leftwards");
+        assert!(
+            curve[3].x > curve[0].x,
+            "the anchored input is the curve's end, not its start"
+        );
+    }
 }
