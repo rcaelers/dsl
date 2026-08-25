@@ -681,6 +681,70 @@ fn dragging_a_reroute_point_still_moves_it() {
 }
 
 #[test]
+fn a_wire_drag_stops_reporting_the_socket_it_was_pulled_off_as_hovered() {
+    use crate::runtime::NodeTypeRegistry;
+
+    /// The socket the graph considers hovered with the pointer resting on
+    /// `source`'s output, optionally while a wire drag is under way.
+    fn hovered_socket(dragging: bool) -> Option<SocketId> {
+        let context = egui::Context::default();
+        let screen_rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+        let (source, target) = connected_pair(&mut widget);
+        let pulled_off = socket(source.0, 0, SocketDirection::Output);
+        let anchor = socket(target.0, 0, SocketDirection::Input);
+        let pointer = widget.build_layout(Pos2::ZERO).socket_screen_pos[&pulled_off];
+        if dragging {
+            widget.graph.disconnect_input(anchor);
+            widget.interaction_state = InteractionState::DraggingWire {
+                from: anchor,
+                from_canvas: Pos2::new(600.0, 400.0),
+                current_canvas: Pos2::new(300.0, 500.0),
+                restore_on_cancel: true,
+                connectable: Rc::new(HashSet::new()),
+            };
+        }
+
+        let mut hovered = None;
+        // Two passes: egui resolves hovering against the previous pass.
+        for _ in 0..2 {
+            context.begin_pass(egui::RawInput {
+                screen_rect: Some(screen_rect),
+                events: vec![egui::Event::PointerMoved(pointer)],
+                ..Default::default()
+            });
+            let mut ui = egui::Ui::new(
+                context.clone(),
+                egui::Id::new("drag-hover-highlight-test"),
+                egui::UiBuilder::new().max_rect(screen_rect),
+            );
+            let origin = ui.available_rect_before_wrap().min;
+            widget.show(&mut ui);
+            // Re-allocating the graph's own hit targets is how the test
+            // reaches them; the canvas response is a placeholder that must
+            // not cover the sockets it is asking about.
+            let canvas = ui.interact(
+                Rect::NOTHING,
+                ui.id().with("hover-probe"),
+                egui::Sense::hover(),
+            );
+            let layout = widget.build_layout(origin);
+            let responses = widget.allocate_responses(&mut ui, canvas, &layout, screen_rect);
+            hovered = widget.hovered_socket(&responses);
+            let mut output = context.end_pass();
+            output.textures_delta.clear();
+        }
+        hovered
+    }
+
+    // Idle, the socket under the pointer highlights itself and everything
+    // it is wired to; mid-drag that socket is no longer part of the
+    // gesture, so nothing of the old link stays lit.
+    assert!(hovered_socket(false).is_some());
+    assert_eq!(hovered_socket(true), None);
+}
+
+#[test]
 fn only_a_link_creating_drag_shows_the_add_cursor() {
     use crate::runtime::NodeTypeRegistry;
 

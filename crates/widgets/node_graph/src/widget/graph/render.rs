@@ -341,7 +341,22 @@ impl NodeGraphWidget {
         ui.set_clip_rect(previous_clip);
     }
 
+    /// The socket under the pointer, or `None` while a wire is being
+    /// dragged.
+    ///
+    /// egui reports the widget a drag started on as hovered for the whole
+    /// gesture, so without that guard the socket a link was pulled off —
+    /// and, through its highlight cluster, everything still wired to it —
+    /// would stay lit for the rest of the drag even though the pointer left
+    /// it long ago. The drag paints its own anchor and snap-target
+    /// highlights instead.
     pub(crate) fn hovered_socket(&self, responses: &GraphResponses) -> Option<SocketId> {
+        if matches!(
+            self.interaction_state,
+            InteractionState::DraggingWire { .. }
+        ) {
+            return None;
+        }
         responses
             .sockets
             .iter()
