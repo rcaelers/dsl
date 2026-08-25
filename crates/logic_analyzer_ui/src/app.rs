@@ -3230,7 +3230,9 @@ impl App {
         } else if over_panel_title {
             vec!["panel_title", "global"]
         } else if let Some(graph_context) = graph_context {
-            vec![graph_context, "global"]
+            // A socket-specific context adds to the graph's own actions
+            // rather than replacing them.
+            vec![graph_context, "node_graph", "global"]
         } else if let Some(viewer_context) = viewer_context {
             vec![viewer_context, "logic_analyzer", "global"]
         } else {
@@ -4388,6 +4390,54 @@ mod font_tests {
             .map(|binding| binding.label.as_str())
             .collect();
         assert_eq!(wire_drag, ["Drag Node-link", "Confirm Link", "Cancel"]);
+    }
+
+    #[test]
+    fn hovering_a_graph_socket_offers_the_link_move_beside_the_graph_actions() {
+        let bindings =
+            input_bindings::InputBindings::from_json(include_str!("../config/input_bindings.json"))
+                .expect("invalid application input binding configuration");
+
+        let hint = |modifiers| {
+            bindings
+                .status_bindings(&["node_graph.socket", "node_graph", "global"], modifiers)
+                .into_iter()
+                .filter_map(|binding| {
+                    StatusAction::from_binding(
+                        binding,
+                        modifiers,
+                        crate::ModifierKeyLabels::default(),
+                    )
+                })
+                .find(|action| action.label == "Move Link")
+                .map(|action| action.input)
+        };
+
+        // Advertised as a modifier badge that lights up once Ctrl is held,
+        // and the socket context does not hide the graph's own actions.
+        assert!(matches!(
+            hint(egui::Modifiers::NONE),
+            Some(super::StatusInput::Modifier { ref key, active: false }) if key == "Ctrl"
+        ));
+        assert!(matches!(
+            hint(egui::Modifiers::CTRL),
+            Some(super::StatusInput::Modifier { ref key, active: true }) if key == "Ctrl"
+        ));
+        let labels: Vec<_> = bindings
+            .status_bindings(
+                &["node_graph.socket", "node_graph", "global"],
+                egui::Modifiers::NONE,
+            )
+            .into_iter()
+            .map(|binding| binding.label.as_str())
+            .collect();
+        // Dragging a socket connects rather than moving a node, so the
+        // socket's own drag binding replaces "Select / Move" while the
+        // rest of the graph's actions stay listed.
+        assert!(labels.contains(&"Connect"));
+        assert!(!labels.contains(&"Select / Move"));
+        assert!(labels.contains(&"Pan View"));
+        assert!(labels.contains(&"Options"));
     }
 
     #[test]

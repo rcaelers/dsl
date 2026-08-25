@@ -231,7 +231,10 @@ The standalone CCD Rust utilities inspect captured image data outside the graph
 pipeline:
 
 - `ccd_viewer` provides interactive raw, phase, and RGB-hypothesis views.
-- `ccd_layout_analyzer` ranks lane layouts and writes HTML/JSON evidence reports.
+- `ccd_layout_analyzer` compares diagnostic layout views, performs a targeted
+  word-modulo-three registration across separated image regions, renders all
+  six RGB phase assignments, and writes an explicit accept/reject decision to
+  HTML/JSON. TGCK-row modulo views are raster decimations, not CCD-lane proof.
 
 ## Documentation
 

@@ -743,8 +743,17 @@ impl NodeGraphWidget {
         };
 
         let graph_pointer = graph_pointer(pointer, panel_rect, tab_bar_rect);
-        self.hovered_input_context = graph_pointer.map(|_| "node_graph");
         let hovered_socket = graph_pointer.and_then(|_| self.hovered_socket(&responses));
+        // A drag over a socket connects instead of moving a node, so a
+        // hovered socket reports its own context and the host resolves the
+        // socket's actions ahead of the graph-wide ones.
+        self.hovered_input_context = graph_pointer.map(|_| {
+            if hovered_socket.is_some() {
+                "node_graph.socket"
+            } else {
+                "node_graph"
+            }
+        });
         self.handle_input(ui, &responses, graph_pointer, origin, &layout, content_rect);
 
         let layout = self.build_layout(origin);
@@ -793,6 +802,11 @@ impl NodeGraphWidget {
             | InteractionState::BoxSelecting { .. }
             | InteractionState::Panning { .. } => "",
             InteractionState::Idle => {
+                // Over a socket the drag connects, and the modifier picks
+                // up a link the socket already has instead of adding one.
+                if self.hovered_input_context == Some("node_graph.socket") {
+                    return "Drag to link · Ctrl+Drag to move an existing link";
+                }
                 let any_selected = self.graph.nodes.values().any(|node| node.selected)
                     || self.graph.frames.iter().any(|frame| frame.selected);
                 if any_selected {
@@ -820,6 +834,10 @@ impl NodeGraphWidget {
 
     /// Input-binding context under the pointer in the most recently rendered
     /// frame. Panel tabs and panel content are widget-owned and return `None`.
+    ///
+    /// A hovered socket reports the more specific `node_graph.socket`;
+    /// hosts resolve status hints against the general `node_graph` context
+    /// as well.
     pub fn hovered_input_context(&self) -> Option<&'static str> {
         self.hovered_input_context
     }

@@ -423,6 +423,201 @@ fn duplicate_primary_filter_cancels_a_new_wire() {
     assert!(widget.graph.connections.is_empty());
 }
 
+fn link_move_bindings() -> std::sync::Arc<input_bindings::InputBindings> {
+    std::sync::Arc::new(
+        input_bindings::InputBindings::from_json(
+            r#"{"bindings":[
+              {"context":"node_graph","action":"select_move","label":"Select / Move","input":"pointer","button":"primary","gesture":"drag"},
+              {"context":"node_graph.socket","action":"connect","label":"Connect","input":"pointer","button":"primary","gesture":"drag","status":false},
+              {"context":"node_graph.socket","action":"move_link","label":"Move Link","input":"pointer","button":"primary","gesture":"drag","modifiers":{"control":true},"status_modifier_only":true}
+            ]}"#,
+        )
+        .expect("link move bindings are valid"),
+    )
+}
+
+/// Drags from `source`'s first output socket and returns the resulting
+/// interaction state, with `modifiers` held for the whole gesture.
+fn drag_from_output(
+    widget: &mut NodeGraphWidget,
+    source: NodeId,
+    modifiers: egui::Modifiers,
+) -> Pos2 {
+    fn show_frame(
+        context: &egui::Context,
+        widget: &mut NodeGraphWidget,
+        modifiers: egui::Modifiers,
+        events: Vec<egui::Event>,
+    ) -> Pos2 {
+        let screen_rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        // `ModifiersChanged` is how egui learns the held modifiers; it is
+        // repeated each pass because `InputState` is rebuilt from events.
+        let mut events = events;
+        events.insert(0, egui::Event::ModifiersChanged(modifiers));
+        context.begin_pass(egui::RawInput {
+            screen_rect: Some(screen_rect),
+            events,
+            ..Default::default()
+        });
+        let mut ui = egui::Ui::new(
+            context.clone(),
+            egui::Id::new("link-move-sequence-test"),
+            egui::UiBuilder::new().max_rect(screen_rect),
+        );
+        let origin = ui.available_rect_before_wrap().min;
+        widget.show(&mut ui);
+        let mut output = context.end_pass();
+        output.textures_delta.clear();
+        origin
+    }
+
+    let context = egui::Context::default();
+    let origin = show_frame(&context, widget, modifiers, Vec::new());
+    let output = socket(source.0, 0, SocketDirection::Output);
+    let press = widget.build_layout(origin).socket_screen_pos[&output];
+    show_frame(
+        &context,
+        widget,
+        modifiers,
+        vec![
+            egui::Event::PointerMoved(press),
+            egui::Event::PointerButton {
+                pos: press,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers,
+            },
+        ],
+    );
+    show_frame(
+        &context,
+        widget,
+        modifiers,
+        vec![egui::Event::PointerMoved(press + egui::vec2(60.0, 40.0))],
+    );
+    press
+}
+
+/// Two reroutes wired source → target, ready for a drag off the source's
+/// output socket.
+fn connected_pair(widget: &mut NodeGraphWidget) -> (NodeId, NodeId) {
+    let source = widget
+        .add_node_at("Reroute", Pos2::new(100.0, 100.0))
+        .expect("built-in reroute node");
+    let target = widget
+        .add_node_at("Reroute", Pos2::new(400.0, 260.0))
+        .expect("built-in reroute node");
+    widget.graph.add_connection(
+        socket(source.0, 0, SocketDirection::Output),
+        socket(target.0, 0, SocketDirection::Input),
+    );
+    (source, target)
+}
+
+#[test]
+fn dragging_a_connected_output_adds_a_second_link() {
+    use crate::runtime::NodeTypeRegistry;
+
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    widget.set_input_bindings(link_move_bindings());
+    let (source, _target) = connected_pair(&mut widget);
+
+    drag_from_output(&mut widget, source, egui::Modifiers::NONE);
+
+    // The existing link survives: this drag is about to create another one.
+    assert_eq!(widget.graph.connections.len(), 1);
+    assert!(matches!(
+        widget.interaction_state,
+        InteractionState::DraggingWire { from, restore_on_cancel: false, .. }
+            if from == socket(source.0, 0, SocketDirection::Output)
+    ));
+}
+
+#[test]
+fn ctrl_dragging_a_connected_output_picks_the_existing_link_up() {
+    use crate::runtime::NodeTypeRegistry;
+
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    widget.set_input_bindings(link_move_bindings());
+    let (source, target) = connected_pair(&mut widget);
+
+    drag_from_output(&mut widget, source, egui::Modifiers::CTRL);
+
+    // The link is detached and now hangs from the input it kept, so the
+    // free end can be dropped on another output.
+    assert!(widget.graph.connections.is_empty());
+    assert!(matches!(
+        widget.interaction_state,
+        InteractionState::DraggingWire { from, restore_on_cancel: true, .. }
+            if from == socket(target.0, 0, SocketDirection::Input)
+    ));
+}
+
+#[test]
+fn ctrl_dragging_an_unconnected_output_still_starts_a_new_link() {
+    use crate::runtime::NodeTypeRegistry;
+
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    widget.set_input_bindings(link_move_bindings());
+    let source = widget
+        .add_node_at("Reroute", Pos2::new(100.0, 100.0))
+        .expect("built-in reroute node");
+
+    drag_from_output(&mut widget, source, egui::Modifiers::CTRL);
+
+    assert!(matches!(
+        widget.interaction_state,
+        InteractionState::DraggingWire { from, restore_on_cancel: false, .. }
+            if from == socket(source.0, 0, SocketDirection::Output)
+    ));
+}
+
+#[test]
+fn hovering_a_socket_reports_the_socket_binding_context() {
+    use crate::runtime::NodeTypeRegistry;
+
+    fn hover(widget: &mut NodeGraphWidget, at: Pos2) -> Option<&'static str> {
+        let context = egui::Context::default();
+        let screen_rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        for _ in 0..2 {
+            context.begin_pass(egui::RawInput {
+                screen_rect: Some(screen_rect),
+                events: vec![egui::Event::PointerMoved(at)],
+                ..Default::default()
+            });
+            let mut ui = egui::Ui::new(
+                context.clone(),
+                egui::Id::new("socket-hover-context-test"),
+                egui::UiBuilder::new().max_rect(screen_rect),
+            );
+            widget.show(&mut ui);
+            let mut output = context.end_pass();
+            output.textures_delta.clear();
+        }
+        widget.hovered_input_context()
+    }
+
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    let (source, target) = connected_pair(&mut widget);
+    let layout = widget.build_layout(Pos2::ZERO);
+    let connected_output = layout.socket_screen_pos[&socket(source.0, 0, SocketDirection::Output)];
+    let free_output = layout.socket_screen_pos[&socket(target.0, 0, SocketDirection::Output)];
+    let node_body = layout.node_screen_rects[&source].center();
+
+    // Every socket reports the socket context — a drag there connects
+    // rather than moving the node — and its hint names the link move.
+    assert_eq!(
+        hover(&mut widget, connected_output),
+        Some("node_graph.socket")
+    );
+    assert_eq!(
+        widget.status_hint(),
+        "Drag to link · Ctrl+Drag to move an existing link"
+    );
+    assert_eq!(hover(&mut widget, free_output), Some("node_graph.socket"));
+    assert_eq!(hover(&mut widget, node_body), Some("node_graph"));
+}
+
 #[test]
 fn edge_auto_pan_does_nothing_well_inside_the_canvas() {
     use crate::runtime::NodeTypeRegistry;

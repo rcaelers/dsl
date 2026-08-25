@@ -136,7 +136,15 @@ impl NodeGraphWidget {
         if ui.input(|i| i.pointer.button_down(options_button)) {
             return InteractionState::Idle;
         }
-        let ctrl = ui.input(|i| i.modifiers.ctrl);
+        let modifiers = ui.input(|i| i.modifiers);
+        let ctrl = modifiers.ctrl;
+        // A drag from a connected output adds a second link; the move
+        // modifier picks up an existing one instead. An input holds a single
+        // link, so dragging one always moves it and needs no modifier.
+        let move_link = self
+            .input_bindings
+            .pointer_trigger(&["node_graph.socket", "node_graph"], "move_link", modifiers)
+            .is_some();
 
         for (&sid, response) in &responses.sockets {
             if !response.drag_started_by(connect_button) {
@@ -145,6 +153,25 @@ impl NodeGraphWidget {
             let Some(&spos) = layout.socket_screen_pos.get(&sid) else {
                 continue;
             };
+            if move_link
+                && let Some(anchor) = self.movable_output_link(sid, current_screen_pos, layout)
+                && let Some(&anchor_spos) = layout.socket_screen_pos.get(&anchor)
+            {
+                // The input the link keeps hanging from becomes the anchor,
+                // exactly as the source output does when a connected input
+                // is dragged; the free end then looks for another output.
+                self.push_undo_snapshot();
+                self.graph.disconnect_input(anchor);
+                self.run_update(sid.node);
+                self.run_update(anchor.node);
+                return InteractionState::DraggingWire {
+                    from: anchor,
+                    from_canvas: self.view.screen_to_canvas(origin, anchor_spos),
+                    current_canvas: pc,
+                    restore_on_cancel: true,
+                    connectable: Rc::new(self.connectable_nodes(anchor)),
+                };
+            }
             if sid.direction == SocketDirection::Input
                 && let Some(src) = self
                     .graph

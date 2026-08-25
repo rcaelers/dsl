@@ -179,6 +179,49 @@ impl NodeGraphWidget {
             .map(|(target, pos, _)| (target, pos))
     }
 
+    /// Whether the move modifier can pick a link up from `socket`.
+    ///
+    /// Only a connected output offers the choice: a plain drag from it adds
+    /// another link, so the modifier is what makes it move one instead.
+    /// Inputs hold a single link that a plain drag already moves, and an
+    /// unconnected socket has nothing to pick up.
+    fn socket_link_is_movable(&self, socket: SocketId) -> bool {
+        socket.direction == SocketDirection::Output
+            && self
+                .graph
+                .connections
+                .iter()
+                .any(|connection| connection.from == socket)
+    }
+
+    /// The link a move-modifier drag from `output` picks up, identified by
+    /// the input end it stays anchored to.
+    ///
+    /// One output may feed several inputs; the link whose destination is
+    /// nearest the pointer wins, which is unambiguous for the usual single
+    /// link. Dragging the input end remains the way to grab one specific
+    /// link out of many.
+    pub(crate) fn movable_output_link(
+        &self,
+        output: SocketId,
+        pointer_screen: Pos2,
+        layout: &GraphWidgetLayout,
+    ) -> Option<SocketId> {
+        if !self.socket_link_is_movable(output) {
+            return None;
+        }
+        self.graph
+            .connections
+            .iter()
+            .filter(|connection| connection.from == output)
+            .filter_map(|connection| {
+                let target = layout.socket_screen_pos.get(&connection.to)?;
+                Some((connection.to, pointer_screen.distance_sq(*target)))
+            })
+            .min_by(|(_, left), (_, right)| left.total_cmp(right))
+            .map(|(socket, _)| socket)
+    }
+
     fn add_wire_connection(&mut self, from: SocketId, to: SocketId, push_undo: bool) {
         let (output, input) = if from.direction == SocketDirection::Output {
             (from, to)
