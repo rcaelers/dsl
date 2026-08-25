@@ -666,7 +666,7 @@ impl NodeWidget {
         let zoom = view.zoom;
         let mut any_changed = false;
 
-        for i in 0..node.inputs.len() {
+        for (i, socket) in node.inputs.iter().enumerate() {
             let sid = SocketId {
                 node: node_id,
                 index: i,
@@ -684,7 +684,7 @@ impl NodeWidget {
             }
             // Controls are declared on defs; sockets and defs diverge once
             // variadic groups grow, so map through the socket's def_index.
-            let def_index = node.inputs[i].def_index;
+            let def_index = socket.def_index;
             let changed = ui
                 .push_id(("node-input-control", node_id.0, def_index), |ui| {
                     ui.scope(|ui| {
@@ -706,7 +706,7 @@ impl NodeWidget {
             }
         }
 
-        for i in 0..node.outputs.len() {
+        for (i, socket) in node.outputs.iter().enumerate() {
             let Some(wr) = l.output_widget_rects.get(i).and_then(|r| *r) else {
                 continue;
             };
@@ -714,7 +714,7 @@ impl NodeWidget {
             if ws.width() < 30.0 {
                 continue;
             }
-            let def_index = node.outputs[i].def_index;
+            let def_index = socket.def_index;
             let changed = ui
                 .push_id(("node-output-control", node_id.0, def_index), |ui| {
                     ui.scope(|ui| {

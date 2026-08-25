@@ -110,11 +110,10 @@ impl FileDialogService for BrowserNodeFileDialog {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let _ = request_id;
-            Some(finish_dropped_import(
-                &self.picker,
-                file.name,
-                file.handle.bytes(),
-            ))
+            Some(match file.handle.bytes() {
+                Ok(bytes) => finish_dropped_import(&self.picker, file.name, bytes),
+                Err(message) => Err(dropped_read_failure(&file.name, message)),
+            })
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -149,8 +148,10 @@ impl BrowserNodeFileDialog {
         let name = file.name;
         let handle = file.handle;
         wasm_bindgen_futures::spawn_local(async move {
-            let bytes = handle.bytes_async().await;
-            let result = finish_dropped_import(&picker, name, bytes);
+            let result = match handle.bytes_async().await {
+                Ok(bytes) => finish_dropped_import(&picker, name, bytes),
+                Err(message) => Err(dropped_read_failure(&name, message)),
+            };
             let mut drops = drops.lock().unwrap();
             if drops.pending.get(&request_id) == Some(&generation) {
                 drops.pending.remove(&request_id);
@@ -163,19 +164,12 @@ impl BrowserNodeFileDialog {
     }
 }
 
-/// Registers already-read bytes with the host picker, translating a
-/// contents-read failure into the same error shape as an import failure.
+/// Registers already-read bytes with the host picker.
 fn finish_dropped_import(
     picker: &Arc<Mutex<Box<dyn FilePickerService>>>,
     name: String,
-    bytes: Result<Vec<u8>, String>,
+    bytes: Vec<u8>,
 ) -> Result<String, FileDialogError> {
-    let bytes = bytes.map_err(|message| {
-        FileDialogError::host(FilePickerError::Read {
-            name: name.clone(),
-            message,
-        })
-    })?;
     picker
         .lock()
         .unwrap()
@@ -186,6 +180,16 @@ fn finish_dropped_import(
         })
         .map(|reference| reference.into_string())
         .map_err(FileDialogError::host)
+}
+
+/// Typed failure for a drop whose contents could not be read. The host
+/// widget toolkit reports that failure as a bare message, so it is given the
+/// same shape as an import failure here, where it enters this port.
+fn dropped_read_failure(name: &str, message: String) -> FileDialogError {
+    FileDialogError::host(FilePickerError::Read {
+        name: name.to_owned(),
+        message,
+    })
 }
 
 #[cfg(test)]
