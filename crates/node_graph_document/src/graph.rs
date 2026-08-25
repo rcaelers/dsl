@@ -418,6 +418,96 @@ impl GraphState {
         }
     }
 
+    /// Connects `from` to an occupied variadic member by making room at that
+    /// position instead of replacing the link already there: the member and
+    /// every one after it shifts down a place, keeping its own link, and the
+    /// group grows by one.
+    ///
+    /// Returns whether the insert applied. It does not when `to` is not an
+    /// occupied member, or when the group is already at its max and has
+    /// nowhere to shift into — the caller then connects normally, replacing.
+    ///
+    /// # Parameters
+    /// - `from`: Output socket supplying the new connection.
+    /// - `to`: Occupied variadic member the new connection takes the place of.
+    pub fn insert_variadic_connection(&mut self, from: SocketId, to: SocketId) -> bool {
+        let (def_index, info, template) = {
+            let Some(socket) = self
+                .nodes
+                .get(&to.node)
+                .and_then(|node| node.inputs.get(to.index))
+            else {
+                return false;
+            };
+            let Some(info) = socket.variadic.clone() else {
+                return false;
+            };
+            // A placeholder is a free slot: connecting to it grows the group
+            // on its own, and there is nothing to push down.
+            if info.placeholder {
+                return false;
+            }
+            (socket.def_index, info, socket.clone())
+        };
+        if !self
+            .connections
+            .iter()
+            .any(|connection| connection.to == to)
+        {
+            return false;
+        }
+        let members = self.variadic_members(to.node, def_index);
+        if members >= info.max {
+            return false;
+        }
+
+        let mut inserted = template;
+        inserted.resolved_type = None;
+        self.insert_input_socket(to.node, to.index, inserted);
+        self.connections.push(Connection { from, to });
+        self.resolve_input(from, to);
+        self.renumber_variadic_group(to.node, def_index, &info);
+        self.propagate_reroute_output(to.node);
+        self.mark_semantic_change();
+        true
+    }
+
+    fn variadic_members(&self, node_id: NodeId, def_index: usize) -> usize {
+        self.nodes.get(&node_id).map_or(0, |node| {
+            node.inputs
+                .iter()
+                .filter(|socket| socket.def_index == def_index && socket.is_variadic_member())
+                .count()
+        })
+    }
+
+    /// Renumbers a group's members and retires the trailing placeholder once
+    /// the group is full — the counterpart of the placeholder restoration in
+    /// [`Self::collapse_variadic_member`].
+    fn renumber_variadic_group(&mut self, node_id: NodeId, def_index: usize, info: &VariadicInfo) {
+        let Some(node) = self.nodes.get_mut(&node_id) else {
+            return;
+        };
+        let mut members = 0usize;
+        let mut placeholder = None;
+        for (index, socket) in node.inputs.iter_mut().enumerate() {
+            if socket.def_index != def_index {
+                continue;
+            }
+            if socket.is_variadic_member() {
+                members += 1;
+                socket.name = format!("{} {}", info.base, members);
+            } else if socket.is_variadic_placeholder() {
+                placeholder = Some(index);
+            }
+        }
+        if members >= info.max
+            && let Some(index) = placeholder
+        {
+            self.remove_input_socket(node_id, index);
+        }
+    }
+
     /// Removes a disconnected variadic member, renumbers the remaining
     /// members, and restores the trailing placeholder if the group had been
     /// at its max.
@@ -890,6 +980,108 @@ mod tests {
         assert_eq!(inputs.len(), 3);
         assert_eq!(inputs[1].name, "Ch 2");
         assert!(inputs[2].is_variadic_placeholder());
+    }
+
+    #[test]
+    fn connecting_an_occupied_member_inserts_and_pushes_the_rest_down() {
+        let mut graph = GraphState::default();
+        let src = source(&mut graph, 3);
+        let dst = graph.next_id();
+        graph.add_node(node_with_sockets(
+            dst,
+            vec![variadic_placeholder("Signal", "Ch", 4)],
+            vec![],
+        ));
+        for index in 0..2 {
+            graph.add_connection(
+                sid(src, index, SocketDirection::Output),
+                sid(dst, index, SocketDirection::Input),
+            );
+        }
+
+        // A third link lands on the first, occupied member.
+        assert!(graph.insert_variadic_connection(
+            sid(src, 2, SocketDirection::Output),
+            sid(dst, 0, SocketDirection::Input),
+        ));
+
+        let inputs = &graph.nodes[&dst].inputs;
+        assert_eq!(inputs.len(), 4);
+        assert_eq!(
+            inputs
+                .iter()
+                .map(|socket| socket.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Ch 1", "Ch 2", "Ch 3", "Ch"]
+        );
+        assert!(inputs[3].is_variadic_placeholder());
+        // Every link kept its own source, one place further down.
+        let source_of = |index: usize| {
+            graph
+                .connections
+                .iter()
+                .find(|connection| connection.to == sid(dst, index, SocketDirection::Input))
+                .map(|connection| connection.from.index)
+        };
+        assert_eq!(source_of(0), Some(2));
+        assert_eq!(source_of(1), Some(0));
+        assert_eq!(source_of(2), Some(1));
+    }
+
+    #[test]
+    fn a_full_group_replaces_instead_of_inserting() {
+        let mut graph = GraphState::default();
+        let src = source(&mut graph, 3);
+        let dst = graph.next_id();
+        graph.add_node(node_with_sockets(
+            dst,
+            vec![variadic_placeholder("Signal", "Ch", 2)],
+            vec![],
+        ));
+        for index in 0..2 {
+            graph.add_connection(
+                sid(src, index, SocketDirection::Output),
+                sid(dst, index, SocketDirection::Input),
+            );
+        }
+
+        // Nowhere to shift into: the caller falls back to a plain connect.
+        assert!(!graph.insert_variadic_connection(
+            sid(src, 2, SocketDirection::Output),
+            sid(dst, 0, SocketDirection::Input),
+        ));
+        assert_eq!(graph.nodes[&dst].inputs.len(), 2);
+        assert_eq!(graph.connections.len(), 2);
+    }
+
+    #[test]
+    fn an_unoccupied_or_plain_socket_is_left_to_the_ordinary_connect() {
+        let mut graph = GraphState::default();
+        let src = source(&mut graph, 2);
+        let dst = graph.next_id();
+        graph.add_node(node_with_sockets(
+            dst,
+            vec![
+                socket("Signal", &[]),
+                variadic_placeholder("Signal", "Ch", 4),
+            ],
+            vec![],
+        ));
+        graph.add_connection(
+            sid(src, 0, SocketDirection::Output),
+            sid(dst, 0, SocketDirection::Input),
+        );
+
+        // An occupied but non-variadic input still replaces.
+        assert!(!graph.insert_variadic_connection(
+            sid(src, 1, SocketDirection::Output),
+            sid(dst, 0, SocketDirection::Input),
+        ));
+        // A placeholder grows the group by itself.
+        assert!(!graph.insert_variadic_connection(
+            sid(src, 1, SocketDirection::Output),
+            sid(dst, 1, SocketDirection::Input),
+        ));
     }
 
     #[test]

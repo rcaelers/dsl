@@ -123,7 +123,10 @@ Key rules:
 `InputDef::variadic(max)` turns one def into a growing group: the group renders as N member
 sockets ("D 1", "D 2", …) plus one trailing placeholder while members < max. Connecting to
 the placeholder converts it into a member and spawns a new placeholder; disconnecting a
-member removes it. Mechanics:
+member removes it. Dropping a wire on a member that is *already* occupied inserts it there
+(`GraphState::insert_variadic_connection`): the member and every one after it shifts down a
+place carrying its own link, and the group grows by one — replacing only when the group is
+already at its max. Mechanics:
 
 - `SocketId`/`Connection` are positional, so inserting/removing a socket rewrites the index
   of every stored connection above the change point (`GraphState` insert/remove helpers fix

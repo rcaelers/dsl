@@ -301,7 +301,13 @@ impl NodeGraphWidget {
             if push_undo {
                 self.push_undo_snapshot();
             }
-            self.graph.add_connection(output, input);
+            // Dropped on an occupied variadic member, a new link takes that
+            // place and pushes the group down instead of replacing what is
+            // there. The anchored input of a carried link is not a drop
+            // target — that link is landing back on its own socket.
+            if input == from || !self.graph.insert_variadic_connection(output, input) {
+                self.graph.add_connection(output, input);
+            }
             self.run_update(output.node);
             self.run_update(input.node);
         }
@@ -648,4 +654,116 @@ pub(crate) fn node_has_any_connection(connections: &[Connection], node_id: NodeI
     connections
         .iter()
         .any(|c| c.from.node == node_id || c.to.node == node_id)
+}
+#[cfg(test)]
+mod wire_tests {
+    use egui::Pos2;
+
+    use super::*;
+    use crate::model::VariadicInfo;
+    use crate::runtime::NodeTypeRegistry;
+
+    fn input(node: NodeId, index: usize) -> SocketId {
+        SocketId {
+            node,
+            index,
+            direction: SocketDirection::Input,
+        }
+    }
+
+    fn output(node: NodeId) -> SocketId {
+        SocketId {
+            node,
+            index: 0,
+            direction: SocketDirection::Output,
+        }
+    }
+
+    /// A widget holding `sources` reroutes feeding a sink whose variadic
+    /// group has one member per source plus the trailing placeholder.
+    fn wired_group(sources: usize, max: usize) -> (NodeGraphWidget, Vec<NodeId>, NodeId) {
+        let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+        let feeds: Vec<NodeId> = (0..sources)
+            .map(|index| {
+                widget
+                    .add_node_at("Reroute", Pos2::new(0.0, index as f32 * 50.0))
+                    .expect("built-in reroute node")
+            })
+            .collect();
+        let sink = widget
+            .add_node_at("Reroute", Pos2::new(300.0, 0.0))
+            .expect("built-in reroute node");
+        {
+            let node = widget.graph.nodes.get_mut(&sink).unwrap();
+            let template = node.inputs[0].clone();
+            node.inputs = (0..=sources)
+                .map(|index| {
+                    let mut socket = template.clone();
+                    let placeholder = index == sources;
+                    socket.name = if placeholder {
+                        "D".to_owned()
+                    } else {
+                        format!("D {}", index + 1)
+                    };
+                    socket.variadic = Some(VariadicInfo {
+                        base: "D".to_owned(),
+                        max,
+                        placeholder,
+                    });
+                    socket
+                })
+                .collect();
+        }
+        for (index, &feed) in feeds.iter().enumerate() {
+            widget
+                .graph
+                .add_connection(output(feed), input(sink, index));
+        }
+        (widget, feeds, sink)
+    }
+
+    fn source_of(widget: &NodeGraphWidget, sink: NodeId, index: usize) -> Option<NodeId> {
+        widget
+            .graph
+            .connections
+            .iter()
+            .find(|connection| connection.to == input(sink, index))
+            .map(|connection| connection.from.node)
+    }
+
+    #[test]
+    fn dropping_a_link_on_an_occupied_member_inserts_it_there() {
+        let (mut widget, feeds, sink) = wired_group(3, 8);
+        let newcomer = widget
+            .add_node_at("Reroute", Pos2::new(0.0, 400.0))
+            .expect("built-in reroute node");
+
+        widget.add_wire_connection(output(newcomer), input(sink, 1), false);
+
+        // The newcomer took the second slot and everything below it moved
+        // one down, keeping its own source.
+        assert_eq!(widget.graph.nodes[&sink].inputs.len(), 5);
+        assert_eq!(source_of(&widget, sink, 0), Some(feeds[0]));
+        assert_eq!(source_of(&widget, sink, 1), Some(newcomer));
+        assert_eq!(source_of(&widget, sink, 2), Some(feeds[1]));
+        assert_eq!(source_of(&widget, sink, 3), Some(feeds[2]));
+        assert_eq!(widget.graph.connections.len(), 4);
+    }
+
+    #[test]
+    fn a_carried_link_landing_on_its_own_socket_does_not_insert() {
+        let (mut widget, feeds, sink) = wired_group(2, 8);
+        let newcomer = widget
+            .add_node_at("Reroute", Pos2::new(0.0, 400.0))
+            .expect("built-in reroute node");
+        // The drag carries the link into the first member towards another
+        // output, so that member is the anchor, not a drop target.
+        let anchor = input(sink, 0);
+        widget.add_wire_connection(anchor, output(newcomer), false);
+
+        assert_eq!(widget.graph.nodes[&sink].inputs.len(), 3);
+        assert_eq!(widget.graph.connections.len(), 2);
+        assert_eq!(source_of(&widget, sink, 0), Some(newcomer));
+        assert_eq!(source_of(&widget, sink, 1), Some(feeds[1]));
+    }
 }
