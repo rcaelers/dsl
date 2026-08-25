@@ -554,14 +554,18 @@ fn ctrl_dragging_a_connected_output_picks_the_existing_link_up() {
         egui::Modifiers::CTRL,
     );
 
-    // The link is detached and now hangs from the input it kept, so the
-    // free end can be dropped on another output.
-    assert!(widget.graph.connections.is_empty());
+    // The drag now hangs from the input the link kept, so the free end can
+    // be dropped on another output.
+    let anchor = socket(target.0, 0, SocketDirection::Input);
     assert!(matches!(
         widget.interaction_state,
-        InteractionState::DraggingWire { from, restore_on_cancel: true, .. }
-            if from == socket(target.0, 0, SocketDirection::Input)
+        InteractionState::DraggingWire { from, restore_on_cancel: false, .. }
+            if from == anchor
     ));
+    // The link itself stays in the document until the drag lands: it is the
+    // wire being dragged, hidden rather than removed.
+    assert_eq!(widget.graph.connections.len(), 1);
+    assert_eq!(widget.moved_connection(anchor), Some(anchor));
 }
 
 #[test]
@@ -650,13 +654,14 @@ fn ctrl_dragging_a_reroute_point_picks_its_link_up_instead_of_moving_it() {
         egui::Modifiers::CTRL,
     );
 
-    assert!(widget.graph.connections.is_empty());
     assert_eq!(widget.graph.nodes[&source].pos, placed);
+    let anchor = socket(target.0, 0, SocketDirection::Input);
     assert!(matches!(
         widget.interaction_state,
-        InteractionState::DraggingWire { from, restore_on_cancel: true, .. }
-            if from == socket(target.0, 0, SocketDirection::Input)
+        InteractionState::DraggingWire { from, restore_on_cancel: false, .. }
+            if from == anchor
     ));
+    assert_eq!(widget.moved_connection(anchor), Some(anchor));
 }
 
 #[test]
@@ -851,6 +856,169 @@ fn edge_auto_pan_clamps_to_max_speed_past_the_edge() {
     widget.edge_auto_pan(Pos2::new(-500.0, canvas_rect.center().y), canvas_rect);
 
     assert_eq!(widget.view.pan.x, 15.0);
+}
+
+#[test]
+fn inserting_a_reroute_leaves_the_other_links_of_a_variadic_target_alone() {
+    use crate::model::VariadicInfo;
+    use crate::runtime::NodeTypeRegistry;
+
+    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+    let first = widget
+        .add_node_at("Reroute", Pos2::new(0.0, 0.0))
+        .expect("built-in reroute node");
+    let second = widget
+        .add_node_at("Reroute", Pos2::new(0.0, 200.0))
+        .expect("built-in reroute node");
+    let sink = widget
+        .add_node_at("Reroute", Pos2::new(400.0, 100.0))
+        .expect("built-in reroute node");
+    // A grown variadic group: two members and the trailing placeholder.
+    {
+        let node = widget.graph.nodes.get_mut(&sink).unwrap();
+        let template = node.inputs[0].clone();
+        node.inputs = ["D 1", "D 2", "D"]
+            .iter()
+            .enumerate()
+            .map(|(index, name)| {
+                let mut socket = template.clone();
+                socket.name = (*name).to_owned();
+                socket.variadic = Some(VariadicInfo {
+                    base: "D".to_owned(),
+                    max: 8,
+                    placeholder: index == 2,
+                });
+                socket
+            })
+            .collect();
+    }
+    let second_member = socket(sink.0, 1, SocketDirection::Input);
+    widget.graph.add_connection(
+        socket(first.0, 0, SocketDirection::Output),
+        socket(sink.0, 0, SocketDirection::Input),
+    );
+    widget
+        .graph
+        .add_connection(socket(second.0, 0, SocketDirection::Output), second_member);
+
+    let split = widget
+        .graph
+        .connections
+        .iter()
+        .position(|connection| connection.from.node == first)
+        .expect("the first link is in the graph");
+    widget.insert_reroute_on_wire(split, Pos2::new(200.0, 0.0));
+
+    // Splitting one link must not disturb the group: had the original been
+    // removed first, its member would have collapsed, renumbering the
+    // sockets under the saved target and evicting the second link.
+    assert_eq!(widget.graph.connections.len(), 3);
+    assert_eq!(widget.graph.nodes[&sink].inputs.len(), 3);
+    assert!(
+        widget
+            .graph
+            .connections
+            .iter()
+            .any(|connection| connection.from.node == second && connection.to == second_member),
+        "the second link lost its socket"
+    );
+}
+
+#[test]
+fn command_click_on_a_wire_inserts_a_reroute() {
+    use crate::runtime::NodeTypeRegistry;
+
+    fn reroute_bindings() -> std::sync::Arc<input_bindings::InputBindings> {
+        std::sync::Arc::new(
+            input_bindings::InputBindings::from_json(
+                r#"{"bindings":[
+                  {"context":"node_graph","action":"select_move","label":"Select / Move","input":"pointer","button":"primary","gesture":"drag"},
+                  {"context":"node_graph.canvas","action":"insert_reroute","label":"Insert Reroute","input":"pointer","button":"primary","gesture":"double_click","status":false},
+                  {"context":"node_graph.canvas","action":"insert_reroute","label":"Insert Reroute","input":"pointer","button":"primary","gesture":"click","modifiers":{"command":true},"status":false}
+                ]}"#,
+            )
+            .expect("reroute bindings are valid"),
+        )
+    }
+
+    /// Clicks `at` with `modifiers` held and reports the graph afterwards
+    /// as (nodes, connections).
+    fn click_on_wire(modifiers: egui::Modifiers) -> (usize, usize) {
+        fn show_frame(
+            context: &egui::Context,
+            widget: &mut NodeGraphWidget,
+            modifiers: egui::Modifiers,
+            events: Vec<egui::Event>,
+        ) {
+            let screen_rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+            let mut events = events;
+            events.insert(0, egui::Event::ModifiersChanged(modifiers));
+            context.begin_pass(egui::RawInput {
+                screen_rect: Some(screen_rect),
+                events,
+                ..Default::default()
+            });
+            let mut ui = egui::Ui::new(
+                context.clone(),
+                egui::Id::new("reroute-click-test"),
+                egui::UiBuilder::new().max_rect(screen_rect),
+            );
+            widget.show(&mut ui);
+            let mut output = context.end_pass();
+            output.textures_delta.clear();
+        }
+
+        let context = egui::Context::default();
+        let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+        widget.set_input_bindings(reroute_bindings());
+        let left = widget
+            .add_node_at("Reroute", Pos2::new(0.0, 0.0))
+            .expect("built-in reroute node");
+        let right = widget
+            .add_node_at("Reroute", Pos2::new(200.0, 0.0))
+            .expect("built-in reroute node");
+        widget.graph.add_connection(
+            socket(left.0, 0, SocketDirection::Output),
+            socket(right.0, 0, SocketDirection::Input),
+        );
+        // Both points' sockets sit on one horizontal line, so the wire runs
+        // straight through here.
+        let on_the_wire = Pos2::new(100.0, 12.0);
+
+        show_frame(&context, &mut widget, modifiers, Vec::new());
+        show_frame(
+            &context,
+            &mut widget,
+            modifiers,
+            vec![
+                egui::Event::PointerMoved(on_the_wire),
+                egui::Event::PointerButton {
+                    pos: on_the_wire,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers,
+                },
+            ],
+        );
+        show_frame(
+            &context,
+            &mut widget,
+            modifiers,
+            vec![egui::Event::PointerButton {
+                pos: on_the_wire,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers,
+            }],
+        );
+
+        (widget.graph.nodes.len(), widget.graph.connections.len())
+    }
+
+    // The wire is split by a third point carrying both halves.
+    assert_eq!(click_on_wire(egui::Modifiers::COMMAND), (3, 2));
+    // A plain click leaves it alone.
+    assert_eq!(click_on_wire(egui::Modifiers::NONE), (2, 1));
 }
 
 #[test]

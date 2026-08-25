@@ -160,7 +160,7 @@ impl NodeGraphWidget {
                 // The input the link keeps hanging from becomes the anchor,
                 // exactly as the source output does when a connected input
                 // is dragged; the free end then looks for another output.
-                return self.pick_up_link(anchor, sid.node, anchor_spos, origin, pc);
+                return self.start_link_move(anchor, anchor_spos, origin, pc);
             }
             if sid.direction == SocketDirection::Input
                 && let Some(src) = self
@@ -216,7 +216,7 @@ impl NodeGraphWidget {
                 && let Some(anchor) = self.movable_reroute_link(id, current_screen_pos, layout)
                 && let Some(&anchor_spos) = layout.socket_screen_pos.get(&anchor)
             {
-                return self.pick_up_link(anchor, id, anchor_spos, origin, pc);
+                return self.start_link_move(anchor, anchor_spos, origin, pc);
             }
             if drag_started && let Some(node) = self.graph.nodes.get(&id) {
                 let start_pos = node.pos;
@@ -268,7 +268,21 @@ impl NodeGraphWidget {
             .input_bindings
             .pointer_button(&["node_graph.canvas", "node_graph"], "insert_reroute")
             .unwrap_or(primary_button);
-        if responses.canvas.double_clicked_by(reroute_button)
+        // Two ways onto a wire: the plain double-click, and the single
+        // click of whichever modifier-qualified binding matches what is
+        // held right now (Command-click as shipped).
+        let modified_click = self
+            .input_bindings
+            .pointer_trigger(
+                &["node_graph.canvas", "node_graph"],
+                "insert_reroute",
+                modifiers,
+            )
+            .is_some_and(|(button, gesture)| {
+                gesture == input_bindings::PointerGesture::Click
+                    && responses.canvas.clicked_by(button)
+            });
+        if (responses.canvas.double_clicked_by(reroute_button) || modified_click)
             && let Some(idx) = self.wire_near_point(pc, &layout.nodes)
         {
             self.insert_reroute_on_wire(idx, pc);

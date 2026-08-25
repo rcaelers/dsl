@@ -83,6 +83,12 @@ impl NodeGraphWidget {
         }
 
         let wire_w = (2.0 * self.view.zoom).clamp(1.0_f32, 4.0_f32);
+        // The link a drag is carrying to another output is still in the
+        // document; it is the dragged wire on screen, not a second one.
+        let moved_link = match self.interaction_state {
+            InteractionState::DraggingWire { from, .. } => self.moved_connection(from),
+            _ => None,
+        };
         draw_connections(
             painter,
             &self.graph,
@@ -90,6 +96,7 @@ impl NodeGraphWidget {
             &layout.socket_screen_pos,
             wire_w,
             |idx, conn| match insert_candidate {
+                _ if moved_link == Some(conn.to) => WireEmphasis::Hidden,
                 Some((candidate, insertable)) if candidate == idx => {
                     if insertable {
                         WireEmphasis::Highlight

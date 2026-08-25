@@ -202,6 +202,9 @@ pub(crate) enum WireEmphasis {
     Highlight,
     /// Insert target the dragged node cannot splice into: dimmed.
     Muted,
+    /// Not painted at all: the link a wire drag is carrying elsewhere, which
+    /// stays in the document until the drag lands.
+    Hidden,
 }
 
 fn brighten_wire_color(base: Color32) -> Color32 {
@@ -229,6 +232,9 @@ pub(crate) fn draw_connections(
     let mut highlighted = Vec::new();
     for (idx, conn) in graph.connections.iter().enumerate() {
         let emphasis = emphasis(idx, conn);
+        if emphasis == WireEmphasis::Hidden {
+            continue;
+        }
         if emphasis == WireEmphasis::Highlight {
             highlighted.push((idx, conn));
             continue;
@@ -286,6 +292,7 @@ fn draw_connection(
         WireEmphasis::Normal => (base, wire_width),
         WireEmphasis::Highlight => (brighten_wire_color(base), wire_width * 2.0),
         WireEmphasis::Muted => (mute_wire_color(base), wire_width),
+        WireEmphasis::Hidden => return,
     };
     draw_wire(painter, from_p, to_p, color, width);
 }

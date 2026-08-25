@@ -159,14 +159,21 @@ Interaction highlights:
   drags the free end, anchored at its source output. An output may feed many inputs, so a
   plain drag from it adds another link and the `move_link` binding (`Ctrl` by default)
   picks an existing one up instead, anchored at the input it keeps — the nearest
-  destination when the output feeds several. On a reroute point, whose body is barely
+  destination when the output feeds several. A carried link stays in the document and is
+  only hidden until the drag lands, where connecting to the anchored input displaces it in
+  one step. Rewiring never removes a link first and re-adds it against a saved `SocketId`:
+  removing it reverts the input socket, and a collapsing variadic member renumbers every
+  socket after it, so the saved id would address a different socket — the same ordering
+  rule governs reroute insertion and node-on-wire splicing. On a reroute point, whose body is barely
   wider than the two socket hit areas flanking it, the modifier picks the link up from
   anywhere on the point while a plain drag still moves the point itself. A hovered socket
   reports the `node_graph.socket` binding context, which is how the host status bar
   advertises both the drag and its modifier.
 - **Reroute nodes** (`NodeKind::Reroute`) are model-level wire waypoints with a single
   `Any` in/out; the compiler follows wires through them. *Dissolve* removes a node and
-  directly reconnects compatible in/out pairs. Double-clicking a wire inserts a reroute.
+  directly reconnects compatible in/out pairs. Double-clicking a wire inserts a reroute,
+  as does the modifier-qualified `insert_reroute` click bound alongside it (Command-click
+  as shipped).
   A point is narrower than one socket hit area, so each of its sockets keeps the outer
   quarter of the point plus all of its reach outside it, leaving the middle half as the
   drag handle that moves the point.

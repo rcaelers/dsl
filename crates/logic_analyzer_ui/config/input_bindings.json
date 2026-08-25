@@ -46,6 +46,7 @@
     { "context": "node_graph", "action": "options", "label": "Options", "input": "pointer", "button": "secondary", "gesture": "click" },
     { "context": "node_graph", "action": "cancel", "label": "Cancel", "input": "key", "key": "escape", "status": false },
     { "context": "node_graph.canvas", "action": "insert_reroute", "label": "Insert Reroute", "input": "pointer", "button": "primary", "gesture": "double_click", "status": false },
+    { "context": "node_graph.canvas", "action": "insert_reroute", "label": "Insert Reroute", "input": "pointer", "button": "primary", "gesture": "click", "modifiers": { "command": true }, "status": false },
     { "context": "node_graph.socket", "action": "connect", "label": "Connect", "input": "pointer", "button": "primary", "gesture": "drag" },
     { "context": "node_graph.socket", "action": "move_link", "label": "Move Link", "input": "pointer", "button": "primary", "gesture": "drag", "modifiers": { "control": true }, "status_modifier_only": true },
     { "context": "node_graph.placement", "action": "confirm", "label": "Place", "input": "pointer", "button": "primary", "gesture": "press", "status": false },

@@ -250,28 +250,43 @@ impl NodeGraphWidget {
         )
     }
 
-    /// Detaches the link hanging from `anchor` and returns the drag that
-    /// carries its now-free end, with `anchor` staying where it is.
+    /// The link a wire drag anchored at `from` is carrying elsewhere.
     ///
-    /// `source` is the output the link was pulled off, which sees its own
-    /// socket set change too.
-    pub(crate) fn pick_up_link(
-        &mut self,
+    /// A drag anchored at an input is relocating that input's existing link
+    /// to another output, and the link stays in the document until the drag
+    /// lands — it is only hidden while it is being carried. Removing it up
+    /// front would revert the socket instead: a variadic member collapses
+    /// and renumbers every socket after it, so `from` would address a
+    /// different socket by the time the drag is dropped, and connecting
+    /// there would evict that socket's own link.
+    pub(crate) fn moved_connection(&self, from: SocketId) -> Option<SocketId> {
+        (from.direction == SocketDirection::Input
+            && self
+                .graph
+                .connections
+                .iter()
+                .any(|connection| connection.to == from))
+        .then_some(from)
+    }
+
+    /// Starts carrying the link that hangs from `anchor` to another output,
+    /// with `anchor` staying where it is.
+    ///
+    /// Nothing is mutated: dropping the link on an output replaces the
+    /// connection into `anchor` in one step, and abandoning the drag leaves
+    /// the link exactly as it was.
+    pub(crate) fn start_link_move(
+        &self,
         anchor: SocketId,
-        source: NodeId,
         anchor_screen: Pos2,
         origin: Pos2,
         pointer_canvas: Pos2,
     ) -> InteractionState {
-        self.push_undo_snapshot();
-        self.graph.disconnect_input(anchor);
-        self.run_update(source);
-        self.run_update(anchor.node);
         InteractionState::DraggingWire {
             from: anchor,
             from_canvas: self.view.screen_to_canvas(origin, anchor_screen),
             current_canvas: pointer_canvas,
-            restore_on_cancel: true,
+            restore_on_cancel: false,
             connectable: Rc::new(self.connectable_nodes(anchor)),
         }
     }
@@ -310,7 +325,9 @@ impl NodeGraphWidget {
 
         if let Some((ii, oi)) = self.wire_insert_sockets(node_id, &conn) {
             self.push_undo_snapshot();
-            self.graph.remove_connection_at(idx);
+            // Same ordering as `insert_reroute_on_wire`: the second half
+            // displaces the original link, so no input socket is reverted
+            // and renumbered underneath the saved target.
             self.graph.add_connection(
                 conn.from,
                 SocketId {
@@ -353,10 +370,11 @@ impl NodeGraphWidget {
             // Not over a compatible socket: releasing here opens link-drag
             // search instead of connecting directly. Blender flags this
             // with a "+" cursor; egui's closest equivalent is Copy. Only a
-            // drag that creates a link says so — `restore_on_cancel` marks
-            // the drags that picked an existing link up instead, which end
-            // with the same number of links they started with.
-            if snapped.is_none() && !restore_on_cancel {
+            // drag that creates a link says so: a drag carrying one, or one
+            // that pulled an input off its source, ends with the same
+            // number of links it started with.
+            let relocating = restore_on_cancel || self.moved_connection(from).is_some();
+            if snapped.is_none() && !relocating {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Copy);
             }
         }
@@ -509,10 +527,14 @@ impl NodeGraphWidget {
             return;
         };
         self.push_undo_snapshot();
-        self.graph.remove_connection_at(connection_index);
         let Some(node_id) = self.add_node_at("Reroute", pos_canvas) else {
             return;
         };
+        // The original link is displaced by the second half rather than
+        // removed first: removing it would revert its input socket, and a
+        // variadic member collapsing there renumbers every socket after it
+        // — `conn.to` would then address a different socket, whose own link
+        // this would evict.
         self.graph.add_connection(
             conn.from,
             SocketId {
