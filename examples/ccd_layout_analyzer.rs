@@ -6,7 +6,7 @@
 //! illumination gradients do not dominate the ranking.
 
 use std::cmp::Ordering;
-use std::fs::{File, create_dir_all};
+use std::fs::{create_dir_all, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
@@ -71,12 +71,17 @@ struct Args {
     /// Height of each three-group RGB preview.
     #[arg(long, default_value_t = 540)]
     rgb_height: usize,
+
+    /// Generate the disproved row-modulo-12 RGB experiment for comparison.
+    #[arg(long, hide = true)]
+    experimental_row_rgb: bool,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum InterleaveAxis {
     Word,
+    WordBlock,
     TgckRow,
 }
 
@@ -84,6 +89,7 @@ impl InterleaveAxis {
     fn label(self) -> &'static str {
         match self {
             Self::Word => "word interleaving",
+            Self::WordBlock => "contiguous word blocks",
             Self::TgckRow => "TGCK-row interleaving",
         }
     }
@@ -91,6 +97,7 @@ impl InterleaveAxis {
     fn slug(self) -> &'static str {
         match self {
             Self::Word => "word",
+            Self::WordBlock => "block",
             Self::TgckRow => "row",
         }
     }
@@ -113,6 +120,16 @@ impl Layout {
                     .div_ceil(self.modulus),
                 self.input_rows,
             ),
+            InterleaveAxis::WordBlock => {
+                let block_width = self.nominal_words / self.modulus;
+                let start = lane * block_width;
+                let end = if lane + 1 == self.modulus {
+                    self.nominal_words
+                } else {
+                    start + block_width
+                };
+                (end.saturating_sub(start), self.input_rows)
+            }
             InterleaveAxis::TgckRow => (
                 self.nominal_words,
                 self.input_rows.saturating_sub(lane).div_ceil(self.modulus),
@@ -123,6 +140,7 @@ impl Layout {
     fn raw_position(self, lane: usize, row: usize, column: usize) -> (usize, usize) {
         match self.axis {
             InterleaveAxis::Word => (row, column * self.modulus + lane),
+            InterleaveAxis::WordBlock => (row, lane * (self.nominal_words / self.modulus) + column),
             InterleaveAxis::TgckRow => (row * self.modulus + lane, column),
         }
     }
@@ -192,8 +210,79 @@ struct AnalysisReport {
     nominal_words: usize,
     start_byte_offset: i32,
     ranking_note: String,
+    phase_layout_conclusion: String,
+    word_phase_analysis: WordPhaseAnalysisReport,
+    word_block_analysis: WordPhaseAnalysisReport,
+    word_twelve_line_analysis: WordPhaseAnalysisReport,
     candidates: Vec<CandidateReport>,
     spectral_grouping: Option<SpectralGroupingReport>,
+}
+
+#[derive(Debug, Serialize)]
+struct WordPhaseAnalysisReport {
+    layout: String,
+    registration_metric: String,
+    logical_width: usize,
+    logical_height: usize,
+    reference_phase: usize,
+    region_activity_scores: Vec<f64>,
+    informative_regions: Vec<usize>,
+    region_activity_gap_ratio: f64,
+    registrations: Vec<WordPhaseRegistrationReport>,
+    pairwise_registrations: Vec<WordPhasePairRegistrationReport>,
+    sensor_offset_model: Option<SensorOffsetModelReport>,
+    previews: Vec<WordPhasePreviewReport>,
+    bright_edge_chroma_p95: f64,
+    colored_bright_edge_fraction: f64,
+    accepted: bool,
+    decision: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SensorOffsetModelReport {
+    stream_line_order: [u8; 4],
+    line_offset_multipliers: [i32; 4],
+    fitted_line_pitch: i32,
+    color_offsets: [i32; 3],
+    independent_shifts: Vec<i32>,
+}
+
+#[derive(Debug, Serialize)]
+struct WordPhasePairRegistrationReport {
+    reference_phase: usize,
+    candidate_phase: usize,
+    vertical_shift: i32,
+    median_edge_correlation: f64,
+    supporting_regions: usize,
+    total_regions: usize,
+    region_correlations: Vec<f64>,
+}
+
+#[derive(Clone, Debug)]
+struct ShiftEvidence {
+    shift: i32,
+    correlations: Vec<f64>,
+    median_correlation: f64,
+    supporting_regions: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct WordPhaseRegistrationReport {
+    phase: usize,
+    vertical_shift: i32,
+    horizontal_shift: i32,
+    median_edge_correlation: f64,
+    supporting_regions: usize,
+    total_regions: usize,
+    region_correlations: Vec<f64>,
+}
+
+#[derive(Debug, Serialize)]
+struct WordPhasePreviewReport {
+    red_phase: usize,
+    green_phase: usize,
+    blue_phase: usize,
+    file: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -205,7 +294,17 @@ struct SpectralGroupingReport {
     score_margin: f64,
     manual_line_order: String,
     assignment_note: String,
+    registrations: Vec<LaneRegistrationReport>,
     rgb_previews: Vec<RgbPreviewReport>,
+}
+
+#[derive(Debug, Serialize)]
+struct LaneRegistrationReport {
+    reference_lane: usize,
+    lane: usize,
+    vertical_shift: i32,
+    vertical_edge_correlation: f64,
+    horizontal_shift: i32,
 }
 
 #[derive(Debug, Serialize)]
@@ -248,7 +347,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         input_rows, nominal_words, args.moduli
     );
     let mut candidates = Vec::new();
-    for axis in [InterleaveAxis::Word, InterleaveAxis::TgckRow] {
+    for axis in [
+        InterleaveAxis::Word,
+        InterleaveAxis::WordBlock,
+        InterleaveAxis::TgckRow,
+    ] {
         for &modulus in &args.moduli {
             let layout = Layout {
                 axis,
@@ -270,25 +373,81 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         candidate.rank = index + 1;
     }
 
-    let spectral_grouping = candidates
+    let word_phase_candidate = candidates
+        .iter()
+        .find(|candidate| matches!(candidate.axis, InterleaveAxis::Word) && candidate.modulus == 3)
+        .ok_or("word-modulo-three diagnostic candidate is missing")?;
+    let word_phase_analysis = analyze_word_phases(
+        &capture,
+        Layout {
+            axis: InterleaveAxis::Word,
+            modulus: 3,
+            nominal_words,
+            input_rows,
+        },
+        word_phase_candidate,
+        &args,
+        "word interleaving modulo 3",
+        "word3",
+    )?;
+    let word_block_candidate = candidates
         .iter()
         .find(|candidate| {
-            matches!(candidate.axis, InterleaveAxis::TgckRow) && candidate.modulus == 12
+            matches!(candidate.axis, InterleaveAxis::WordBlock) && candidate.modulus == 3
         })
-        .map(|candidate| {
-            analyze_spectral_groups(
-                &capture,
-                Layout {
-                    axis: InterleaveAxis::TgckRow,
-                    modulus: 12,
-                    nominal_words,
-                    input_rows,
-                },
-                candidate,
-                &args,
-            )
-        })
-        .transpose()?;
+        .ok_or("contiguous-three-block diagnostic candidate is missing")?;
+    let word_block_analysis = analyze_word_phases(
+        &capture,
+        Layout {
+            axis: InterleaveAxis::WordBlock,
+            modulus: 3,
+            nominal_words,
+            input_rows,
+        },
+        word_block_candidate,
+        &args,
+        "three contiguous 18,240-word blocks",
+        "block3",
+    )?;
+    let word_twelve_candidate = candidates
+        .iter()
+        .find(|candidate| matches!(candidate.axis, InterleaveAxis::Word) && candidate.modulus == 12)
+        .ok_or("word-modulo-twelve diagnostic candidate is missing")?;
+    let word_twelve_line_analysis = analyze_twelve_line_phases(
+        &capture,
+        Layout {
+            axis: InterleaveAxis::Word,
+            modulus: 12,
+            nominal_words,
+            input_rows,
+        },
+        word_twelve_candidate,
+        &args,
+    )?;
+
+    let spectral_grouping = if args.experimental_row_rgb {
+        candidates
+            .iter()
+            .find(|candidate| {
+                matches!(candidate.axis, InterleaveAxis::TgckRow) && candidate.modulus == 12
+            })
+            .map(|candidate| {
+                analyze_spectral_groups(
+                    &capture,
+                    Layout {
+                        axis: InterleaveAxis::TgckRow,
+                        modulus: 12,
+                        nominal_words,
+                        input_rows,
+                    },
+                    candidate,
+                    &args,
+                )
+            })
+            .transpose()?
+    } else {
+        None
+    };
 
     let report = AnalysisReport {
         input: args.file.display().to_string(),
@@ -298,14 +457,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         nominal_interval_bytes: nominal_bytes,
         nominal_words,
         start_byte_offset: args.start_byte_offset,
-        ranking_note: "Correlation ranks structural similarity only. Confirm the result using montage geometry and the expected approximately 54,400 active pixels before assigning colors.".into(),
+        ranking_note: "This is a diagnostic similarity ordering, not a serialization-layout ranking. TGCK-row modulo views are ordinary raster decimations: every residue naturally contains a copy of the scene, and larger moduli can score artificially well. They must not be interpreted as CCD lanes or used to assign RGB. The row-modulo-12 RGB experiment is disabled by default.".into(),
+        phase_layout_conclusion: if phase_registration_supported(&word_twelve_line_analysis)
+            && !phase_registration_supported(&word_block_analysis)
+        {
+            "Contiguous thirds are rejected. The BGR × four-line sensor diagram is consistent with the capture: all twelve word-modulo lanes register, and four-tap reconstruction is the supported full-resolution model, although its RGB calibration gate still fails."
+        } else if phase_registration_supported(&word_phase_analysis)
+            && !phase_registration_supported(&word_block_analysis)
+        {
+            "Contiguous thirds are rejected by pairwise registration; word-modulo-three remains a supported serialization hypothesis, although its RGB calibration gate still fails."
+        } else {
+            "Neither tested three-phase serialization layout has uniquely passed all evidence gates."
+        }
+        .into(),
+        word_phase_analysis,
+        word_block_analysis,
+        word_twelve_line_analysis,
         candidates,
         spectral_grouping,
     };
     write_json(&args.output.join("report.json"), &report)?;
     write_html(&args.output.join("report.html"), &report)?;
 
-    println!("\nRanking:");
+    println!("\nDiagnostic similarity ordering (not a layout ranking):");
     for candidate in &report.candidates {
         println!(
             "  {:2}. {:22} mod {:2}: score={:.5}, {}×{}",
@@ -316,6 +490,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             candidate.logical_width,
             candidate.logical_height_min
         );
+    }
+    println!(
+        "\nWARNING: TGCK-row modulo images are decimated copies of the raster, not evidence of serialized CCD lanes."
+    );
+    println!("\n{}", report.phase_layout_conclusion);
+    for analysis in [
+        &report.word_phase_analysis,
+        &report.word_block_analysis,
+        &report.word_twelve_line_analysis,
+    ] {
+        println!(
+            "\n{}: accepted={} — {}",
+            analysis.layout, analysis.accepted, analysis.decision
+        );
+        println!(
+            "  informative regions: {:?} (activity gap {:.2}×)",
+            analysis.informative_regions, analysis.region_activity_gap_ratio
+        );
+        println!("  registration metric: {}", analysis.registration_metric);
+        for registration in &analysis.registrations {
+            println!(
+                "  phase {}: row {:+}, column {:+}, median edge r={:.5}, support={}/{}",
+                registration.phase,
+                registration.vertical_shift,
+                registration.horizontal_shift,
+                registration.median_edge_correlation,
+                registration.supporting_regions,
+                registration.total_regions
+            );
+        }
     }
     if let Some(grouping) = &report.spectral_grouping {
         println!(
@@ -416,6 +620,774 @@ fn analyze_candidate(
     })
 }
 
+fn analyze_word_phases(
+    capture: &Capture<'_>,
+    layout: Layout,
+    candidate: &CandidateReport,
+    args: &Args,
+    layout_name: &str,
+    preview_prefix: &str,
+) -> Result<WordPhaseAnalysisReport, Box<dyn std::error::Error>> {
+    const REFERENCE_PHASE: usize = 0;
+    const REGION_COUNT: usize = 16;
+    const MINIMUM_COLOR_ROW_SEPARATION: i32 = 8;
+    let column_samples = (args.vertical_samples.max(64) * 4).max(REGION_COUNT);
+    let edge_maps: Vec<Vec<f64>> = (0..3)
+        .map(|phase| vertical_edge_map(capture, layout, phase, column_samples))
+        .collect();
+    let region_activity_scores = region_activity_scores(&edge_maps, column_samples, REGION_COUNT);
+    let (informative_region_mask, region_activity_gap_ratio) =
+        select_informative_regions(&region_activity_scores);
+    let informative_regions = informative_region_mask
+        .iter()
+        .enumerate()
+        .filter_map(|(region, &informative)| informative.then_some(region))
+        .collect::<Vec<_>>();
+    let informative_region_count = informative_regions.len();
+    let phase_01 = vertical_shift_evidence(
+        &edge_maps[0],
+        &edge_maps[1],
+        column_samples,
+        REGION_COUNT,
+        &informative_region_mask,
+        args.max_row_shift,
+    );
+    let phase_02 = vertical_shift_evidence(
+        &edge_maps[0],
+        &edge_maps[2],
+        column_samples,
+        REGION_COUNT,
+        &informative_region_mask,
+        args.max_row_shift,
+    );
+    let phase_12 = vertical_shift_evidence(
+        &edge_maps[1],
+        &edge_maps[2],
+        column_samples,
+        REGION_COUNT,
+        &informative_region_mask,
+        args.max_row_shift,
+    );
+    let (phase_1_shift, phase_2_shift) = best_joint_phase_shifts(
+        &phase_01,
+        &phase_02,
+        &phase_12,
+        MINIMUM_COLOR_ROW_SEPARATION,
+        args.max_row_shift,
+    )
+    .ok_or("no jointly valid three-phase registration was found")?;
+    let selected_01 = shift_evidence_at(&phase_01, phase_1_shift, args.max_row_shift);
+    let selected_02 = shift_evidence_at(&phase_02, phase_2_shift, args.max_row_shift);
+    let selected_12 =
+        shift_evidence_at(&phase_12, phase_2_shift - phase_1_shift, args.max_row_shift);
+    let mut registrations = Vec::new();
+    for phase in 0..3 {
+        let horizontal_shift = pair_offsets(&candidate.pairs, REFERENCE_PHASE, phase).1;
+        if phase == REFERENCE_PHASE {
+            registrations.push(WordPhaseRegistrationReport {
+                phase,
+                vertical_shift: 0,
+                horizontal_shift: 0,
+                median_edge_correlation: 1.0,
+                supporting_regions: informative_region_count,
+                total_regions: informative_region_count,
+                region_correlations: vec![1.0; REGION_COUNT],
+            });
+            continue;
+        }
+        let evidence = if phase == 1 { selected_01 } else { selected_02 };
+        registrations.push(WordPhaseRegistrationReport {
+            phase,
+            vertical_shift: evidence.shift,
+            horizontal_shift,
+            median_edge_correlation: evidence.median_correlation,
+            supporting_regions: evidence.supporting_regions,
+            total_regions: informative_region_count,
+            region_correlations: evidence.correlations.clone(),
+        });
+    }
+    let pairwise_registrations = [
+        (0, 1, selected_01),
+        (0, 2, selected_02),
+        (1, 2, selected_12),
+    ]
+    .into_iter()
+    .map(
+        |(reference_phase, candidate_phase, evidence)| WordPhasePairRegistrationReport {
+            reference_phase,
+            candidate_phase,
+            vertical_shift: evidence.shift,
+            median_edge_correlation: evidence.median_correlation,
+            supporting_regions: evidence.supporting_regions,
+            total_regions: informative_region_count,
+            region_correlations: evidence.correlations.clone(),
+        },
+    )
+    .collect::<Vec<_>>();
+
+    let (logical_width, logical_height) = layout.dimensions(0);
+    let planes = render_word_phase_planes(
+        capture,
+        layout,
+        &registrations,
+        args.rgb_width,
+        args.rgb_height,
+    );
+    let (bright_edge_chroma_p95, colored_bright_edge_fraction) =
+        preview_registration_quality(&planes, args.rgb_width, args.rgb_height);
+    let permutations = [
+        [0, 1, 2],
+        [0, 2, 1],
+        [1, 0, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [2, 1, 0],
+    ];
+    let mut previews = Vec::new();
+    for [red, green, blue] in permutations {
+        let file = format!("{preview_prefix}-r{red}-g{green}-b{blue}.bmp");
+        write_rgb_preview(
+            &args.output.join(&file),
+            args.rgb_width,
+            args.rgb_height,
+            &planes,
+            red,
+            green,
+            blue,
+        )?;
+        previews.push(WordPhasePreviewReport {
+            red_phase: red,
+            green_phase: green,
+            blue_phase: blue,
+            file,
+        });
+    }
+
+    let registrations_supported = pairwise_registrations.iter().all(|registration| {
+        registration.supporting_regions >= required_region_support(registration.total_regions)
+            && registration.median_edge_correlation >= 0.10
+    });
+    let chroma_supported = bright_edge_chroma_p95 <= 80.0 && colored_bright_edge_fraction <= 0.25;
+    let accepted = registrations_supported && chroma_supported;
+    let decision = if accepted {
+        "registration evidence is consistent across regions and bright neutral edges do not show excessive channel separation"
+    } else if !registrations_supported {
+        "rejected: too few informative image regions support at least one phase registration"
+    } else {
+        "rejected: aligned previews retain excessive color separation on bright edges"
+    }
+    .into();
+
+    Ok(WordPhaseAnalysisReport {
+        layout: layout_name.into(),
+        registration_metric: "equal-weight mean of signed edge-profile correlation and signed cosine overlap of the strongest 10% of edges".into(),
+        logical_width,
+        logical_height,
+        reference_phase: REFERENCE_PHASE,
+        region_activity_scores,
+        informative_regions,
+        region_activity_gap_ratio,
+        registrations,
+        pairwise_registrations,
+        sensor_offset_model: None,
+        previews,
+        bright_edge_chroma_p95,
+        colored_bright_edge_fraction,
+        accepted,
+        decision,
+    })
+}
+
+fn analyze_twelve_line_phases(
+    capture: &Capture<'_>,
+    layout: Layout,
+    _candidate: &CandidateReport,
+    args: &Args,
+) -> Result<WordPhaseAnalysisReport, Box<dyn std::error::Error>> {
+    const REFERENCE_LANE: usize = 0;
+    const REGION_COUNT: usize = 16;
+    const MINIMUM_LINE_SEPARATION: i32 = 8;
+    const COLOR_LANES: [[usize; 4]; 3] = [[0, 3, 6, 9], [1, 4, 7, 10], [2, 5, 8, 11]];
+    const LINE_OFFSET_MULTIPLIERS: [i32; 4] = [0, 2, -1, 1];
+
+    let column_samples = (args.vertical_samples.max(64) * 4).max(REGION_COUNT);
+    let edge_maps = (0..12)
+        .map(|lane| vertical_edge_map(capture, layout, lane, column_samples))
+        .collect::<Vec<_>>();
+    let activity_scores = region_activity_scores(&edge_maps, column_samples, REGION_COUNT);
+    let (informative_mask, region_activity_gap_ratio) =
+        select_informative_regions(&activity_scores);
+    let informative_regions = informative_mask
+        .iter()
+        .enumerate()
+        .filter_map(|(region, &informative)| informative.then_some(region))
+        .collect::<Vec<_>>();
+    let informative_count = informative_regions.len();
+
+    let reference_evidence = (0..12)
+        .map(|lane| {
+            vertical_shift_evidence(
+                &edge_maps[REFERENCE_LANE],
+                &edge_maps[lane],
+                column_samples,
+                REGION_COUNT,
+                &informative_mask,
+                args.max_row_shift,
+            )
+        })
+        .collect::<Vec<_>>();
+    let independent_shifts = reference_evidence
+        .iter()
+        .enumerate()
+        .map(|(lane, evidence)| {
+            if lane == REFERENCE_LANE {
+                0
+            } else {
+                evidence
+                    .iter()
+                    .filter(|candidate| candidate.shift.abs() >= MINIMUM_LINE_SEPARATION)
+                    .max_by(|left, right| {
+                        left.median_correlation
+                            .partial_cmp(&right.median_correlation)
+                            .unwrap_or(Ordering::Equal)
+                    })
+                    .map_or(0, |candidate| candidate.shift)
+            }
+        })
+        .collect::<Vec<_>>();
+    let within_color_evidence = COLOR_LANES
+        .iter()
+        .map(|lanes| {
+            lanes
+                .iter()
+                .map(|&lane| {
+                    vertical_shift_evidence(
+                        &edge_maps[lanes[0]],
+                        &edge_maps[lane],
+                        column_samples,
+                        REGION_COUNT,
+                        &informative_mask,
+                        args.max_row_shift,
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let (line_pitch, color_offsets) = fit_twelve_line_offset_model(
+        &reference_evidence,
+        &within_color_evidence,
+        &COLOR_LANES,
+        &LINE_OFFSET_MULTIPLIERS,
+        args.max_row_shift,
+    )
+    .ok_or("no valid physical twelve-line offset model was found")?;
+    let structured_shifts = COLOR_LANES
+        .iter()
+        .enumerate()
+        .flat_map(|(color, lanes)| {
+            lanes.iter().enumerate().map(move |(tap, &lane)| {
+                (
+                    lane,
+                    color_offsets[color] + LINE_OFFSET_MULTIPLIERS[tap] * line_pitch,
+                )
+            })
+        })
+        .fold(vec![0; 12], |mut shifts, (lane, shift)| {
+            shifts[lane] = shift;
+            shifts
+        });
+    let selected = structured_shifts
+        .iter()
+        .enumerate()
+        .map(|(lane, &shift)| {
+            shift_evidence_at(&reference_evidence[lane], shift, args.max_row_shift).clone()
+        })
+        .collect::<Vec<_>>();
+
+    let registrations = selected
+        .iter()
+        .enumerate()
+        .map(|(lane, evidence)| WordPhaseRegistrationReport {
+            phase: lane,
+            vertical_shift: evidence.shift,
+            horizontal_shift: 0,
+            median_edge_correlation: evidence.median_correlation,
+            supporting_regions: evidence.supporting_regions,
+            total_regions: informative_count,
+            region_correlations: evidence.correlations.clone(),
+        })
+        .collect::<Vec<_>>();
+    let pairwise_registrations = selected
+        .iter()
+        .enumerate()
+        .skip(1)
+        .map(|(lane, evidence)| WordPhasePairRegistrationReport {
+            reference_phase: REFERENCE_LANE,
+            candidate_phase: lane,
+            vertical_shift: evidence.shift,
+            median_edge_correlation: evidence.median_correlation,
+            supporting_regions: evidence.supporting_regions,
+            total_regions: informative_count,
+            region_correlations: evidence.correlations.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    let planes = render_twelve_line_planes(
+        capture,
+        layout,
+        &registrations,
+        &COLOR_LANES,
+        args.rgb_width,
+        args.rgb_height,
+    );
+    let (bright_edge_chroma_p95, colored_bright_edge_fraction) =
+        preview_registration_quality(&planes, args.rgb_width, args.rgb_height);
+    let permutations = [
+        [0, 1, 2],
+        [0, 2, 1],
+        [1, 0, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [2, 1, 0],
+    ];
+    let mut previews = Vec::new();
+    for [red, green, blue] in permutations {
+        let file = format!("line12-r{red}-g{green}-b{blue}.bmp");
+        write_rgb_preview(
+            &args.output.join(&file),
+            args.rgb_width,
+            args.rgb_height,
+            &planes,
+            red,
+            green,
+            blue,
+        )?;
+        previews.push(WordPhasePreviewReport {
+            red_phase: red,
+            green_phase: green,
+            blue_phase: blue,
+            file,
+        });
+    }
+
+    let registrations_supported = pairwise_registrations.iter().all(|registration| {
+        registration.supporting_regions >= required_region_support(registration.total_regions)
+            && registration.median_edge_correlation >= 0.10
+    });
+    let chroma_supported = bright_edge_chroma_p95 <= 80.0 && colored_bright_edge_fraction <= 0.25;
+    let accepted = registrations_supported && chroma_supported;
+    let decision = if accepted {
+        "twelve registered CCD lines reconstruct consistent color planes"
+    } else if !registrations_supported {
+        "rejected: too few informative regions support at least one of the twelve CCD lines"
+    } else {
+        "rejected: twelve-line reconstruction retains excessive bright-edge color separation"
+    }
+    .into();
+    let (lane_width, logical_height) = layout.dimensions(0);
+
+    Ok(WordPhaseAnalysisReport {
+        layout: "word modulo 12: BGR × four CCD lines; stream line order 2,4,1,3".into(),
+        registration_metric: format!(
+            "physical additive offset model: stream lines 2,4,1,3 use [0,2d,-d,+d], fitted d={line_pitch}; color offsets BGR={color_offsets:?}"
+        ),
+        logical_width: lane_width * 4,
+        logical_height,
+        reference_phase: REFERENCE_LANE,
+        region_activity_scores: activity_scores,
+        informative_regions,
+        region_activity_gap_ratio,
+        registrations,
+        pairwise_registrations,
+        sensor_offset_model: Some(SensorOffsetModelReport {
+            stream_line_order: [2, 4, 1, 3],
+            line_offset_multipliers: LINE_OFFSET_MULTIPLIERS,
+            fitted_line_pitch: line_pitch,
+            color_offsets,
+            independent_shifts,
+        }),
+        previews,
+        bright_edge_chroma_p95,
+        colored_bright_edge_fraction,
+        accepted,
+        decision,
+    })
+}
+
+fn fit_twelve_line_offset_model(
+    reference_evidence: &[Vec<ShiftEvidence>],
+    within_color_evidence: &[Vec<Vec<ShiftEvidence>>],
+    color_lanes: &[[usize; 4]; 3],
+    line_offset_multipliers: &[i32; 4],
+    maximum_shift: i32,
+) -> Option<(i32, [i32; 3])> {
+    let mut best_pitch = None;
+    let mut best_pitch_score = (f64::NEG_INFINITY, 0, f64::NEG_INFINITY);
+    for pitch in -(maximum_shift / 2)..=(maximum_shift / 2) {
+        if pitch == 0 {
+            continue;
+        }
+        let registrations = within_color_evidence
+            .iter()
+            .flat_map(|color| {
+                color.iter().enumerate().skip(1).map(|(tap, evidence)| {
+                    shift_evidence_at(
+                        evidence,
+                        line_offset_multipliers[tap] * pitch,
+                        maximum_shift,
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        let score = registration_evidence_score(&registrations);
+        if evidence_score_is_better(score, best_pitch_score) {
+            best_pitch = Some(pitch);
+            best_pitch_score = score;
+        }
+    }
+    let pitch = best_pitch?;
+    let mut color_offsets = [0; 3];
+    for color in 1..3 {
+        let mut best_offset = None;
+        let mut best_score = (f64::NEG_INFINITY, 0, f64::NEG_INFINITY);
+        for offset in -maximum_shift..=maximum_shift {
+            let shifts = line_offset_multipliers
+                .iter()
+                .map(|multiplier| offset + multiplier * pitch)
+                .collect::<Vec<_>>();
+            if shifts.iter().any(|shift| shift.abs() > maximum_shift) {
+                continue;
+            }
+            let registrations = color_lanes[color]
+                .iter()
+                .zip(shifts)
+                .map(|(&lane, shift)| {
+                    shift_evidence_at(&reference_evidence[lane], shift, maximum_shift)
+                })
+                .collect::<Vec<_>>();
+            let score = registration_evidence_score(&registrations);
+            if evidence_score_is_better(score, best_score) {
+                best_offset = Some(offset);
+                best_score = score;
+            }
+        }
+        color_offsets[color] = best_offset?;
+    }
+    Some((pitch, color_offsets))
+}
+
+fn registration_evidence_score(registrations: &[&ShiftEvidence]) -> (f64, usize, f64) {
+    (
+        registrations
+            .iter()
+            .map(|registration| registration.median_correlation)
+            .sum(),
+        registrations
+            .iter()
+            .map(|registration| registration.supporting_regions)
+            .sum(),
+        registrations
+            .iter()
+            .map(|registration| registration.median_correlation)
+            .fold(f64::INFINITY, f64::min),
+    )
+}
+
+fn evidence_score_is_better(candidate: (f64, usize, f64), current: (f64, usize, f64)) -> bool {
+    candidate.0 > current.0
+        || (candidate.0 == current.0 && candidate.1 > current.1)
+        || (candidate.0 == current.0 && candidate.1 == current.1 && candidate.2 > current.2)
+}
+
+fn region_activity_scores(edge_maps: &[Vec<f64>], columns: usize, regions: usize) -> Vec<f64> {
+    (0..regions)
+        .map(|region| {
+            let column_start = region * columns / regions;
+            let column_end = (region + 1) * columns / regions;
+            let phase_scores = edge_maps
+                .iter()
+                .map(|edge_map| {
+                    let mut profile =
+                        region_edge_profile(edge_map, columns, column_start, column_end);
+                    percentile_f64(&mut profile, 95)
+                })
+                .collect::<Vec<_>>();
+            median(&phase_scores)
+        })
+        .collect()
+}
+
+fn region_edge_profile(
+    edge_map: &[f64],
+    columns: usize,
+    column_start: usize,
+    column_end: usize,
+) -> Vec<f64> {
+    let width = (column_end - column_start).max(1) as f64;
+    edge_map
+        .chunks_exact(columns)
+        .map(|row| (row[column_start..column_end].iter().sum::<f64>() / width).abs())
+        .collect()
+}
+
+fn percentile_f64(values: &mut [f64], percentile: usize) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    values.sort_by(|left, right| left.partial_cmp(right).unwrap_or(Ordering::Equal));
+    values[(values.len() * percentile / 100).min(values.len() - 1)]
+}
+
+fn select_informative_regions(scores: &[f64]) -> (Vec<bool>, f64) {
+    const MINIMUM_INFORMATIVE_REGIONS: usize = 4;
+    const MINIMUM_GAP_RATIO: f64 = 2.0;
+    if scores.len() <= MINIMUM_INFORMATIVE_REGIONS {
+        return (vec![true; scores.len()], 1.0);
+    }
+    let mut ranked = scores.iter().copied().enumerate().collect::<Vec<_>>();
+    ranked.sort_by(|left, right| left.1.partial_cmp(&right.1).unwrap_or(Ordering::Equal));
+    let maximum_split = ranked.len() - MINIMUM_INFORMATIVE_REGIONS;
+    let (split, gap_ratio) = (0..maximum_split)
+        .map(|index| {
+            let lower = ranked[index].1.max(f64::EPSILON);
+            (index, ranked[index + 1].1 / lower)
+        })
+        .max_by(|left, right| left.1.partial_cmp(&right.1).unwrap_or(Ordering::Equal))
+        .unwrap_or((0, 1.0));
+    if gap_ratio < MINIMUM_GAP_RATIO {
+        return (vec![true; scores.len()], gap_ratio);
+    }
+    let mut informative = vec![false; scores.len()];
+    for &(region, _) in &ranked[split + 1..] {
+        informative[region] = true;
+    }
+    (informative, gap_ratio)
+}
+
+fn required_region_support(informative_regions: usize) -> usize {
+    informative_regions
+        .div_ceil(2)
+        .max(4)
+        .min(informative_regions)
+}
+
+fn phase_registration_supported(analysis: &WordPhaseAnalysisReport) -> bool {
+    analysis.pairwise_registrations.iter().all(|registration| {
+        registration.supporting_regions >= required_region_support(registration.total_regions)
+            && registration.median_edge_correlation >= 0.10
+    })
+}
+
+fn vertical_shift_evidence(
+    reference: &[f64],
+    candidate: &[f64],
+    columns: usize,
+    regions: usize,
+    informative_regions: &[bool],
+    maximum_shift: i32,
+) -> Vec<ShiftEvidence> {
+    let reference_rows = reference.len() / columns;
+    let candidate_rows = candidate.len() / columns;
+    (-maximum_shift..=maximum_shift)
+        .map(|shift| {
+            let reference_start = 0.max(-shift) as usize;
+            let reference_end = (reference_rows as i64)
+                .min(candidate_rows as i64 - shift as i64)
+                .max(reference_start as i64) as usize;
+            let correlations = (0..regions)
+                .map(|region| {
+                    let column_start = region * columns / regions;
+                    let column_end = (region + 1) * columns / regions;
+                    hybrid_edge_map_region(
+                        reference,
+                        candidate,
+                        columns,
+                        reference_start,
+                        reference_end,
+                        column_start,
+                        column_end,
+                        shift,
+                    )
+                })
+                .collect::<Vec<_>>();
+            ShiftEvidence {
+                shift,
+                median_correlation: median(
+                    &correlations
+                        .iter()
+                        .zip(informative_regions)
+                        .filter_map(|(&correlation, &informative)| {
+                            informative.then_some(correlation)
+                        })
+                        .collect::<Vec<_>>(),
+                ),
+                supporting_regions: correlations
+                    .iter()
+                    .zip(informative_regions)
+                    .filter(|&(correlation, informative)| *informative && *correlation >= 0.10)
+                    .count(),
+                correlations,
+            }
+        })
+        .collect()
+}
+
+fn shift_evidence_at(evidence: &[ShiftEvidence], shift: i32, maximum_shift: i32) -> &ShiftEvidence {
+    &evidence[(shift + maximum_shift) as usize]
+}
+
+fn best_joint_phase_shifts(
+    phase_01: &[ShiftEvidence],
+    phase_02: &[ShiftEvidence],
+    phase_12: &[ShiftEvidence],
+    minimum_separation: i32,
+    maximum_shift: i32,
+) -> Option<(i32, i32)> {
+    let mut best = None;
+    let mut best_score = f64::NEG_INFINITY;
+    let mut best_support = 0;
+    for phase_1_shift in -maximum_shift..=maximum_shift {
+        if phase_1_shift.abs() < minimum_separation {
+            continue;
+        }
+        for phase_2_shift in -maximum_shift..=maximum_shift {
+            let phase_12_shift = phase_2_shift - phase_1_shift;
+            if phase_2_shift.abs() < minimum_separation
+                || phase_12_shift.abs() < minimum_separation
+                || phase_12_shift.abs() > maximum_shift
+            {
+                continue;
+            }
+            let registrations = [
+                shift_evidence_at(phase_01, phase_1_shift, maximum_shift),
+                shift_evidence_at(phase_02, phase_2_shift, maximum_shift),
+                shift_evidence_at(phase_12, phase_12_shift, maximum_shift),
+            ];
+            let score = registrations
+                .iter()
+                .map(|registration| registration.median_correlation)
+                .fold(f64::INFINITY, f64::min);
+            let support = registrations
+                .iter()
+                .map(|registration| registration.supporting_regions)
+                .sum::<usize>();
+            if score > best_score || (score == best_score && support > best_support) {
+                best = Some((phase_1_shift, phase_2_shift));
+                best_score = score;
+                best_support = support;
+            }
+        }
+    }
+    best
+}
+
+#[allow(clippy::too_many_arguments)]
+fn hybrid_edge_map_region(
+    reference: &[f64],
+    candidate: &[f64],
+    columns: usize,
+    reference_start: usize,
+    reference_end: usize,
+    column_start: usize,
+    column_end: usize,
+    shift: i32,
+) -> f64 {
+    let mut reference_profile = Vec::with_capacity(reference_end - reference_start);
+    let mut candidate_profile = Vec::with_capacity(reference_end - reference_start);
+    for reference_row in reference_start..reference_end {
+        let candidate_row = (reference_row as i64 + shift as i64) as usize;
+        let reference_base = reference_row * columns;
+        let candidate_base = candidate_row * columns;
+        let mut reference_derivative = 0.0;
+        let mut candidate_derivative = 0.0;
+        for column in column_start..column_end {
+            reference_derivative += reference[reference_base + column];
+            candidate_derivative += candidate[candidate_base + column];
+        }
+        let width = (column_end - column_start).max(1) as f64;
+        reference_profile.push(reference_derivative / width);
+        candidate_profile.push(candidate_derivative / width);
+    }
+    let broad = edge_profile_correlation(&reference_profile, &candidate_profile).max(0.0);
+    let salient = salient_edge_similarity(&reference_profile, &candidate_profile).max(0.0);
+    (broad + salient) * 0.5
+}
+
+fn edge_profile_correlation(reference: &[f64], candidate: &[f64]) -> f64 {
+    if reference.len() < 3 || reference.len() != candidate.len() {
+        return 0.0;
+    }
+    let count = reference.len() as f64;
+    let sum_x = reference.iter().sum::<f64>();
+    let sum_y = candidate.iter().sum::<f64>();
+    let sum_xx = reference.iter().map(|value| value * value).sum::<f64>();
+    let sum_yy = candidate.iter().map(|value| value * value).sum::<f64>();
+    let sum_xy = reference
+        .iter()
+        .zip(candidate)
+        .map(|(left, right)| left * right)
+        .sum::<f64>();
+    let covariance = count * sum_xy - sum_x * sum_y;
+    let variance_x = count * sum_xx - sum_x * sum_x;
+    let variance_y = count * sum_yy - sum_y * sum_y;
+    let denominator = (variance_x * variance_y).sqrt();
+    if denominator <= f64::EPSILON {
+        0.0
+    } else {
+        covariance / denominator
+    }
+}
+
+fn salient_edge_similarity(reference: &[f64], candidate: &[f64]) -> f64 {
+    if reference.len() < 10 || reference.len() != candidate.len() {
+        return 0.0;
+    }
+    let mut reference_ranked = reference
+        .iter()
+        .map(|value| value.abs())
+        .collect::<Vec<_>>();
+    let mut candidate_ranked = candidate
+        .iter()
+        .map(|value| value.abs())
+        .collect::<Vec<_>>();
+    let reference_floor = percentile_f64(&mut reference_ranked, 90);
+    let candidate_floor = percentile_f64(&mut candidate_ranked, 90);
+    let mut sum_xx = 0.0;
+    let mut sum_yy = 0.0;
+    let mut sum_xy = 0.0;
+    let mut shared_edges = 0;
+    for (&reference_value, &candidate_value) in reference.iter().zip(candidate) {
+        let x = reference_value.signum() * (reference_value.abs() - reference_floor).max(0.0);
+        let y = candidate_value.signum() * (candidate_value.abs() - candidate_floor).max(0.0);
+        sum_xx += x * x;
+        sum_yy += y * y;
+        sum_xy += x * y;
+        if x != 0.0 && y != 0.0 {
+            shared_edges += 1;
+        }
+    }
+    let denominator = (sum_xx * sum_yy).sqrt();
+    if shared_edges < 4 || denominator <= f64::EPSILON {
+        0.0
+    } else {
+        sum_xy / denominator
+    }
+}
+
+fn median(values: &[f64]) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_by(|left, right| left.partial_cmp(right).unwrap_or(Ordering::Equal));
+    let middle = sorted.len() / 2;
+    if sorted.len().is_multiple_of(2) {
+        (sorted[middle - 1] + sorted[middle]) * 0.5
+    } else {
+        sorted[middle]
+    }
+}
+
 fn vertical_signature(
     capture: &Capture<'_>,
     layout: Layout,
@@ -465,7 +1437,11 @@ fn mean_words(values: impl Iterator<Item = u16>) -> f64 {
         sum += value as f64;
         count += 1;
     }
-    if count == 0 { 0.0 } else { sum / count as f64 }
+    if count == 0 {
+        0.0
+    } else {
+        sum / count as f64
+    }
 }
 
 fn derivative(values: &[f64]) -> Vec<f64> {
@@ -537,7 +1513,11 @@ fn mean(values: impl Iterator<Item = f64>) -> f64 {
         sum += value;
         count += 1;
     }
-    if count == 0 { 0.0 } else { sum / count as f64 }
+    if count == 0 {
+        0.0
+    } else {
+        sum / count as f64
+    }
 }
 
 fn analyze_spectral_groups(
@@ -557,11 +1537,40 @@ fn analyze_spectral_groups(
     }
     groups.sort_by_key(|group| group[0]);
 
+    let global_reference = groups[0][0];
+    let registrations: Vec<LaneRegistrationReport> = (0..layout.modulus)
+        .map(|lane| {
+            let vertical = if lane == global_reference {
+                ShiftScore {
+                    shift: 0,
+                    correlation: 1.0,
+                }
+            } else {
+                best_vertical_edge_shift(
+                    capture,
+                    layout,
+                    global_reference,
+                    lane,
+                    args.max_row_shift,
+                    args.vertical_samples.max(64) * 2,
+                )
+            };
+            let (_, horizontal_shift) = pair_offsets(&candidate.pairs, global_reference, lane);
+            LaneRegistrationReport {
+                reference_lane: global_reference,
+                lane,
+                vertical_shift: vertical.shift,
+                vertical_edge_correlation: vertical.correlation,
+                horizontal_shift,
+            }
+        })
+        .collect();
+
     let planes = render_group_planes(
         capture,
         layout,
-        candidate,
         &groups,
+        &registrations,
         args.rgb_width,
         args.rgb_height,
     );
@@ -607,6 +1616,7 @@ fn analyze_spectral_groups(
         score_margin: best_score - runner_up_score,
         manual_line_order: "B main1/main2/sub1/sub2, G main1/main2/sub1/sub2, R main1/main2/sub1/sub2".into(),
         assignment_note: "The grouping is correlation-derived. The service manual fixes cyclic B→G→R block order but not which captured block is first. Rank 1 therefore contains three equally supported cyclic starts. Preview channels are independently percentile-normalized and are not calibration output. Repetition across the three previews is expected; separated colored copies of one neutral edge are not. Do not choose a color assignment until those registration errors are resolved.".into(),
+        registrations,
         rgb_previews: previews,
     })
 }
@@ -694,26 +1704,132 @@ fn cyclically_order_group(group: &[usize], modulus: usize) -> Vec<usize> {
     ordered
 }
 
+fn best_vertical_edge_shift(
+    capture: &Capture<'_>,
+    layout: Layout,
+    reference_lane: usize,
+    lane: usize,
+    maximum_shift: i32,
+    column_samples: usize,
+) -> ShiftScore {
+    let reference = vertical_edge_map(capture, layout, reference_lane, column_samples);
+    let candidate = vertical_edge_map(capture, layout, lane, column_samples);
+    let reference_rows = reference.len() / column_samples;
+    let candidate_rows = candidate.len() / column_samples;
+    let mut best = ShiftScore {
+        shift: 0,
+        correlation: f64::NEG_INFINITY,
+    };
+    for shift in -maximum_shift..=maximum_shift {
+        let reference_start = 0.max(-shift) as usize;
+        let reference_end = (reference_rows as i64)
+            .min(candidate_rows as i64 - shift as i64)
+            .max(reference_start as i64) as usize;
+        let correlation = pearson_edge_maps(
+            &reference,
+            &candidate,
+            column_samples,
+            reference_start,
+            reference_end,
+            shift,
+        );
+        if correlation > best.correlation {
+            best = ShiftScore { shift, correlation };
+        }
+    }
+    if !best.correlation.is_finite() {
+        best.correlation = 0.0;
+    }
+    best
+}
+
+fn vertical_edge_map(
+    capture: &Capture<'_>,
+    layout: Layout,
+    lane: usize,
+    column_samples: usize,
+) -> Vec<f64> {
+    let (width, height) = layout.dimensions(lane);
+    let mut edges = Vec::with_capacity(height.saturating_sub(1) * column_samples);
+    for row in 0..height.saturating_sub(1) {
+        for sample in 0..column_samples {
+            let column = proportional_index(sample, column_samples, width);
+            let current = capture.layout_word(layout, lane, row, column).unwrap_or(0) as f64;
+            let next = capture
+                .layout_word(layout, lane, row + 1, column)
+                .unwrap_or(0) as f64;
+            edges.push(next - current);
+        }
+    }
+    edges
+}
+
+fn pearson_edge_maps(
+    reference: &[f64],
+    candidate: &[f64],
+    columns: usize,
+    reference_start: usize,
+    reference_end: usize,
+    shift: i32,
+) -> f64 {
+    let mut count = 0.0;
+    let mut sum_x = 0.0;
+    let mut sum_y = 0.0;
+    let mut sum_xx = 0.0;
+    let mut sum_yy = 0.0;
+    let mut sum_xy = 0.0;
+    for reference_row in reference_start..reference_end {
+        let candidate_row = (reference_row as i64 + shift as i64) as usize;
+        let reference_base = reference_row * columns;
+        let candidate_base = candidate_row * columns;
+        for column in 0..columns {
+            let x = reference[reference_base + column];
+            let y = candidate[candidate_base + column];
+            count += 1.0;
+            sum_x += x;
+            sum_y += y;
+            sum_xx += x * x;
+            sum_yy += y * y;
+            sum_xy += x * y;
+        }
+    }
+    if count < 3.0 {
+        return f64::NEG_INFINITY;
+    }
+    let covariance = count * sum_xy - sum_x * sum_y;
+    let variance_x = count * sum_xx - sum_x * sum_x;
+    let variance_y = count * sum_yy - sum_y * sum_y;
+    let denominator = (variance_x * variance_y).sqrt();
+    if denominator <= f64::EPSILON {
+        0.0
+    } else {
+        covariance / denominator
+    }
+}
+
 fn render_group_planes(
     capture: &Capture<'_>,
     layout: Layout,
-    candidate: &CandidateReport,
     groups: &[Vec<usize>],
+    registrations: &[LaneRegistrationReport],
     width: usize,
     height: usize,
 ) -> Vec<Vec<u16>> {
-    let global_reference = groups[0][0];
     let mut group_offsets = Vec::new();
     for group in groups {
         group_offsets.push(
             group
                 .iter()
                 .map(|&lane| {
-                    // Use one reference for all twelve lanes. Aligning each
-                    // four-lane group to its own reference leaves the three
-                    // resulting color planes mutually displaced.
-                    let (row, column) = pair_offsets(&candidate.pairs, global_reference, lane);
-                    (lane, row, column)
+                    let registration = registrations
+                        .iter()
+                        .find(|registration| registration.lane == lane)
+                        .expect("all lanes have a registration");
+                    (
+                        lane,
+                        registration.vertical_shift,
+                        registration.horizontal_shift,
+                    )
                 })
                 .collect::<Vec<_>>(),
         );
@@ -794,6 +1910,116 @@ fn common_overlap(length: usize, offsets: &[i32]) -> (usize, usize) {
     } else {
         (start as usize, (end - start) as usize)
     }
+}
+
+fn render_word_phase_planes(
+    capture: &Capture<'_>,
+    layout: Layout,
+    registrations: &[WordPhaseRegistrationReport],
+    width: usize,
+    height: usize,
+) -> Vec<Vec<u16>> {
+    let (logical_width, logical_height) = layout.dimensions(0);
+    let row_offsets: Vec<i32> = registrations
+        .iter()
+        .map(|registration| registration.vertical_shift)
+        .collect();
+    let column_offsets: Vec<i32> = registrations
+        .iter()
+        .map(|registration| registration.horizontal_shift)
+        .collect();
+    let (row_origin, valid_rows) = common_overlap(logical_height, &row_offsets);
+    let (column_origin, valid_columns) = common_overlap(logical_width, &column_offsets);
+    registrations
+        .iter()
+        .map(|registration| {
+            let mut plane = Vec::with_capacity(width * height);
+            for y in 0..height {
+                let base_row = row_origin + proportional_index(y, height, valid_rows);
+                let row = (base_row as i64 + registration.vertical_shift as i64) as usize;
+                for x in 0..width {
+                    let base_column = column_origin + proportional_index(x, width, valid_columns);
+                    let column =
+                        (base_column as i64 + registration.horizontal_shift as i64) as usize;
+                    plane.push(
+                        capture
+                            .layout_word(layout, registration.phase, row, column)
+                            .unwrap_or(0),
+                    );
+                }
+            }
+            plane
+        })
+        .collect()
+}
+
+fn render_twelve_line_planes(
+    capture: &Capture<'_>,
+    layout: Layout,
+    registrations: &[WordPhaseRegistrationReport],
+    color_lanes: &[[usize; 4]; 3],
+    width: usize,
+    height: usize,
+) -> Vec<Vec<u16>> {
+    let (lane_width, logical_height) = layout.dimensions(0);
+    let row_offsets = registrations
+        .iter()
+        .map(|registration| registration.vertical_shift)
+        .collect::<Vec<_>>();
+    let (row_origin, valid_rows) = common_overlap(logical_height, &row_offsets);
+    let full_width = lane_width * 4;
+    color_lanes
+        .iter()
+        .map(|lanes| {
+            let mut plane = Vec::with_capacity(width * height);
+            for y in 0..height {
+                let base_row = row_origin + proportional_index(y, height, valid_rows);
+                for x in 0..width {
+                    let full_column = proportional_index(x, width, full_width);
+                    let tap = full_column % 4;
+                    let lane = lanes[tap];
+                    let column = full_column / 4;
+                    let row =
+                        (base_row as i64 + registrations[lane].vertical_shift as i64) as usize;
+                    plane.push(capture.layout_word(layout, lane, row, column).unwrap_or(0));
+                }
+            }
+            plane
+        })
+        .collect()
+}
+
+fn preview_registration_quality(planes: &[Vec<u16>], width: usize, height: usize) -> (f64, f64) {
+    let ranges: Vec<(u16, u16)> = planes.iter().map(|plane| percentile_range(plane)).collect();
+    let mut spreads = Vec::new();
+    let mut colored = 0_usize;
+    for ((first, second), third) in planes[0]
+        .iter()
+        .zip(&planes[1])
+        .zip(&planes[2])
+        .take(width * height)
+    {
+        let values = [
+            normalize(*first, ranges[0].0, ranges[0].1),
+            normalize(*second, ranges[1].0, ranges[1].1),
+            normalize(*third, ranges[2].0, ranges[2].1),
+        ];
+        let minimum = *values.iter().min().unwrap_or(&0);
+        let maximum = *values.iter().max().unwrap_or(&0);
+        if maximum >= 160 {
+            let spread = maximum - minimum;
+            spreads.push(spread);
+            if spread >= 50 {
+                colored += 1;
+            }
+        }
+    }
+    if spreads.is_empty() {
+        return (255.0, 1.0);
+    }
+    spreads.sort_unstable();
+    let p95 = spreads[(spreads.len() * 95 / 100).min(spreads.len() - 1)] as f64;
+    (p95, colored as f64 / spreads.len() as f64)
 }
 
 fn write_rgb_preview(
@@ -956,16 +2182,17 @@ fn write_html(path: &Path, report: &AnalysisReport) -> std::io::Result<()> {
          <style>body{{font:15px system-ui;max-width:1400px;margin:2em auto;background:#181818;color:#eee}}\
          table{{border-collapse:collapse}}td,th{{padding:.35em .7em;border:1px solid #666}}\
          img{{max-width:100%;image-rendering:auto}}code{{color:#9ef}}</style>\
-         <h1>CCD layout analysis</h1><p><code>{}</code></p>\
-         <p>{}</p><p>{} TGCK intervals; {} words per nominal interval.</p>",
+         <h1>CCD layout diagnostic evidence</h1><p><code>{}</code></p>\
+         <p>{}</p><p><strong>{}</strong></p><p>{} TGCK intervals; {} words per nominal interval.</p>",
         html_escape(&report.input),
         html_escape(&report.ranking_note),
+        html_escape(&report.phase_layout_conclusion),
         report.tgck_intervals,
         report.nominal_words
     )?;
     writeln!(
         writer,
-        "<table><tr><th>Rank</th><th>Layout</th><th>Score</th><th>Logical dimensions</th></tr>"
+        "<table><tr><th>Similarity order</th><th>Diagnostic view</th><th>Similarity score</th><th>Logical dimensions</th></tr>"
     )?;
     for candidate in &report.candidates {
         writeln!(
@@ -980,6 +2207,95 @@ fn write_html(path: &Path, report: &AnalysisReport) -> std::io::Result<()> {
         )?;
     }
     writeln!(writer, "</table>")?;
+    for word in [
+        &report.word_phase_analysis,
+        &report.word_block_analysis,
+        &report.word_twelve_line_analysis,
+    ] {
+        writeln!(
+        writer,
+        "<h2>Targeted phase analysis: {}</h2>\
+         <p><strong>Decision: {}</strong> — {}</p>\
+         <p>Registration metric: <code>{}</code>.</p>\
+         <p>Geometry: {} × {}; reference phase {}. Bright-edge chroma p95: {:.2}; colored bright-edge fraction: {:.4}.</p>\
+         <p>Informative regions: <code>{:?}</code>; activity-cluster gap: {:.3}×.</p>\
+         <details><summary>All region activity scores</summary><pre>{:?}</pre></details>\
+         <table><tr><th>Phase</th><th>Vertical shift</th><th>Horizontal shift</th><th>Median edge correlation</th><th>Supporting regions</th></tr>",
+        word.layout,
+        if word.accepted {
+            "ACCEPTED"
+        } else {
+            "REJECTED"
+        },
+        word.decision,
+        word.registration_metric,
+        word.logical_width,
+        word.logical_height,
+        word.reference_phase,
+        word.bright_edge_chroma_p95,
+        word.colored_bright_edge_fraction,
+        word.informative_regions,
+        word.region_activity_gap_ratio,
+        word.region_activity_scores
+        )?;
+        for registration in &word.registrations {
+            writeln!(
+                writer,
+                "<tr><td>{}</td><td>{:+}</td><td>{:+}</td><td>{:.6}</td><td>{}/{}</td></tr>",
+                registration.phase,
+                registration.vertical_shift,
+                registration.horizontal_shift,
+                registration.median_edge_correlation,
+                registration.supporting_regions,
+                registration.total_regions
+            )?;
+        }
+        writeln!(
+        writer,
+        "</table><h3>Joint pairwise consistency</h3>\
+         <table><tr><th>Reference phase</th><th>Candidate phase</th><th>Relative shift</th><th>Median edge correlation</th><th>Supporting regions</th></tr>"
+        )?;
+        for registration in &word.pairwise_registrations {
+            writeln!(
+                writer,
+                "<tr><td>{}</td><td>{}</td><td>{:+}</td><td>{:.6}</td><td>{}/{}</td></tr>",
+                registration.reference_phase,
+                registration.candidate_phase,
+                registration.vertical_shift,
+                registration.median_edge_correlation,
+                registration.supporting_regions,
+                registration.total_regions
+            )?;
+        }
+        writeln!(
+        writer,
+        "</table><details><summary>Reference-phase correlations</summary><pre>{:?}</pre></details>\
+         <details><summary>All pairwise region correlations</summary><pre>{:?}</pre></details>\
+         <div style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:1em\">",
+        word.registrations
+            .iter()
+            .map(|registration| (&registration.phase, &registration.region_correlations))
+            .collect::<Vec<_>>(),
+        word.pairwise_registrations
+            .iter()
+            .map(|registration| {
+                (
+                    (registration.reference_phase, registration.candidate_phase),
+                    &registration.region_correlations,
+                )
+            })
+            .collect::<Vec<_>>()
+        )?;
+        for preview in &word.previews {
+            writeln!(
+                writer,
+                "<figure><figcaption>R=phase {}, G=phase {}, B=phase {}</figcaption>\
+             <img src=\"{}\" alt=\"three-phase RGB preview\"></figure>",
+                preview.red_phase, preview.green_phase, preview.blue_phase, preview.file
+            )?;
+        }
+        writeln!(writer, "</div>")?;
+    }
     if let Some(grouping) = &report.spectral_grouping {
         writeln!(
             writer,
@@ -995,6 +2311,23 @@ fn write_html(path: &Path, report: &AnalysisReport) -> std::io::Result<()> {
             grouping.manual_line_order,
             grouping.assignment_note
         )?;
+        writeln!(
+            writer,
+            "<details><summary>Common-reference 2D edge registrations</summary>\
+             <table><tr><th>Reference</th><th>Lane</th><th>Vertical shift</th><th>2D edge correlation</th><th>Horizontal shift</th></tr>"
+        )?;
+        for registration in &grouping.registrations {
+            writeln!(
+                writer,
+                "<tr><td>{}</td><td>{}</td><td>{:+}</td><td>{:.6}</td><td>{:+}</td></tr>",
+                registration.reference_lane,
+                registration.lane,
+                registration.vertical_shift,
+                registration.vertical_edge_correlation,
+                registration.horizontal_shift
+            )?;
+        }
+        writeln!(writer, "</table></details>")?;
         for preview in &grouping.rgb_previews {
             writeln!(
                 writer,
@@ -1084,8 +2417,10 @@ fn width_from_tgck(offsets: &[usize]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Capture, InterleaveAxis, Layout, best_shift, best_three_groups_of_four,
-        cyclically_order_group, derivative,
+        best_joint_phase_shifts, best_shift, best_three_groups_of_four, cyclically_order_group,
+        derivative, fit_twelve_line_offset_model, salient_edge_similarity,
+        select_informative_regions, vertical_shift_evidence, Capture, InterleaveAxis, Layout,
+        ShiftEvidence,
     };
 
     #[test]
@@ -1109,7 +2444,13 @@ mod tests {
             axis: InterleaveAxis::TgckRow,
             ..word
         };
+        let block = Layout {
+            axis: InterleaveAxis::WordBlock,
+            ..word
+        };
         assert_eq!(word.raw_position(2, 4, 3), (4, 11));
+        assert_eq!(block.raw_position(2, 4, 3), (4, 11));
+        assert_eq!(block.raw_position(1, 4, 2), (4, 6));
         assert_eq!(row.raw_position(2, 1, 7), (5, 7));
     }
 
@@ -1151,5 +2492,119 @@ mod tests {
             [vec![1, 2, 3, 4], vec![5, 6, 7, 8], vec![9, 10, 11, 0]]
         );
         assert!(best > runner_up);
+    }
+
+    #[test]
+    fn robust_edge_registration_requires_multiple_regions() {
+        let columns = 8;
+        let rows = 100;
+        let edge_rows = [7, 16, 28, 43, 61, 74, 88, 95];
+        let reference: Vec<f64> = (0..rows)
+            .flat_map(|row| {
+                (0..columns).map(move |column| {
+                    if edge_rows.contains(&row) {
+                        100.0 + column as f64
+                    } else {
+                        1.0 + column as f64 * 0.01
+                    }
+                })
+            })
+            .collect();
+        let mut candidate = vec![0.0; (rows + 2) * columns];
+        candidate[2 * columns..].copy_from_slice(&reference);
+        let evidence = vertical_shift_evidence(&reference, &candidate, columns, 4, &[true; 4], 4);
+        let best = evidence
+            .iter()
+            .max_by(|left, right| {
+                left.median_correlation
+                    .partial_cmp(&right.median_correlation)
+                    .unwrap()
+            })
+            .unwrap();
+        assert_eq!(best.shift, 2);
+        assert!(best
+            .correlations
+            .iter()
+            .all(|correlation| *correlation > 0.99));
+    }
+
+    #[test]
+    fn joint_registration_requires_all_three_pairwise_offsets() {
+        let evidence = |best_shift| {
+            (-4..=4)
+                .map(|shift| ShiftEvidence {
+                    shift,
+                    correlations: vec![if shift == best_shift { 0.9 } else { 0.1 }; 4],
+                    median_correlation: if shift == best_shift { 0.9 } else { 0.1 },
+                    supporting_regions: if shift == best_shift { 4 } else { 0 },
+                })
+                .collect::<Vec<_>>()
+        };
+        let shifts = best_joint_phase_shifts(&evidence(2), &evidence(4), &evidence(2), 1, 4);
+        assert_eq!(shifts, Some((2, 4)));
+    }
+
+    #[test]
+    fn fits_physical_four_line_and_color_offsets() {
+        const MAXIMUM_SHIFT: i32 = 8;
+        const COLOR_LANES: [[usize; 4]; 3] = [[0, 3, 6, 9], [1, 4, 7, 10], [2, 5, 8, 11]];
+        const MULTIPLIERS: [i32; 4] = [0, 2, -1, 1];
+        let evidence = |best_shift| {
+            (-MAXIMUM_SHIFT..=MAXIMUM_SHIFT)
+                .map(|shift| ShiftEvidence {
+                    shift,
+                    correlations: vec![if shift == best_shift { 0.9 } else { 0.1 }; 4],
+                    median_correlation: if shift == best_shift { 0.9 } else { 0.1 },
+                    supporting_regions: if shift == best_shift { 4 } else { 0 },
+                })
+                .collect::<Vec<_>>()
+        };
+        let pitch = 2;
+        let color_offsets = [0, 1, -2];
+        let mut reference = (0..12).map(|_| evidence(0)).collect::<Vec<_>>();
+        for (color, lanes) in COLOR_LANES.iter().enumerate() {
+            for (tap, &lane) in lanes.iter().enumerate() {
+                reference[lane] = evidence(color_offsets[color] + MULTIPLIERS[tap] * pitch);
+            }
+        }
+        let within_color = COLOR_LANES
+            .iter()
+            .map(|_| {
+                MULTIPLIERS
+                    .iter()
+                    .map(|multiplier| evidence(multiplier * pitch))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        let fitted = fit_twelve_line_offset_model(
+            &reference,
+            &within_color,
+            &COLOR_LANES,
+            &MULTIPLIERS,
+            MAXIMUM_SHIFT,
+        );
+
+        assert_eq!(fitted, Some((pitch, color_offsets)));
+    }
+
+    #[test]
+    fn activity_gap_excludes_only_the_low_cluster() {
+        let (informative, ratio) = select_informative_regions(&[10.0, 11.0, 9.0, 10.5, 0.3, 0.4]);
+        assert_eq!(informative, [true, true, true, true, false, false]);
+        assert!(ratio > 20.0);
+    }
+
+    #[test]
+    fn salient_edge_similarity_ignores_quiet_background() {
+        let mut reference = vec![10.0; 100];
+        let mut candidate = vec![25.0; 100];
+        for (index, value) in [(12, 90.0), (31, 120.0), (57, 80.0), (83, 110.0)] {
+            reference[index] = value;
+            candidate[index] = value * 1.7;
+        }
+        assert!(salient_edge_similarity(&reference, &candidate) > 0.99);
+        candidate.rotate_left(3);
+        assert!(salient_edge_similarity(&reference, &candidate) < 0.1);
     }
 }
