@@ -298,8 +298,11 @@ impl NodeGraphWidget {
             current_canvas = snapped.map_or(pc, |(_, pos)| pos);
             // Not over a compatible socket: releasing here opens link-drag
             // search instead of connecting directly. Blender flags this
-            // with a "+" cursor; egui's closest equivalent is Copy.
-            if snapped.is_none() {
+            // with a "+" cursor; egui's closest equivalent is Copy. Only a
+            // drag that creates a link says so — `restore_on_cancel` marks
+            // the drags that picked an existing link up instead, which end
+            // with the same number of links they started with.
+            if snapped.is_none() && !restore_on_cancel {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Copy);
             }
         }

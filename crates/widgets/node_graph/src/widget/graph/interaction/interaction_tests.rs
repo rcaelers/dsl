@@ -619,6 +619,57 @@ fn hovering_a_socket_reports_the_socket_binding_context() {
 }
 
 #[test]
+fn only_a_link_creating_drag_shows_the_add_cursor() {
+    use crate::runtime::NodeTypeRegistry;
+
+    fn cursor_over_canvas(picked_up: bool) -> egui::CursorIcon {
+        let context = egui::Context::default();
+        let screen_rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+        let node = widget
+            .add_node_at("Reroute", Pos2::new(400.0, 300.0))
+            .expect("built-in reroute node");
+        let empty_canvas = Pos2::new(200.0, 520.0);
+
+        context.begin_pass(egui::RawInput {
+            screen_rect: Some(screen_rect),
+            events: vec![egui::Event::PointerMoved(empty_canvas)],
+            ..Default::default()
+        });
+        let mut ui = egui::Ui::new(
+            context.clone(),
+            egui::Id::new("wire-drag-cursor-test"),
+            egui::UiBuilder::new().max_rect(screen_rect),
+        );
+        let origin = ui.available_rect_before_wrap().min;
+        // A picked-up link hangs from the input it kept; a new one starts
+        // at the output it was pulled from.
+        let from = if picked_up {
+            socket(node.0, 0, SocketDirection::Input)
+        } else {
+            socket(node.0, 0, SocketDirection::Output)
+        };
+        let from_screen = widget.build_layout(origin).socket_screen_pos[&from];
+        widget.interaction_state = InteractionState::DraggingWire {
+            from,
+            from_canvas: widget.view.screen_to_canvas(origin, from_screen),
+            current_canvas: widget.view.screen_to_canvas(origin, empty_canvas),
+            restore_on_cancel: picked_up,
+            connectable: Rc::new(HashSet::new()),
+        };
+        widget.show(&mut ui);
+        let mut output = context.end_pass();
+        output.textures_delta.clear();
+        output.platform_output.cursor_icon
+    }
+
+    // The "+" promises a link that is about to exist; moving one keeps the
+    // count unchanged, so it stays off.
+    assert_eq!(cursor_over_canvas(false), egui::CursorIcon::Copy);
+    assert_ne!(cursor_over_canvas(true), egui::CursorIcon::Copy);
+}
+
+#[test]
 fn edge_auto_pan_does_nothing_well_inside_the_canvas() {
     use crate::runtime::NodeTypeRegistry;
 
