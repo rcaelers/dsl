@@ -45,11 +45,15 @@ publish = false
 autobins = false
 autoexamples = false
 
-# The graph-based examples live in graphs/. This is the sole standalone Rust
-# example because it is a native framebuffer utility rather than a pipeline.
+# The graph-based examples live in graphs/. These standalone Rust examples
+# inspect CCD captures outside the graph pipeline.
 [[example]]
 name = "ccd_viewer"
 path = "examples/ccd_viewer.rs"
+
+[[example]]
+name = "ccd_layout_analyzer"
+path = "examples/ccd_layout_analyzer.rs"
 
 [[bench]]
 name = "compiler_capture"

@@ -227,8 +227,11 @@ the matching-word output.
 cargo run --release --bin logic-conduit -- graphs/spi_controlled_decode.json
 ```
 
-The sole standalone Rust example is `ccd_viewer`, a native framebuffer utility
-for inspecting captured CCD image data rather than a processing pipeline.
+The standalone CCD Rust utilities inspect captured image data outside the graph
+pipeline:
+
+- `ccd_viewer` provides interactive raw, phase, and RGB-hypothesis views.
+- `ccd_layout_analyzer` ranks lane layouts and writes HTML/JSON evidence reports.
 
 ## Documentation
 
