@@ -245,6 +245,13 @@ impl NodeGraphWidget {
                     );
                 }
             }
+            // Interaction z-order has to follow the painting order above:
+            // this node covers the inline controls of every node behind it,
+            // so its hit targets are lifted over them before its own
+            // controls register themselves on top.
+            if !self.interaction_state.use_fast_rendering() {
+                self.raise_node_hit_targets(ui, layout, id);
+            }
             if self.view.zoom >= 0.6 {
                 let changed = if let (Some(widget), Some(node), Some(instance)) = (
                     layout.nodes.get(&id),
@@ -309,7 +316,8 @@ impl NodeGraphWidget {
         }
 
         if self.minimap_visible {
-            let (info, _) = minimap::compute_minimap(layout.node_rects.values().copied(), rect);
+            let (info, minimap_rect) =
+                minimap::compute_minimap(layout.node_rects.values().copied(), rect);
             minimap::draw_minimap(
                 painter,
                 &info,
@@ -318,6 +326,9 @@ impl NodeGraphWidget {
                 &self.view,
                 rect,
             );
+            if !self.interaction_state.use_fast_rendering() {
+                self.raise_minimap_hit_target(ui, minimap_rect);
+            }
         }
 
         ui.set_clip_rect(previous_clip);

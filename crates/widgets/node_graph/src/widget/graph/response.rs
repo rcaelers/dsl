@@ -38,6 +38,36 @@ pub(crate) enum ContextClickTarget {
     Frame(FrameId),
 }
 
+// ── Hit-target ids ────────────────────────────────────────────────────────────
+//
+// Each id is registered twice per frame: once by `allocate_responses`, whose
+// responses drive this frame's input, and once again while drawing, to lift a
+// node's targets above the inline controls of the nodes painted behind it.
+
+pub(crate) fn node_body_id(base: egui::Id, node: NodeId) -> egui::Id {
+    base.with(("node-body", node.0))
+}
+
+pub(crate) fn node_header_id(base: egui::Id, node: NodeId) -> egui::Id {
+    base.with(("node-header", node.0))
+}
+
+fn collapse_toggle_id(base: egui::Id, node: NodeId) -> egui::Id {
+    base.with(("collapse-toggle", node.0))
+}
+
+fn socket_hit_id(base: egui::Id, socket: SocketId) -> egui::Id {
+    base.with(("socket", socket.node.0, socket.index, socket.direction))
+}
+
+fn minimap_id(base: egui::Id) -> egui::Id {
+    base.with("minimap")
+}
+
+fn raise(ui: &egui::Ui, rect: Rect, id: egui::Id, sense: egui::Sense) {
+    ui.interact_opt(rect, id, sense, egui::InteractOptions { move_to_top: true });
+}
+
 impl GraphResponses {
     pub(crate) fn canvas_only(canvas: egui::Response) -> Self {
         Self {
@@ -81,14 +111,16 @@ impl NodeGraphWidget {
             };
             // Embedded controls are drawn later in the frame, so they sit on
             // top of this region and still receive their own clicks/drags.
+            // `raise_node_hit_targets` re-registers these while drawing so
+            // that only the *own* node's controls end up above them.
             let body = ui.interact(
                 body_rect,
-                ui.id().with(("node-body", id.0)),
+                node_body_id(ui.id(), id),
                 egui::Sense::click_and_drag(),
             );
             let header = ui.interact(
                 header_rect,
-                ui.id().with(("node-header", id.0)),
+                node_header_id(ui.id(), id),
                 egui::Sense::click_and_drag(),
             );
             nodes.insert(id, NodeResponses { body, header });
@@ -102,12 +134,7 @@ impl NodeGraphWidget {
                     socket_id,
                     ui.interact(
                         rect,
-                        ui.id().with((
-                            "socket",
-                            socket_id.node.0,
-                            socket_id.index,
-                            socket_id.direction,
-                        )),
+                        socket_hit_id(ui.id(), socket_id),
                         egui::Sense::click_and_drag(),
                     ),
                 )
@@ -121,7 +148,7 @@ impl NodeGraphWidget {
                     node_id,
                     ui.interact(
                         rect,
-                        ui.id().with(("collapse-toggle", node_id.0)),
+                        collapse_toggle_id(ui.id(), node_id),
                         egui::Sense::click(),
                     ),
                 )
@@ -131,8 +158,7 @@ impl NodeGraphWidget {
         let minimap = self.minimap_visible.then(|| {
             let (info, rect) =
                 minimap::compute_minimap(layout.node_rects.values().copied(), canvas_rect);
-            let response =
-                ui.interact(rect, ui.id().with("minimap"), egui::Sense::click_and_drag());
+            let response = ui.interact(rect, minimap_id(ui.id()), egui::Sense::click_and_drag());
             MinimapResponse { response, info }
         });
 
@@ -146,27 +172,98 @@ impl NodeGraphWidget {
         }
     }
 
+    /// Re-registers one node's hit targets above every widget registered so
+    /// far this frame.
+    ///
+    /// egui resolves overlapping widgets inside a layer by registration
+    /// order — last one wins — and a node's inline controls are real widgets
+    /// registered while drawing, i.e. after every hit target allocated by
+    /// `allocate_responses`. Left at that, a control on a node painted
+    /// *behind* another node keeps stealing hover and clicks from the node
+    /// covering it: a text field lighting up while the pointer is on the
+    /// header of the node in front of it, and refusing to let that header be
+    /// dragged. Calling this per node in painting order restores the painted
+    /// z-order for interaction too: node, then its own controls, then the
+    /// next node on top of both.
+    pub(crate) fn raise_node_hit_targets(
+        &self,
+        ui: &egui::Ui,
+        layout: &GraphWidgetLayout,
+        node_id: NodeId,
+    ) {
+        if let Some(&rect) = layout.node_screen_rects.get(&node_id) {
+            raise(
+                ui,
+                rect,
+                node_body_id(ui.id(), node_id),
+                egui::Sense::click_and_drag(),
+            );
+        }
+        if let Some(&rect) = layout.header_screen_rects.get(&node_id) {
+            raise(
+                ui,
+                rect,
+                node_header_id(ui.id(), node_id),
+                egui::Sense::click_and_drag(),
+            );
+        }
+        if let Some(&rect) = layout.collapse_toggle_screen_rects.get(&node_id) {
+            raise(
+                ui,
+                rect,
+                collapse_toggle_id(ui.id(), node_id),
+                egui::Sense::click(),
+            );
+        }
+        for (&socket_id, &rect) in &layout.socket_hit_rects {
+            if socket_id.node == node_id {
+                raise(
+                    ui,
+                    rect,
+                    socket_hit_id(ui.id(), socket_id),
+                    egui::Sense::click_and_drag(),
+                );
+            }
+        }
+    }
+
+    /// Keeps the minimap above the node hit targets raised during drawing —
+    /// it floats over the canvas, so nodes underneath must not claim its
+    /// clicks and drags.
+    pub(crate) fn raise_minimap_hit_target(&self, ui: &egui::Ui, rect: Rect) {
+        raise(ui, rect, minimap_id(ui.id()), egui::Sense::click_and_drag());
+    }
+
+    /// Painting order key: nodes are drawn by ascending id, with the node
+    /// most recently raised drawn last. Overlap resolution — both egui's and
+    /// this module's own hit testing — has to agree with what the user sees.
+    fn node_paint_order(&self, node_id: NodeId) -> (bool, u32) {
+        (self.top_node == Some(node_id), node_id.0)
+    }
+
     pub(crate) fn node_at_screen_pos(
         &self,
         responses: &GraphResponses,
         screen_pos: Pos2,
     ) -> Option<NodeId> {
-        if let Some((&id, _)) = responses
-            .collapse_toggles
-            .iter()
-            .find(|(_, response)| response.rect.contains(screen_pos))
-        {
-            return Some(id);
-        }
-        if let Some((&id, _)) = responses.nodes.iter().find(|(_, node)| {
-            node.header.rect.contains(screen_pos) || node.body.rect.contains(screen_pos)
-        }) {
-            return Some(id);
-        }
+        let hits_node = |&id: &NodeId| {
+            responses
+                .collapse_toggles
+                .get(&id)
+                .is_some_and(|response| response.rect.contains(screen_pos))
+                || responses.nodes.get(&id).is_some_and(|node| {
+                    node.header.rect.contains(screen_pos) || node.body.rect.contains(screen_pos)
+                })
+                || responses.sockets.iter().any(|(socket_id, response)| {
+                    socket_id.node == id && response.rect.contains(screen_pos)
+                })
+        };
         responses
-            .sockets
-            .iter()
-            .find_map(|(&id, response)| response.rect.contains(screen_pos).then_some(id.node))
+            .nodes
+            .keys()
+            .copied()
+            .filter(|id| hits_node(id))
+            .max_by_key(|&id| self.node_paint_order(id))
     }
 
     pub(crate) fn frame_at_screen_pos(

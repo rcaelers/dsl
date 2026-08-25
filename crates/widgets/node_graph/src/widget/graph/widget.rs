@@ -742,13 +742,6 @@ impl NodeGraphWidget {
             self.allocate_responses(ui, response, &layout, content_rect)
         };
 
-        // Register the floating UI after every graph hit target so it owns
-        // overlapping clicks and drags in egui's interaction z-order.
-        if let Some(panel_rect) = panel_rect {
-            self.update_panel_interaction(ui, panel_rect);
-        }
-        self.update_panel_tab_bar_interaction(ui, tab_bar_rect);
-
         let graph_pointer = graph_pointer(pointer, panel_rect, tab_bar_rect);
         self.hovered_input_context = graph_pointer.map(|_| "node_graph");
         let hovered_socket = graph_pointer.and_then(|_| self.hovered_socket(&responses));
@@ -766,6 +759,15 @@ impl NodeGraphWidget {
                 hovered_socket,
             },
         );
+        // Register the floating UI after every graph hit target — including
+        // the inline node controls and the per-node targets `draw_graph`
+        // raises over them — so it owns overlapping clicks and drags in
+        // egui's interaction z-order.
+        if let Some(panel_rect) = panel_rect {
+            self.update_panel_interaction(ui, panel_rect);
+        }
+        self.update_panel_tab_bar_interaction(ui, tab_bar_rect);
+
         self.show_socket_tooltip(&responses, hovered_socket);
         if let Some(panel_rect) = panel_rect {
             self.show_active_panel(ui, panel_rect, panel_data, &mut panel_actions);
@@ -850,16 +852,19 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use egui::{Painter, Pos2, Rect, Vec2};
+    use serde::{Deserialize, Serialize};
 
     use super::{GraphUiPrefs, NodeGraphWidget, graph_pointer};
     use crate::api::{
-        FileDialogRequest, FileDialogService, PanelTabDef, SocketIndicatorPresentation,
+        FileDialogRequest, FileDialogService, InputDef, NodeDef, OutputDef, PanelTabDef, PropDef,
+        SocketIndicatorPresentation, StringValue,
     };
     use crate::model::{NodeId, SocketDirection, SocketId};
     use crate::runtime::NodeTypeRegistry;
     use crate::support::graph_position;
     use crate::widget::graph::action::GraphAction;
     use crate::widget::graph::interaction_state::InteractionState;
+    use crate::widget::graph::response::{node_body_id, node_header_id};
 
     struct TestIndicator;
 
@@ -1004,6 +1009,102 @@ mod tests {
         assert_eq!(context_at(Pos2::new(200.0, 200.0)), Some("node_graph"));
         assert_eq!(context_at(Pos2::new(750.0, 20.0)), None);
         assert_eq!(context_at(Pos2::new(990.0, 20.0)), None);
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct PatternState {
+        pattern: StringValue,
+    }
+
+    struct PatternNode;
+
+    impl NodeDef for PatternNode {
+        type State = PatternState;
+
+        fn name() -> &'static str {
+            "Pattern"
+        }
+
+        fn category() -> &'static str {
+            "Test"
+        }
+
+        fn inputs() -> Vec<InputDef<Self::State>> {
+            Vec::new()
+        }
+
+        fn outputs() -> Vec<OutputDef<Self::State>> {
+            Vec::new()
+        }
+
+        fn state() -> Self::State {
+            PatternState {
+                pattern: StringValue::new("0x600000"),
+            }
+        }
+
+        fn props() -> Vec<PropDef<Self::State>> {
+            vec![PropDef::control(
+                "pattern",
+                "Pattern",
+                |state: &mut Self::State| &mut state.pattern,
+            )]
+        }
+    }
+
+    /// A node's inline controls are real egui widgets registered while
+    /// drawing, so without an explicit z-order fix the text field of a node
+    /// painted *behind* another node keeps claiming hover and clicks through
+    /// the node covering it — making the front node's header undraggable.
+    #[test]
+    fn the_front_node_owns_the_pointer_over_an_inline_control_behind_it() {
+        const UI_ID: &str = "node-overlap-z-order-test";
+
+        let mut registry = NodeTypeRegistry::new();
+        registry.register::<PatternNode>();
+        let mut widget = NodeGraphWidget::new(registry);
+        // The back node's single property row spans y 128..148; the front
+        // node's header spans y 130..152. Both contain the pointer below.
+        let back = widget
+            .add_node_at("Pattern", Pos2::new(100.0, 100.0))
+            .expect("the test node type is registered");
+        let front = widget
+            .add_node_at("Pattern", Pos2::new(150.0, 130.0))
+            .expect("the test node type is registered");
+        let pointer = Pos2::new(200.0, 138.0);
+
+        let context = egui::Context::default();
+        let screen_rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let mut hovered = None;
+        // Two passes: egui resolves hovering against the widget rects
+        // registered by the previous pass.
+        for _ in 0..2 {
+            context.begin_pass(egui::RawInput {
+                screen_rect: Some(screen_rect),
+                events: vec![egui::Event::PointerMoved(pointer)],
+                ..Default::default()
+            });
+            let mut ui = egui::Ui::new(
+                context.clone(),
+                egui::Id::new(UI_ID),
+                egui::UiBuilder::new().max_rect(screen_rect),
+            );
+            widget.show(&mut ui);
+            hovered = Some((
+                context
+                    .read_response(node_header_id(egui::Id::new(UI_ID), front))
+                    .is_some_and(|response| response.hovered()),
+                context
+                    .read_response(node_body_id(egui::Id::new(UI_ID), back))
+                    .is_some_and(|response| response.hovered()),
+            ));
+            let mut output = context.end_pass();
+            output.textures_delta.clear();
+        }
+
+        // Only one interactive widget is ever hovered, so the front header
+        // reporting hover proves the covered text field lost the hit test.
+        assert_eq!(hovered, Some((true, false)));
     }
 
     #[test]
