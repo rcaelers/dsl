@@ -167,6 +167,9 @@ Interaction highlights:
 - **Reroute nodes** (`NodeKind::Reroute`) are model-level wire waypoints with a single
   `Any` in/out; the compiler follows wires through them. *Dissolve* removes a node and
   directly reconnects compatible in/out pairs. Double-clicking a wire inserts a reroute.
+  A point is narrower than one socket hit area, so each of its sockets keeps the outer
+  quarter of the point plus all of its reach outside it, leaving the middle half as the
+  drag handle that moves the point.
 - **Frames** group nodes visually (label, color, rename-in-place, membership editing);
   dropping nodes inside/outside a frame updates membership, and empty frames are cleaned
   up automatically.

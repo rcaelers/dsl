@@ -663,21 +663,31 @@ fn ctrl_dragging_a_reroute_point_picks_its_link_up_instead_of_moving_it() {
 fn dragging_a_reroute_point_still_moves_it() {
     use crate::runtime::NodeTypeRegistry;
 
-    let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
-    widget.set_input_bindings(link_move_bindings());
-    let (source, _target) = connected_pair(&mut widget);
+    // Anywhere across the middle half of the point, not just its exact
+    // centre: that whole band is the point's drag handle.
+    for grip in [-0.2_f32, 0.0, 0.2] {
+        let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+        widget.set_input_bindings(link_move_bindings());
+        let (source, _target) = connected_pair(&mut widget);
 
-    drag_from(
-        &mut widget,
-        |layout| layout.node_screen_rects[&source].center(),
-        egui::Modifiers::NONE,
-    );
+        drag_from(
+            &mut widget,
+            |layout| {
+                let body = layout.node_screen_rects[&source];
+                body.center() + egui::vec2(body.width() * grip, 0.0)
+            },
+            egui::Modifiers::NONE,
+        );
 
-    assert_eq!(widget.graph.connections.len(), 1);
-    assert!(matches!(
-        widget.interaction_state,
-        InteractionState::DraggingNode { node_id, .. } if node_id == source
-    ));
+        assert_eq!(widget.graph.connections.len(), 1, "grip {grip}");
+        assert!(
+            matches!(
+                widget.interaction_state,
+                InteractionState::DraggingNode { node_id, .. } if node_id == source
+            ),
+            "grip {grip} did not move the point"
+        );
+    }
 }
 
 #[test]
