@@ -13,7 +13,7 @@ use super::interaction_state::{InteractionState, WIRE_SNAP_DISTANCE};
 use super::layout::GraphWidgetLayout;
 use super::response::GraphResponses;
 use super::widget::NodeGraphWidget;
-use crate::model::{Connection, NodeId, SocketDirection, SocketId};
+use crate::model::{Connection, NodeId, NodeKind, SocketDirection, SocketId};
 use crate::support::{bezier_wire_distance, bezier_wire_intersects_rect, wire_intersects_knife};
 use crate::widget::node::NodeWidget;
 
@@ -220,6 +220,60 @@ impl NodeGraphWidget {
             })
             .min_by(|(_, left), (_, right)| left.total_cmp(right))
             .map(|(socket, _)| socket)
+    }
+
+    /// The link a move-modifier drag picks up from a reroute point.
+    ///
+    /// A reroute is a waypoint on one wire, and its body is barely wider
+    /// than the two socket hit areas flanking it, so the modifier picks the
+    /// link up from anywhere on the point rather than only from its output
+    /// half. A plain drag still moves the point itself.
+    pub(crate) fn movable_reroute_link(
+        &self,
+        node_id: NodeId,
+        pointer_screen: Pos2,
+        layout: &GraphWidgetLayout,
+    ) -> Option<SocketId> {
+        let node = self.graph.nodes.get(&node_id)?;
+        if node.kind != NodeKind::Reroute {
+            return None;
+        }
+        // A reroute carries exactly one pass-through pair.
+        self.movable_output_link(
+            SocketId {
+                node: node_id,
+                index: 0,
+                direction: SocketDirection::Output,
+            },
+            pointer_screen,
+            layout,
+        )
+    }
+
+    /// Detaches the link hanging from `anchor` and returns the drag that
+    /// carries its now-free end, with `anchor` staying where it is.
+    ///
+    /// `source` is the output the link was pulled off, which sees its own
+    /// socket set change too.
+    pub(crate) fn pick_up_link(
+        &mut self,
+        anchor: SocketId,
+        source: NodeId,
+        anchor_screen: Pos2,
+        origin: Pos2,
+        pointer_canvas: Pos2,
+    ) -> InteractionState {
+        self.push_undo_snapshot();
+        self.graph.disconnect_input(anchor);
+        self.run_update(source);
+        self.run_update(anchor.node);
+        InteractionState::DraggingWire {
+            from: anchor,
+            from_canvas: self.view.screen_to_canvas(origin, anchor_screen),
+            current_canvas: pointer_canvas,
+            restore_on_cancel: true,
+            connectable: Rc::new(self.connectable_nodes(anchor)),
+        }
     }
 
     fn add_wire_connection(&mut self, from: SocketId, to: SocketId, push_undo: bool) {

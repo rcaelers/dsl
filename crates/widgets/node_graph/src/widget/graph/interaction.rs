@@ -160,17 +160,7 @@ impl NodeGraphWidget {
                 // The input the link keeps hanging from becomes the anchor,
                 // exactly as the source output does when a connected input
                 // is dragged; the free end then looks for another output.
-                self.push_undo_snapshot();
-                self.graph.disconnect_input(anchor);
-                self.run_update(sid.node);
-                self.run_update(anchor.node);
-                return InteractionState::DraggingWire {
-                    from: anchor,
-                    from_canvas: self.view.screen_to_canvas(origin, anchor_spos),
-                    current_canvas: pc,
-                    restore_on_cancel: true,
-                    connectable: Rc::new(self.connectable_nodes(anchor)),
-                };
+                return self.pick_up_link(anchor, sid.node, anchor_spos, origin, pc);
             }
             if sid.direction == SocketDirection::Input
                 && let Some(src) = self
@@ -216,10 +206,19 @@ impl NodeGraphWidget {
                 self.select_node(id, ctrl);
                 return InteractionState::Idle;
             }
-            if (responses.header.drag_started_by(primary_button)
-                || responses.body.drag_started_by(primary_button))
-                && let Some(node) = self.graph.nodes.get(&id)
+            let drag_started = responses.header.drag_started_by(primary_button)
+                || responses.body.drag_started_by(primary_button);
+            // The socket halves of a reroute point leave only a sliver of
+            // body between them, so the modifier picks its link up from the
+            // whole point; without it the point is moved as any other node.
+            if drag_started
+                && move_link
+                && let Some(anchor) = self.movable_reroute_link(id, current_screen_pos, layout)
+                && let Some(&anchor_spos) = layout.socket_screen_pos.get(&anchor)
             {
+                return self.pick_up_link(anchor, id, anchor_spos, origin, pc);
+            }
+            if drag_started && let Some(node) = self.graph.nodes.get(&id) {
                 let start_pos = node.pos;
                 let node_pos = egui_position(start_pos).to_vec2();
                 if !node.selected || ctrl {
