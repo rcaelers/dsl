@@ -44,6 +44,10 @@ struct Args {
     #[arg(long, default_value_t = 120)]
     max_row_shift: i32,
 
+    /// Override the fitted spacing between adjacent B, G, and R sensor bands.
+    #[arg(long, allow_hyphen_values = true)]
+    color_pitch: Option<i32>,
+
     /// Maximum horizontal displacement searched in logical lane pixels.
     #[arg(long, default_value_t = 8)]
     max_column_shift: i32,
@@ -244,7 +248,11 @@ struct SensorOffsetModelReport {
     stream_line_order: [u8; 4],
     line_offset_multipliers: [i32; 4],
     fitted_line_pitch: i32,
+    color_pitch_source: String,
     color_offsets: [i32; 3],
+    profile_color_offsets: [i32; 3],
+    spatial_edge_color_offsets: [i32; 3],
+    spatial_color_correlations: [f64; 3],
     independent_shifts: Vec<i32>,
 }
 
@@ -894,7 +902,7 @@ fn analyze_twelve_line_phases(
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
-    let (line_pitch, color_offsets) = fit_twelve_line_offset_model(
+    let (line_pitch, profile_color_offsets) = fit_twelve_line_offset_model(
         &reference_evidence,
         &within_color_evidence,
         &COLOR_LANES,
@@ -902,6 +910,42 @@ fn analyze_twelve_line_phases(
         args.max_row_shift,
     )
     .ok_or("no valid physical twelve-line offset model was found")?;
+    let spatial_column_samples = args.vertical_samples.max(16);
+    let spatial_edge_maps = (0..12)
+        .map(|lane| vertical_edge_map(capture, layout, lane, spatial_column_samples))
+        .collect::<Vec<_>>();
+    let (spatial_edge_color_offsets, spatial_color_correlations) = fit_spatial_color_offsets(
+        &spatial_edge_maps,
+        spatial_column_samples,
+        &COLOR_LANES,
+        MINIMUM_LINE_SEPARATION,
+        args.max_row_shift,
+    )
+    .unwrap_or((profile_color_offsets, [1.0, 0.0, 0.0]));
+    let fitted_color_pitch = fit_color_pitch_by_chroma(
+        capture,
+        layout,
+        line_pitch,
+        &LINE_OFFSET_MULTIPLIERS,
+        &COLOR_LANES,
+        MINIMUM_LINE_SEPARATION,
+        args.max_row_shift,
+    );
+    let (color_pitch, color_pitch_source) = if let Some(override_pitch) = args.color_pitch {
+        (override_pitch, "command-line color-pitch override")
+    } else if let Some(fitted_pitch) = fitted_color_pitch {
+        (fitted_pitch, "coarse-preview chroma search")
+    } else {
+        (spatial_edge_color_offsets[1], "2D edge fallback")
+    };
+    if color_pitch.abs() < MINIMUM_LINE_SEPARATION || (2 * color_pitch).abs() > args.max_row_shift {
+        return Err(format!(
+            "color pitch {color_pitch} is outside the supported range: |pitch| must be at least {MINIMUM_LINE_SEPARATION} and |2*pitch| at most {}",
+            args.max_row_shift
+        )
+        .into());
+    }
+    let color_offsets = [0, color_pitch, 2 * color_pitch];
     let structured_shifts = COLOR_LANES
         .iter()
         .enumerate()
@@ -1062,7 +1106,7 @@ fn analyze_twelve_line_phases(
     Ok(WordPhaseAnalysisReport {
         layout: "word modulo 12: BGR × four CCD lines; stream line order 2,4,1,3".into(),
         registration_metric: format!(
-            "physical additive offset model: stream lines 2,4,1,3 use [0,2d,-d,+d], fitted d={line_pitch}; color offsets BGR={color_offsets:?}"
+            "physical additive offset model: stream lines 2,4,1,3 use [0,2d,-d,+d], fitted d={line_pitch}; equal BGR band offsets={color_offsets:?} selected by {color_pitch_source}"
         ),
         logical_width: lane_width * 4,
         logical_height,
@@ -1076,7 +1120,11 @@ fn analyze_twelve_line_phases(
             stream_line_order: [2, 4, 1, 3],
             line_offset_multipliers: LINE_OFFSET_MULTIPLIERS,
             fitted_line_pitch: line_pitch,
+            color_pitch_source: color_pitch_source.into(),
             color_offsets,
+            profile_color_offsets,
+            spatial_edge_color_offsets,
+            spatial_color_correlations,
             independent_shifts,
         }),
         flat_field_calibration: Some(flat_field_calibration),
@@ -1148,6 +1196,131 @@ fn fit_twelve_line_offset_model(
         color_offsets[color] = best_offset?;
     }
     Some((pitch, color_offsets))
+}
+
+fn fit_spatial_color_offsets(
+    edge_maps: &[Vec<f64>],
+    columns: usize,
+    color_lanes: &[[usize; 4]; 3],
+    minimum_color_separation: i32,
+    maximum_shift: i32,
+) -> Option<([i32; 3], [f64; 3])> {
+    let mut best_pitch = None;
+    let mut best_score = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+    let mut best_color_correlations = [1.0, 0.0, 0.0];
+    for color_pitch in -(maximum_shift / 2)..=(maximum_shift / 2) {
+        if color_pitch.abs() < minimum_color_separation {
+            continue;
+        }
+        let mut all_correlations = Vec::with_capacity(8);
+        let mut color_correlations = [1.0, 0.0, 0.0];
+        for color in 1..3 {
+            let shift = color_pitch * color as i32;
+            let mut pair_correlations = color_lanes[0]
+                .iter()
+                .zip(&color_lanes[color])
+                .map(|(&reference_lane, &candidate_lane)| {
+                    let reference = &edge_maps[reference_lane];
+                    let candidate = &edge_maps[candidate_lane];
+                    let reference_rows = reference.len() / columns;
+                    let candidate_rows = candidate.len() / columns;
+                    let reference_start = 0.max(-shift) as usize;
+                    let reference_end = (reference_rows as i64)
+                        .min(candidate_rows as i64 - shift as i64)
+                        .max(reference_start as i64)
+                        as usize;
+                    pearson_edge_maps(
+                        reference,
+                        candidate,
+                        columns,
+                        reference_start,
+                        reference_end,
+                        shift,
+                    )
+                })
+                .collect::<Vec<_>>();
+            pair_correlations
+                .sort_by(|left, right| left.partial_cmp(right).unwrap_or(Ordering::Equal));
+            color_correlations[color] = median(&pair_correlations);
+            all_correlations.extend(pair_correlations);
+        }
+        let score = (
+            median(&all_correlations),
+            all_correlations
+                .iter()
+                .copied()
+                .fold(f64::INFINITY, f64::min),
+        );
+        if score.0 > best_score.0 || (score.0 == best_score.0 && score.1 > best_score.1) {
+            best_pitch = Some(color_pitch);
+            best_score = score;
+            best_color_correlations = color_correlations;
+        }
+    }
+    let pitch = best_pitch?;
+    Some(([0, pitch, 2 * pitch], best_color_correlations))
+}
+
+fn fit_color_pitch_by_chroma(
+    capture: &Capture<'_>,
+    layout: Layout,
+    line_pitch: i32,
+    line_offset_multipliers: &[i32; 4],
+    color_lanes: &[[usize; 4]; 3],
+    minimum_color_separation: i32,
+    maximum_shift: i32,
+) -> Option<i32> {
+    const SEARCH_WIDTH: usize = 320;
+    const SEARCH_HEIGHT: usize = 180;
+
+    let mut best_pitch = None;
+    let mut best_quality = (f64::INFINITY, f64::INFINITY);
+    for color_pitch in -(maximum_shift / 2)..=(maximum_shift / 2) {
+        if color_pitch.abs() < minimum_color_separation {
+            continue;
+        }
+        let mut shifts = [0; 12];
+        for (color, lanes) in color_lanes.iter().enumerate() {
+            for (tap, &lane) in lanes.iter().enumerate() {
+                shifts[lane] =
+                    color as i32 * color_pitch + line_offset_multipliers[tap] * line_pitch;
+            }
+        }
+        if shifts.iter().any(|shift| shift.abs() > maximum_shift) {
+            continue;
+        }
+        let registrations = shifts
+            .iter()
+            .enumerate()
+            .map(|(phase, &vertical_shift)| WordPhaseRegistrationReport {
+                phase,
+                vertical_shift,
+                horizontal_shift: 0,
+                median_edge_correlation: 0.0,
+                supporting_regions: 0,
+                total_regions: 0,
+                region_correlations: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+        let planes = render_twelve_line_planes(
+            capture,
+            layout,
+            &registrations,
+            color_lanes,
+            SEARCH_WIDTH,
+            SEARCH_HEIGHT,
+        );
+        let quality = preview_registration_quality(&planes, SEARCH_WIDTH, SEARCH_HEIGHT);
+        if chroma_quality_is_better(quality, best_quality) {
+            best_pitch = Some(color_pitch);
+            best_quality = quality;
+        }
+    }
+    best_pitch
+}
+
+fn chroma_quality_is_better(candidate: (f64, f64), current: (f64, f64)) -> bool {
+    candidate.0 < current.0 || (candidate.0 == current.0 && candidate.1 < current.1)
 }
 
 fn registration_evidence_score(registrations: &[&ShiftEvidence]) -> (f64, usize, f64) {
@@ -2642,7 +2815,8 @@ fn width_from_tgck(offsets: &[usize]) -> Option<usize> {
 mod tests {
     use super::{
         best_joint_phase_shifts, best_shift, best_three_groups_of_four, calibrate_flat_field,
-        calibration_is_pareto_improvement, column_percentile, cyclically_order_group, derivative,
+        calibration_is_pareto_improvement, chroma_quality_is_better, column_percentile,
+        cyclically_order_group, derivative, fit_spatial_color_offsets,
         fit_twelve_line_offset_model, salient_edge_similarity, select_informative_regions,
         vertical_shift_evidence, Capture, InterleaveAxis, Layout, ShiftEvidence,
     };
@@ -2813,6 +2987,47 @@ mod tests {
     }
 
     #[test]
+    fn spatial_color_fit_uses_corresponding_sensor_taps() {
+        let columns = 8;
+        let rows = 64;
+        let groups = [[0, 3, 6, 9], [1, 4, 7, 10], [2, 5, 8, 11]];
+        let reference = (0..rows)
+            .flat_map(|row| {
+                (0..columns).map(move |column| {
+                    if matches!(row, 5 | 17 | 31 | 46) {
+                        20.0 + column as f64 * (row % 7 + 1) as f64
+                    } else {
+                        ((row * 3 + column * 5) % 11) as f64 * 0.01
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        let shifted = |shift: i32, scale: f64| {
+            let mut candidate = vec![0.0; rows * columns];
+            for row in 0..rows {
+                let candidate_row = row as i32 + shift;
+                if (0..rows as i32).contains(&candidate_row) {
+                    for column in 0..columns {
+                        candidate[candidate_row as usize * columns + column] =
+                            reference[row * columns + column] * scale;
+                    }
+                }
+            }
+            candidate
+        };
+        let mut maps = vec![Vec::new(); 12];
+        for tap in 0..4 {
+            maps[groups[0][tap]] = shifted(0, 1.0 + tap as f64 * 0.01);
+            maps[groups[1][tap]] = shifted(5, 0.8 + tap as f64 * 0.01);
+            maps[groups[2][tap]] = shifted(10, 1.2 + tap as f64 * 0.01);
+        }
+
+        let fitted = fit_spatial_color_offsets(&maps, columns, &groups, 2, 24);
+
+        assert_eq!(fitted.map(|result| result.0), Some([0, 5, 10]));
+    }
+
+    #[test]
     fn inferred_flat_field_reduces_column_gain_variation() {
         let width = 8;
         let height = 64;
@@ -2855,6 +3070,13 @@ mod tests {
             236.0, 0.828, 235.0, 0.837
         ));
         assert!(!calibration_is_pareto_improvement(90.0, 0.18, 90.0, 0.18));
+    }
+
+    #[test]
+    fn chroma_search_orders_p95_before_colored_fraction() {
+        assert!(chroma_quality_is_better((80.0, 0.20), (90.0, 0.10)));
+        assert!(chroma_quality_is_better((80.0, 0.10), (80.0, 0.20)));
+        assert!(!chroma_quality_is_better((90.0, 0.10), (80.0, 0.20)));
     }
 
     #[test]
