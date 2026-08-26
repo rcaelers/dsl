@@ -6,7 +6,7 @@
 //! illumination gradients do not dominate the ranking.
 
 use std::cmp::Ordering;
-use std::fs::{create_dir_all, File};
+use std::fs::{File, create_dir_all};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
@@ -235,12 +235,23 @@ struct WordPhaseAnalysisReport {
     registrations: Vec<WordPhaseRegistrationReport>,
     pairwise_registrations: Vec<WordPhasePairRegistrationReport>,
     sensor_offset_model: Option<SensorOffsetModelReport>,
+    stream_registration_diagnostic: Option<StreamRegistrationDiagnosticReport>,
     flat_field_calibration: Option<FlatFieldCalibrationReport>,
     previews: Vec<WordPhasePreviewReport>,
     bright_edge_chroma_p95: f64,
     colored_bright_edge_fraction: f64,
     accepted: bool,
     decision: String,
+}
+
+#[derive(Debug, Serialize)]
+struct StreamRegistrationDiagnosticReport {
+    file: String,
+    color_rows: [&'static str; 3],
+    stream_line_columns: [u8; 4],
+    lane_grid: [[usize; 4]; 3],
+    normalization_ranges: [[u16; 2]; 3],
+    note: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -818,6 +829,7 @@ fn analyze_word_phases(
         registrations,
         pairwise_registrations,
         sensor_offset_model: None,
+        stream_registration_diagnostic: None,
         flat_field_calibration: None,
         previews,
         bright_edge_chroma_p95,
@@ -997,6 +1009,17 @@ fn analyze_twelve_line_phases(
         })
         .collect::<Vec<_>>();
 
+    let stream_diagnostic_file = "line12-registered-streams-normal-vs-mirrored.bmp".to_owned();
+    let normalization_ranges = write_registered_stream_diagnostic(
+        capture,
+        layout,
+        &registrations,
+        &COLOR_LANES,
+        args.tile_width,
+        args.tile_height,
+        &args.output.join(&stream_diagnostic_file),
+    )?;
+
     let raw_planes = render_twelve_line_planes(
         capture,
         layout,
@@ -1126,6 +1149,14 @@ fn analyze_twelve_line_phases(
             spatial_edge_color_offsets,
             spatial_color_correlations,
             independent_shifts,
+        }),
+        stream_registration_diagnostic: Some(StreamRegistrationDiagnosticReport {
+            file: stream_diagnostic_file,
+            color_rows: ["B", "G", "R"],
+            stream_line_columns: [2, 4, 1, 3],
+            lane_grid: COLOR_LANES,
+            normalization_ranges,
+            note: "Rows are captured B/G/R groups; columns are physical CCD lines 2,4,1,3. The left four columns use captured horizontal order and the right four mirror each stream. Fitted vertical offsets are applied. One percentile range per color row preserves relative brightness between its four streams.".into(),
         }),
         flat_field_calibration: Some(flat_field_calibration),
         previews,
@@ -1684,11 +1715,7 @@ fn mean_words(values: impl Iterator<Item = u16>) -> f64 {
         sum += value as f64;
         count += 1;
     }
-    if count == 0 {
-        0.0
-    } else {
-        sum / count as f64
-    }
+    if count == 0 { 0.0 } else { sum / count as f64 }
 }
 
 fn derivative(values: &[f64]) -> Vec<f64> {
@@ -1760,11 +1787,7 @@ fn mean(values: impl Iterator<Item = f64>) -> f64 {
         sum += value;
         count += 1;
     }
-    if count == 0 {
-        0.0
-    } else {
-        sum / count as f64
-    }
+    if count == 0 { 0.0 } else { sum / count as f64 }
 }
 
 fn analyze_spectral_groups(
@@ -2407,6 +2430,73 @@ fn write_rgb_preview(
     write_bmp_rgb(path, width, height, &pixels)
 }
 
+fn write_registered_stream_diagnostic(
+    capture: &Capture<'_>,
+    layout: Layout,
+    registrations: &[WordPhaseRegistrationReport],
+    color_lanes: &[[usize; 4]; 3],
+    tile_width: usize,
+    tile_height: usize,
+    path: &Path,
+) -> Result<[[u16; 2]; 3], Box<dyn std::error::Error>> {
+    const GAP: usize = 4;
+    const ORIENTATIONS: usize = 2;
+
+    let (lane_width, logical_height) = layout.dimensions(0);
+    let row_offsets = registrations
+        .iter()
+        .map(|registration| registration.vertical_shift)
+        .collect::<Vec<_>>();
+    let (row_origin, valid_rows) = common_overlap(logical_height, &row_offsets);
+    let montage_columns = color_lanes[0].len() * ORIENTATIONS;
+    let width = montage_columns * tile_width + (montage_columns + 1) * GAP;
+    let height = color_lanes.len() * tile_height + (color_lanes.len() + 1) * GAP;
+    let mut canvas = vec![24_u8; width * height];
+    let mut normalization_ranges = [[0_u16, 1_u16]; 3];
+
+    for (color, lanes) in color_lanes.iter().enumerate() {
+        let mut tiles = Vec::with_capacity(lanes.len());
+        let mut color_words = Vec::with_capacity(lanes.len() * tile_width * tile_height);
+        for &lane in lanes {
+            let mut words = Vec::with_capacity(tile_width * tile_height);
+            for y in 0..tile_height {
+                let base_row = row_origin + proportional_index(y, tile_height, valid_rows);
+                let row = (base_row as i64 + registrations[lane].vertical_shift as i64) as usize;
+                for x in 0..tile_width {
+                    let column = proportional_index(x, tile_width, lane_width);
+                    words.push(capture.layout_word(layout, lane, row, column).unwrap_or(0));
+                }
+            }
+            color_words.extend_from_slice(&words);
+            tiles.push(words);
+        }
+        let range = percentile_range(&color_words);
+        normalization_ranges[color] = [range.0, range.1];
+        let y_origin = GAP + color * (tile_height + GAP);
+        for (tap, words) in tiles.iter().enumerate() {
+            for orientation in 0..ORIENTATIONS {
+                let grid_column = tap + orientation * lanes.len();
+                let x_origin = GAP + grid_column * (tile_width + GAP);
+                for y in 0..tile_height {
+                    for x in 0..tile_width {
+                        let source_x = if orientation == 0 {
+                            x
+                        } else {
+                            tile_width - 1 - x
+                        };
+                        let word = words[y * tile_width + source_x];
+                        canvas[(y_origin + y) * width + x_origin + x] =
+                            normalize(word, range.0, range.1);
+                    }
+                }
+            }
+        }
+    }
+
+    write_bmp(path, width, height, &canvas)?;
+    Ok(normalization_ranges)
+}
+
 fn write_montage(
     capture: &Capture<'_>,
     layout: Layout,
@@ -2577,30 +2667,30 @@ fn write_html(path: &Path, report: &AnalysisReport) -> std::io::Result<()> {
         &report.word_twelve_line_analysis,
     ] {
         writeln!(
-        writer,
-        "<h2>Targeted phase analysis: {}</h2>\
+            writer,
+            "<h2>Targeted phase analysis: {}</h2>\
          <p><strong>Decision: {}</strong> — {}</p>\
          <p>Registration metric: <code>{}</code>.</p>\
          <p>Geometry: {} × {}; reference phase {}. Bright-edge chroma p95: {:.2}; colored bright-edge fraction: {:.4}.</p>\
          <p>Informative regions: <code>{:?}</code>; activity-cluster gap: {:.3}×.</p>\
          <details><summary>All region activity scores</summary><pre>{:?}</pre></details>\
          <table><tr><th>Phase</th><th>Vertical shift</th><th>Horizontal shift</th><th>Median edge correlation</th><th>Supporting regions</th></tr>",
-        word.layout,
-        if word.accepted {
-            "ACCEPTED"
-        } else {
-            "REJECTED"
-        },
-        word.decision,
-        word.registration_metric,
-        word.logical_width,
-        word.logical_height,
-        word.reference_phase,
-        word.bright_edge_chroma_p95,
-        word.colored_bright_edge_fraction,
-        word.informative_regions,
-        word.region_activity_gap_ratio,
-        word.region_activity_scores
+            word.layout,
+            if word.accepted {
+                "ACCEPTED"
+            } else {
+                "REJECTED"
+            },
+            word.decision,
+            word.registration_metric,
+            word.logical_width,
+            word.logical_height,
+            word.reference_phase,
+            word.bright_edge_chroma_p95,
+            word.colored_bright_edge_fraction,
+            word.informative_regions,
+            word.region_activity_gap_ratio,
+            word.region_activity_scores
         )?;
         for registration in &word.registrations {
             writeln!(
@@ -2615,8 +2705,8 @@ fn write_html(path: &Path, report: &AnalysisReport) -> std::io::Result<()> {
             )?;
         }
         writeln!(
-        writer,
-        "</table><h3>Joint pairwise consistency</h3>\
+            writer,
+            "</table><h3>Joint pairwise consistency</h3>\
          <table><tr><th>Reference phase</th><th>Candidate phase</th><th>Relative shift</th><th>Median edge correlation</th><th>Supporting regions</th></tr>"
         )?;
         for registration in &word.pairwise_registrations {
@@ -2632,23 +2722,40 @@ fn write_html(path: &Path, report: &AnalysisReport) -> std::io::Result<()> {
             )?;
         }
         writeln!(
-        writer,
-        "</table><details><summary>Reference-phase correlations</summary><pre>{:?}</pre></details>\
-         <details><summary>All pairwise region correlations</summary><pre>{:?}</pre></details>\
-         <div style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:1em\">",
-        word.registrations
-            .iter()
-            .map(|registration| (&registration.phase, &registration.region_correlations))
-            .collect::<Vec<_>>(),
-        word.pairwise_registrations
-            .iter()
-            .map(|registration| {
-                (
-                    (registration.reference_phase, registration.candidate_phase),
-                    &registration.region_correlations,
-                )
-            })
-            .collect::<Vec<_>>()
+            writer,
+            "</table><details><summary>Reference-phase correlations</summary><pre>{:?}</pre></details>\
+         <details><summary>All pairwise region correlations</summary><pre>{:?}</pre></details>",
+            word.registrations
+                .iter()
+                .map(|registration| (&registration.phase, &registration.region_correlations))
+                .collect::<Vec<_>>(),
+            word.pairwise_registrations
+                .iter()
+                .map(|registration| {
+                    (
+                        (registration.reference_phase, registration.candidate_phase),
+                        &registration.region_correlations,
+                    )
+                })
+                .collect::<Vec<_>>()
+        )?;
+        if let Some(diagnostic) = &word.stream_registration_diagnostic {
+            writeln!(
+                writer,
+                "<h3>Registered twelve-stream geometry</h3>\
+                 <p>{}</p><p>Rows: <code>{:?}</code>; physical line columns: <code>{:?}</code>; lane grid: <code>{:?}</code>; normalization ranges: <code>{:?}</code>.</p>\
+                 <img src=\"{}\" alt=\"registered CCD streams in captured and mirrored horizontal order\">",
+                html_escape(&diagnostic.note),
+                diagnostic.color_rows,
+                diagnostic.stream_line_columns,
+                diagnostic.lane_grid,
+                diagnostic.normalization_ranges,
+                diagnostic.file
+            )?;
+        }
+        writeln!(
+            writer,
+            "<div style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:1em\">"
         )?;
         if let Some(calibration) = &word.flat_field_calibration {
             writeln!(
@@ -2814,11 +2921,11 @@ fn width_from_tgck(offsets: &[usize]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::{
-        best_joint_phase_shifts, best_shift, best_three_groups_of_four, calibrate_flat_field,
-        calibration_is_pareto_improvement, chroma_quality_is_better, column_percentile,
-        cyclically_order_group, derivative, fit_spatial_color_offsets,
-        fit_twelve_line_offset_model, salient_edge_similarity, select_informative_regions,
-        vertical_shift_evidence, Capture, InterleaveAxis, Layout, ShiftEvidence,
+        Capture, InterleaveAxis, Layout, ShiftEvidence, best_joint_phase_shifts, best_shift,
+        best_three_groups_of_four, calibrate_flat_field, calibration_is_pareto_improvement,
+        chroma_quality_is_better, column_percentile, cyclically_order_group, derivative,
+        fit_spatial_color_offsets, fit_twelve_line_offset_model, salient_edge_similarity,
+        select_informative_regions, vertical_shift_evidence,
     };
 
     #[test]
@@ -2920,10 +3027,11 @@ mod tests {
             })
             .unwrap();
         assert_eq!(best.shift, 2);
-        assert!(best
-            .correlations
-            .iter()
-            .all(|correlation| *correlation > 0.99));
+        assert!(
+            best.correlations
+                .iter()
+                .all(|correlation| *correlation > 0.99)
+        );
     }
 
     #[test]
