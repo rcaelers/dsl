@@ -855,6 +855,10 @@ fn analyze_twelve_line_phases(
     let edge_maps = (0..12)
         .map(|lane| vertical_edge_map(capture, layout, lane, column_samples))
         .collect::<Vec<_>>();
+    let geometry_edge_maps = edge_maps
+        .iter()
+        .map(|edge_map| edge_magnitudes(edge_map))
+        .collect::<Vec<_>>();
     let activity_scores = region_activity_scores(&edge_maps, column_samples, REGION_COUNT);
     let (informative_mask, region_activity_gap_ratio) =
         select_informative_regions(&activity_scores);
@@ -865,7 +869,7 @@ fn analyze_twelve_line_phases(
         .collect::<Vec<_>>();
     let informative_count = informative_regions.len();
 
-    let reference_evidence = (0..12)
+    let signed_reference_evidence = (0..12)
         .map(|lane| {
             vertical_shift_evidence(
                 &edge_maps[REFERENCE_LANE],
@@ -877,7 +881,24 @@ fn analyze_twelve_line_phases(
             )
         })
         .collect::<Vec<_>>();
-    let independent_shifts = reference_evidence
+    let geometry_reference_evidence = (0..12)
+        .map(|lane| {
+            vertical_shift_evidence(
+                &geometry_edge_maps[REFERENCE_LANE],
+                &geometry_edge_maps[lane],
+                column_samples,
+                REGION_COUNT,
+                &informative_mask,
+                args.max_row_shift,
+            )
+        })
+        .collect::<Vec<_>>();
+    let polarity_independent_reference_evidence = signed_reference_evidence
+        .iter()
+        .zip(&geometry_reference_evidence)
+        .map(|(signed, magnitude)| combine_shift_evidence(signed, magnitude, &informative_mask))
+        .collect::<Vec<_>>();
+    let independent_shifts = polarity_independent_reference_evidence
         .iter()
         .enumerate()
         .map(|(lane, evidence)| {
@@ -915,7 +936,7 @@ fn analyze_twelve_line_phases(
         })
         .collect::<Vec<_>>();
     let (line_pitch, profile_color_offsets) = fit_twelve_line_offset_model(
-        &reference_evidence,
+        &polarity_independent_reference_evidence,
         &within_color_evidence,
         &COLOR_LANES,
         &LINE_OFFSET_MULTIPLIERS,
@@ -924,7 +945,14 @@ fn analyze_twelve_line_phases(
     .ok_or("no valid physical twelve-line offset model was found")?;
     let spatial_column_samples = args.vertical_samples.max(16);
     let spatial_edge_maps = (0..12)
-        .map(|lane| vertical_edge_map(capture, layout, lane, spatial_column_samples))
+        .map(|lane| {
+            edge_magnitudes(&vertical_edge_map(
+                capture,
+                layout,
+                lane,
+                spatial_column_samples,
+            ))
+        })
         .collect::<Vec<_>>();
     let (spatial_edge_color_offsets, spatial_color_correlations) = fit_spatial_color_offsets(
         &spatial_edge_maps,
@@ -977,7 +1005,12 @@ fn analyze_twelve_line_phases(
         .iter()
         .enumerate()
         .map(|(lane, &shift)| {
-            shift_evidence_at(&reference_evidence[lane], shift, args.max_row_shift).clone()
+            shift_evidence_at(
+                &polarity_independent_reference_evidence[lane],
+                shift,
+                args.max_row_shift,
+            )
+            .clone()
         })
         .collect::<Vec<_>>();
 
@@ -994,20 +1027,40 @@ fn analyze_twelve_line_phases(
             region_correlations: evidence.correlations.clone(),
         })
         .collect::<Vec<_>>();
-    let pairwise_registrations = selected
-        .iter()
-        .enumerate()
-        .skip(1)
-        .map(|(lane, evidence)| WordPhasePairRegistrationReport {
-            reference_phase: REFERENCE_LANE,
-            candidate_phase: lane,
-            vertical_shift: evidence.shift,
-            median_edge_correlation: evidence.median_correlation,
-            supporting_regions: evidence.supporting_regions,
-            total_regions: informative_count,
-            region_correlations: evidence.correlations.clone(),
+    let mut pairwise_registrations = (1..COLOR_LANES.len())
+        .map(|color| {
+            let lane = COLOR_LANES[color][0];
+            let evidence = &selected[lane];
+            WordPhasePairRegistrationReport {
+                reference_phase: REFERENCE_LANE,
+                candidate_phase: lane,
+                vertical_shift: evidence.shift,
+                median_edge_correlation: evidence.median_correlation,
+                supporting_regions: evidence.supporting_regions,
+                total_regions: informative_count,
+                region_correlations: evidence.correlations.clone(),
+            }
         })
         .collect::<Vec<_>>();
+    for (color, lanes) in COLOR_LANES.iter().enumerate() {
+        for (tap, &lane) in lanes.iter().enumerate().skip(1) {
+            let relative_shift = LINE_OFFSET_MULTIPLIERS[tap] * line_pitch;
+            let evidence = shift_evidence_at(
+                &within_color_evidence[color][tap],
+                relative_shift,
+                args.max_row_shift,
+            );
+            pairwise_registrations.push(WordPhasePairRegistrationReport {
+                reference_phase: lanes[0],
+                candidate_phase: lane,
+                vertical_shift: relative_shift,
+                median_edge_correlation: evidence.median_correlation,
+                supporting_regions: evidence.supporting_regions,
+                total_regions: informative_count,
+                region_correlations: evidence.correlations.clone(),
+            });
+        }
+    }
 
     let stream_diagnostic_file = "line12-registered-streams-normal-vs-mirrored.bmp".to_owned();
     let normalization_ranges = write_registered_stream_diagnostic(
@@ -1129,7 +1182,7 @@ fn analyze_twelve_line_phases(
     Ok(WordPhaseAnalysisReport {
         layout: "word modulo 12: BGR × four CCD lines; stream line order 2,4,1,3".into(),
         registration_metric: format!(
-            "physical additive offset model: stream lines 2,4,1,3 use [0,2d,-d,+d], fitted d={line_pitch}; equal BGR band offsets={color_offsets:?} selected by {color_pitch_source}"
+            "contrast-polarity-independent registration tree: B/G/R anchors are compared across color, then taps only within their color; physical lines 2,4,1,3 use [0,2d,-d,+d], fitted d={line_pitch}; equal BGR band offsets={color_offsets:?} selected by {color_pitch_source}"
         ),
         logical_width: lane_width * 4,
         logical_height,
@@ -1503,6 +1556,40 @@ fn vertical_shift_evidence(
                     .iter()
                     .zip(informative_regions)
                     .filter(|&(correlation, informative)| *informative && *correlation >= 0.10)
+                    .count(),
+                correlations,
+            }
+        })
+        .collect()
+}
+
+fn combine_shift_evidence(
+    signed: &[ShiftEvidence],
+    magnitude: &[ShiftEvidence],
+    informative_regions: &[bool],
+) -> Vec<ShiftEvidence> {
+    signed
+        .iter()
+        .zip(magnitude)
+        .map(|(signed, magnitude)| {
+            debug_assert_eq!(signed.shift, magnitude.shift);
+            let correlations = signed
+                .correlations
+                .iter()
+                .zip(&magnitude.correlations)
+                .map(|(&signed, &magnitude)| signed.max(magnitude))
+                .collect::<Vec<_>>();
+            let informative_correlations = correlations
+                .iter()
+                .zip(informative_regions)
+                .filter_map(|(&correlation, &informative)| informative.then_some(correlation))
+                .collect::<Vec<_>>();
+            ShiftEvidence {
+                shift: signed.shift,
+                median_correlation: median(&informative_correlations),
+                supporting_regions: informative_correlations
+                    .iter()
+                    .filter(|&&correlation| correlation >= 0.10)
                     .count(),
                 correlations,
             }
@@ -2032,6 +2119,10 @@ fn vertical_edge_map(
         }
     }
     edges
+}
+
+fn edge_magnitudes(edge_map: &[f64]) -> Vec<f64> {
+    edge_map.iter().map(|value| value.abs()).collect()
 }
 
 fn pearson_edge_maps(
@@ -2923,7 +3014,8 @@ mod tests {
     use super::{
         Capture, InterleaveAxis, Layout, ShiftEvidence, best_joint_phase_shifts, best_shift,
         best_three_groups_of_four, calibrate_flat_field, calibration_is_pareto_improvement,
-        chroma_quality_is_better, column_percentile, cyclically_order_group, derivative,
+        chroma_quality_is_better, column_percentile, combine_shift_evidence,
+        cyclically_order_group, derivative, edge_magnitudes, edge_profile_correlation,
         fit_spatial_color_offsets, fit_twelve_line_offset_model, salient_edge_similarity,
         select_informative_regions, vertical_shift_evidence,
     };
@@ -2935,6 +3027,37 @@ mod tests {
         let result = best_shift(&left, &right, 4);
         assert_eq!(result.shift, 2);
         assert!(result.correlation > 0.99);
+    }
+
+    #[test]
+    fn edge_magnitudes_preserve_geometry_across_contrast_inversion() {
+        let reference = [-8.0, 0.0, 3.0, 11.0, -5.0, 2.0];
+        let inverted = reference.map(|value| -value);
+        assert!(edge_profile_correlation(&reference, &inverted) < -0.99);
+        assert!(
+            edge_profile_correlation(&edge_magnitudes(&reference), &edge_magnitudes(&inverted),)
+                > 0.99
+        );
+    }
+
+    #[test]
+    fn polarity_independent_evidence_keeps_each_regions_stronger_measurement() {
+        let signed = ShiftEvidence {
+            shift: 3,
+            correlations: vec![0.8, 0.02, 0.4],
+            median_correlation: 0.4,
+            supporting_regions: 2,
+        };
+        let magnitude = ShiftEvidence {
+            shift: 3,
+            correlations: vec![0.3, 0.7, 0.1],
+            median_correlation: 0.3,
+            supporting_regions: 2,
+        };
+        let combined = combine_shift_evidence(&[signed], &[magnitude], &[true, true, false]);
+        assert_eq!(combined[0].correlations, [0.8, 0.7, 0.4]);
+        assert_eq!(combined[0].median_correlation, 0.75);
+        assert_eq!(combined[0].supporting_regions, 2);
     }
 
     #[test]
