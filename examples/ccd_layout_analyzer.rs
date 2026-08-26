@@ -231,6 +231,7 @@ struct WordPhaseAnalysisReport {
     registrations: Vec<WordPhaseRegistrationReport>,
     pairwise_registrations: Vec<WordPhasePairRegistrationReport>,
     sensor_offset_model: Option<SensorOffsetModelReport>,
+    flat_field_calibration: Option<FlatFieldCalibrationReport>,
     previews: Vec<WordPhasePreviewReport>,
     bright_edge_chroma_p95: f64,
     colored_bright_edge_fraction: f64,
@@ -245,6 +246,21 @@ struct SensorOffsetModelReport {
     fitted_line_pitch: i32,
     color_offsets: [i32; 3],
     independent_shifts: Vec<i32>,
+}
+
+#[derive(Debug, Serialize)]
+struct FlatFieldCalibrationReport {
+    method: String,
+    black_levels: Vec<u16>,
+    target_white_levels: Vec<u16>,
+    minimum_gains: Vec<f64>,
+    maximum_gains: Vec<f64>,
+    raw_bright_edge_chroma_p95: f64,
+    raw_colored_bright_edge_fraction: f64,
+    calibrated_bright_edge_chroma_p95: f64,
+    calibrated_colored_bright_edge_fraction: f64,
+    adopted: bool,
+    raw_previews: Vec<WordPhasePreviewReport>,
 }
 
 #[derive(Debug, Serialize)]
@@ -458,7 +474,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         nominal_words,
         start_byte_offset: args.start_byte_offset,
         ranking_note: "This is a diagnostic similarity ordering, not a serialization-layout ranking. TGCK-row modulo views are ordinary raster decimations: every residue naturally contains a copy of the scene, and larger moduli can score artificially well. They must not be interpreted as CCD lanes or used to assign RGB. The row-modulo-12 RGB experiment is disabled by default.".into(),
-        phase_layout_conclusion: if phase_registration_supported(&word_twelve_line_analysis)
+        phase_layout_conclusion: if word_twelve_line_analysis.accepted
+            && !phase_registration_supported(&word_block_analysis)
+        {
+            "Contiguous thirds are rejected. The BGR × four-line sensor diagram is consistent with the capture: all twelve word-modulo lanes register, and the inferred flat-field correction passes the RGB calibration gate."
+        } else if phase_registration_supported(&word_twelve_line_analysis)
             && !phase_registration_supported(&word_block_analysis)
         {
             "Contiguous thirds are rejected. The BGR × four-line sensor diagram is consistent with the capture: all twelve word-modulo lanes register, and four-tap reconstruction is the supported full-resolution model, although its RGB calibration gate still fails."
@@ -790,6 +810,7 @@ fn analyze_word_phases(
         registrations,
         pairwise_registrations,
         sensor_offset_model: None,
+        flat_field_calibration: None,
         previews,
         bright_edge_chroma_p95,
         colored_bright_edge_fraction,
@@ -932,7 +953,7 @@ fn analyze_twelve_line_phases(
         })
         .collect::<Vec<_>>();
 
-    let planes = render_twelve_line_planes(
+    let raw_planes = render_twelve_line_planes(
         capture,
         layout,
         &registrations,
@@ -940,8 +961,37 @@ fn analyze_twelve_line_phases(
         args.rgb_width,
         args.rgb_height,
     );
-    let (bright_edge_chroma_p95, colored_bright_edge_fraction) =
-        preview_registration_quality(&planes, args.rgb_width, args.rgb_height);
+    let (raw_bright_edge_chroma_p95, raw_colored_bright_edge_fraction) =
+        preview_registration_quality(&raw_planes, args.rgb_width, args.rgb_height);
+    let (calibrated_planes, mut flat_field_calibration) =
+        calibrate_flat_field(&raw_planes, args.rgb_width, args.rgb_height);
+    let (calibrated_bright_edge_chroma_p95, calibrated_colored_bright_edge_fraction) =
+        preview_registration_quality(&calibrated_planes, args.rgb_width, args.rgb_height);
+    let calibration_adopted = calibration_is_pareto_improvement(
+        raw_bright_edge_chroma_p95,
+        raw_colored_bright_edge_fraction,
+        calibrated_bright_edge_chroma_p95,
+        calibrated_colored_bright_edge_fraction,
+    );
+    flat_field_calibration.raw_bright_edge_chroma_p95 = raw_bright_edge_chroma_p95;
+    flat_field_calibration.raw_colored_bright_edge_fraction = raw_colored_bright_edge_fraction;
+    flat_field_calibration.calibrated_bright_edge_chroma_p95 = calibrated_bright_edge_chroma_p95;
+    flat_field_calibration.calibrated_colored_bright_edge_fraction =
+        calibrated_colored_bright_edge_fraction;
+    flat_field_calibration.adopted = calibration_adopted;
+    let (planes, bright_edge_chroma_p95, colored_bright_edge_fraction) = if calibration_adopted {
+        (
+            &calibrated_planes,
+            calibrated_bright_edge_chroma_p95,
+            calibrated_colored_bright_edge_fraction,
+        )
+    } else {
+        (
+            &raw_planes,
+            raw_bright_edge_chroma_p95,
+            raw_colored_bright_edge_fraction,
+        )
+    };
     let permutations = [
         [0, 1, 2],
         [0, 2, 1],
@@ -951,13 +1001,35 @@ fn analyze_twelve_line_phases(
         [2, 1, 0],
     ];
     let mut previews = Vec::new();
+    let mut raw_previews = Vec::new();
     for [red, green, blue] in permutations {
-        let file = format!("line12-r{red}-g{green}-b{blue}.bmp");
+        let raw_file = format!("line12-raw-r{red}-g{green}-b{blue}.bmp");
+        write_rgb_preview(
+            &args.output.join(&raw_file),
+            args.rgb_width,
+            args.rgb_height,
+            &raw_planes,
+            red,
+            green,
+            blue,
+        )?;
+        raw_previews.push(WordPhasePreviewReport {
+            red_phase: red,
+            green_phase: green,
+            blue_phase: blue,
+            file: raw_file,
+        });
+        let variant = if calibration_adopted {
+            "calibrated"
+        } else {
+            "uncalibrated"
+        };
+        let file = format!("line12-{variant}-r{red}-g{green}-b{blue}.bmp");
         write_rgb_preview(
             &args.output.join(&file),
             args.rgb_width,
             args.rgb_height,
-            &planes,
+            planes,
             red,
             green,
             blue,
@@ -969,6 +1041,7 @@ fn analyze_twelve_line_phases(
             file,
         });
     }
+    flat_field_calibration.raw_previews = raw_previews;
 
     let registrations_supported = pairwise_registrations.iter().all(|registration| {
         registration.supporting_regions >= required_region_support(registration.total_regions)
@@ -1006,6 +1079,7 @@ fn analyze_twelve_line_phases(
             color_offsets,
             independent_shifts,
         }),
+        flat_field_calibration: Some(flat_field_calibration),
         previews,
         bright_edge_chroma_p95,
         colored_bright_edge_fraction,
@@ -1989,6 +2063,123 @@ fn render_twelve_line_planes(
         .collect()
 }
 
+fn calibrate_flat_field(
+    planes: &[Vec<u16>],
+    width: usize,
+    height: usize,
+) -> (Vec<Vec<u16>>, FlatFieldCalibrationReport) {
+    const WHITE_PERCENTILE: usize = 85;
+    const LOCAL_RADIUS: usize = 16;
+    const MINIMUM_GAIN: f64 = 0.5;
+    const MAXIMUM_GAIN: f64 = 2.0;
+
+    let mut black_levels = Vec::with_capacity(planes.len());
+    let mut target_white_levels = Vec::with_capacity(planes.len());
+    let mut minimum_gains = Vec::with_capacity(planes.len());
+    let mut maximum_gains = Vec::with_capacity(planes.len());
+    let calibrated = planes
+        .iter()
+        .map(|plane| {
+            let mut all_values = plane.clone();
+            all_values.sort_unstable();
+            let black = percentile_of_sorted(&all_values, 1);
+            let raw_white = (0..width)
+                .map(|column| column_percentile(plane, width, height, column, WHITE_PERCENTILE))
+                .collect::<Vec<_>>();
+            let bounded_white = (0..width)
+                .map(|column| {
+                    let start = column.saturating_sub(LOCAL_RADIUS);
+                    let end = (column + LOCAL_RADIUS + 1).min(width);
+                    let mut neighborhood = raw_white[start..end].to_vec();
+                    neighborhood.sort_unstable();
+                    let local = percentile_of_sorted(&neighborhood, 50) as u32;
+                    let minimum = ((local * 3) / 4).max(black as u32 + 1);
+                    let maximum = ((local * 5) / 4).max(minimum);
+                    (raw_white[column] as u32).clamp(minimum, maximum) as u16
+                })
+                .collect::<Vec<_>>();
+            let mut ranked_white = bounded_white.clone();
+            ranked_white.sort_unstable();
+            let target_white = percentile_of_sorted(&ranked_white, 50);
+            let target_span = target_white.saturating_sub(black).max(1) as f64;
+            let gains = bounded_white
+                .iter()
+                .map(|&white| {
+                    let column_span = white.saturating_sub(black).max(1) as f64;
+                    (target_span / column_span).clamp(MINIMUM_GAIN, MAXIMUM_GAIN)
+                })
+                .collect::<Vec<_>>();
+            let minimum_gain = gains.iter().copied().fold(f64::INFINITY, f64::min);
+            let maximum_gain = gains.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            let corrected = plane
+                .iter()
+                .enumerate()
+                .map(|(index, &value)| {
+                    let signal = value.saturating_sub(black) as f64;
+                    (black as f64 + signal * gains[index % width])
+                        .round()
+                        .clamp(0.0, u16::MAX as f64) as u16
+                })
+                .collect::<Vec<_>>();
+            black_levels.push(black);
+            target_white_levels.push(target_white);
+            minimum_gains.push(minimum_gain);
+            maximum_gains.push(maximum_gain);
+            corrected
+        })
+        .collect::<Vec<_>>();
+
+    (
+        calibrated,
+        FlatFieldCalibrationReport {
+            method: "preview-scale inferred flat field: global 1st-percentile black, per-column 85th-percentile white bounded to ±25% of a 33-column local median, gain limited to 0.5×..2×".into(),
+            black_levels,
+            target_white_levels,
+            minimum_gains,
+            maximum_gains,
+            raw_bright_edge_chroma_p95: 0.0,
+            raw_colored_bright_edge_fraction: 0.0,
+            calibrated_bright_edge_chroma_p95: 0.0,
+            calibrated_colored_bright_edge_fraction: 0.0,
+            adopted: false,
+            raw_previews: Vec::new(),
+        },
+    )
+}
+
+fn calibration_is_pareto_improvement(
+    raw_chroma_p95: f64,
+    raw_colored_fraction: f64,
+    calibrated_chroma_p95: f64,
+    calibrated_colored_fraction: f64,
+) -> bool {
+    calibrated_chroma_p95 <= raw_chroma_p95
+        && calibrated_colored_fraction <= raw_colored_fraction
+        && (calibrated_chroma_p95 < raw_chroma_p95
+            || calibrated_colored_fraction < raw_colored_fraction)
+}
+
+fn column_percentile(
+    plane: &[u16],
+    width: usize,
+    height: usize,
+    column: usize,
+    percentile: usize,
+) -> u16 {
+    let mut values = (0..height)
+        .map(|row| plane[row * width + column])
+        .collect::<Vec<_>>();
+    values.sort_unstable();
+    percentile_of_sorted(&values, percentile)
+}
+
+fn percentile_of_sorted(values: &[u16], percentile: usize) -> u16 {
+    if values.is_empty() {
+        return 0;
+    }
+    values[(values.len() - 1) * percentile.min(100) / 100]
+}
+
 fn preview_registration_quality(planes: &[Vec<u16>], width: usize, height: usize) -> (f64, f64) {
     let ranges: Vec<(u16, u16)> = planes.iter().map(|plane| percentile_range(plane)).collect();
     let mut spreads = Vec::new();
@@ -2286,6 +2477,39 @@ fn write_html(path: &Path, report: &AnalysisReport) -> std::io::Result<()> {
             })
             .collect::<Vec<_>>()
         )?;
+        if let Some(calibration) = &word.flat_field_calibration {
+            writeln!(
+                writer,
+                "</div><h3>Inferred flat-field calibration</h3>\
+                 <p>{}. Adopted: <strong>{}</strong>.</p>\
+                 <p>Black levels: <code>{:?}</code>; target white levels: <code>{:?}</code>; gain ranges: <code>{:?}</code>–<code>{:?}</code>.</p>\
+                 <p>Raw chroma p95/fraction: {:.2}/{:.4}; calibrated: {:.2}/{:.4}.</p>\
+                 <h4>Raw comparison previews</h4><div style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:1em\">",
+                html_escape(&calibration.method),
+                calibration.adopted,
+                calibration.black_levels,
+                calibration.target_white_levels,
+                calibration.minimum_gains,
+                calibration.maximum_gains,
+                calibration.raw_bright_edge_chroma_p95,
+                calibration.raw_colored_bright_edge_fraction,
+                calibration.calibrated_bright_edge_chroma_p95,
+                calibration.calibrated_colored_bright_edge_fraction,
+            )?;
+            for preview in &calibration.raw_previews {
+                writeln!(
+                    writer,
+                    "<figure><figcaption>Raw: R=phase {}, G=phase {}, B=phase {}</figcaption>\
+                     <img src=\"{}\" alt=\"raw twelve-line RGB preview\"></figure>",
+                    preview.red_phase, preview.green_phase, preview.blue_phase, preview.file
+                )?;
+            }
+            writeln!(
+                writer,
+                "</div><h4>Automatically selected previews</h4>\
+                 <div style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:1em\">"
+            )?;
+        }
         for preview in &word.previews {
             writeln!(
                 writer,
@@ -2417,10 +2641,10 @@ fn width_from_tgck(offsets: &[usize]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::{
-        best_joint_phase_shifts, best_shift, best_three_groups_of_four, cyclically_order_group,
-        derivative, fit_twelve_line_offset_model, salient_edge_similarity,
-        select_informative_regions, vertical_shift_evidence, Capture, InterleaveAxis, Layout,
-        ShiftEvidence,
+        best_joint_phase_shifts, best_shift, best_three_groups_of_four, calibrate_flat_field,
+        calibration_is_pareto_improvement, column_percentile, cyclically_order_group, derivative,
+        fit_twelve_line_offset_model, salient_edge_similarity, select_informative_regions,
+        vertical_shift_evidence, Capture, InterleaveAxis, Layout, ShiftEvidence,
     };
 
     #[test]
@@ -2586,6 +2810,51 @@ mod tests {
         );
 
         assert_eq!(fitted, Some((pitch, color_offsets)));
+    }
+
+    #[test]
+    fn inferred_flat_field_reduces_column_gain_variation() {
+        let width = 8;
+        let height = 64;
+        let gains = [0.70, 0.82, 0.91, 1.0, 1.08, 1.17, 1.28, 1.40];
+        let plane = (0..height)
+            .flat_map(|row| {
+                gains.iter().enumerate().map(move |(column, gain)| {
+                    let signal = if row < 12 && (2..5).contains(&column) {
+                        100.0
+                    } else {
+                        1000.0
+                    };
+                    (50.0 + signal * gain) as u16
+                })
+            })
+            .collect::<Vec<_>>();
+        let raw_whites = (0..width)
+            .map(|column| column_percentile(&plane, width, height, column, 85))
+            .collect::<Vec<_>>();
+        let (calibrated, report) =
+            calibrate_flat_field(&[plane.clone(), plane.clone(), plane], width, height);
+        let corrected_whites = (0..width)
+            .map(|column| column_percentile(&calibrated[0], width, height, column, 85))
+            .collect::<Vec<_>>();
+        let raw_spread = raw_whites.iter().max().unwrap() - raw_whites.iter().min().unwrap();
+        let corrected_spread =
+            corrected_whites.iter().max().unwrap() - corrected_whites.iter().min().unwrap();
+
+        assert!(corrected_spread < raw_spread / 4);
+        assert_eq!(report.black_levels.len(), 3);
+        assert!(report.minimum_gains.iter().all(|gain| *gain >= 0.5));
+        assert!(report.maximum_gains.iter().all(|gain| *gain <= 2.0));
+    }
+
+    #[test]
+    fn calibration_adoption_rejects_tradeoffs_and_no_change() {
+        assert!(calibration_is_pareto_improvement(90.0, 0.18, 80.0, 0.12));
+        assert!(calibration_is_pareto_improvement(90.0, 0.18, 90.0, 0.12));
+        assert!(!calibration_is_pareto_improvement(
+            236.0, 0.828, 235.0, 0.837
+        ));
+        assert!(!calibration_is_pareto_improvement(90.0, 0.18, 90.0, 0.18));
     }
 
     #[test]
