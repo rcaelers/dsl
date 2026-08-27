@@ -241,6 +241,7 @@ struct WordPhaseAnalysisReport {
     stream_registration_diagnostic: Option<StreamRegistrationDiagnosticReport>,
     selected_rgb_assignment: Option<SelectedRgbAssignmentReport>,
     impulse_correction: Option<ImpulseCorrectionReport>,
+    residual_chroma: Option<ResidualChromaReport>,
     flat_field_calibration: Option<FlatFieldCalibrationReport>,
     previews: Vec<WordPhasePreviewReport>,
     bright_edge_chroma_p95: f64,
@@ -308,6 +309,19 @@ struct ImpulseCorrectionReport {
     corrected_bright_edge_chroma_p95: f64,
     corrected_colored_bright_edge_fraction: f64,
     adopted: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct ResidualChromaReport {
+    method: String,
+    conclusion: String,
+    file: String,
+    stream_line_order: [u8; 4],
+    shared_bright_pixels_by_stream_line: [usize; 4],
+    colored_pixels_by_stream_line: [usize; 4],
+    colored_fraction_by_stream_line: [f64; 4],
+    uniquely_high_pixels_by_rgb: [usize; 3],
+    uniquely_low_pixels_by_rgb: [usize; 3],
 }
 
 #[derive(Debug, Serialize)]
@@ -867,6 +881,7 @@ fn analyze_word_phases(
         stream_registration_diagnostic: None,
         selected_rgb_assignment: None,
         impulse_correction: None,
+        residual_chroma: None,
         flat_field_calibration: None,
         previews,
         bright_edge_chroma_p95,
@@ -1232,6 +1247,21 @@ fn analyze_twelve_line_phases(
             base_colored_bright_edge_fraction,
         )
     };
+    let residual_chroma_file = "line12-residual-chroma.bmp".to_owned();
+    let (residual_chroma, residual_chroma_pixels) = analyze_residual_chroma(
+        planes,
+        args.rgb_width,
+        args.rgb_height,
+        layout.dimensions(0).0 * 4,
+        [red_group, green_group, blue_group],
+        residual_chroma_file.clone(),
+    );
+    write_bmp_rgb(
+        &args.output.join(&residual_chroma_file),
+        args.rgb_width,
+        args.rgb_height,
+        &residual_chroma_pixels,
+    )?;
     let permutations = [
         [0, 1, 2],
         [0, 2, 1],
@@ -1339,6 +1369,7 @@ fn analyze_twelve_line_phases(
         }),
         selected_rgb_assignment: Some(selected_rgb_assignment),
         impulse_correction: Some(impulse_correction),
+        residual_chroma: Some(residual_chroma),
         flat_field_calibration: Some(flat_field_calibration),
         previews,
         bright_edge_chroma_p95,
@@ -2761,6 +2792,121 @@ fn preview_registration_quality(planes: &[Vec<u16>], width: usize, height: usize
     (p95, colored as f64 / spreads.len() as f64)
 }
 
+fn analyze_residual_chroma(
+    planes: &[Vec<u16>],
+    width: usize,
+    height: usize,
+    full_width: usize,
+    rgb_groups: [usize; 3],
+    file: String,
+) -> (ResidualChromaReport, Vec<u8>) {
+    let ranges: Vec<(u16, u16)> = planes.iter().map(|plane| percentile_range(plane)).collect();
+    let normalized = planes
+        .iter()
+        .zip(&ranges)
+        .map(|(plane, &(low, high))| {
+            plane
+                .iter()
+                .map(|&value| normalize(value, low, high))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    summarize_residual_chroma(&normalized, width, height, full_width, rgb_groups, file)
+}
+
+fn summarize_residual_chroma(
+    planes: &[Vec<u8>],
+    width: usize,
+    height: usize,
+    full_width: usize,
+    rgb_groups: [usize; 3],
+    file: String,
+) -> (ResidualChromaReport, Vec<u8>) {
+    const COLORED_SPREAD: u8 = 50;
+    const STREAM_LINE_ORDER: [u8; 4] = [2, 4, 1, 3];
+
+    let mut shared_bright = [0_usize; 4];
+    let mut colored = [0_usize; 4];
+    let mut uniquely_high_by_group = [0_usize; 3];
+    let mut uniquely_low_by_group = [0_usize; 3];
+    let mut pixels = Vec::with_capacity(width * height * 3);
+    for index in 0..width * height {
+        let values = [planes[0][index], planes[1][index], planes[2][index]];
+        let Some(spread) = shared_bright_chroma_spread(values) else {
+            pixels.extend_from_slice(&[0, 0, 0]);
+            continue;
+        };
+        let x = index % width;
+        let stream_line = proportional_index(x, width, full_width) % 4;
+        shared_bright[stream_line] += 1;
+        if spread < COLORED_SPREAD {
+            pixels.extend_from_slice(&[40, 40, 40]);
+            continue;
+        }
+        colored[stream_line] += 1;
+        if let Some(group) = unique_extreme_index(values, true) {
+            uniquely_high_by_group[group] += 1;
+        }
+        if let Some(group) = unique_extreme_index(values, false) {
+            uniquely_low_by_group[group] += 1;
+        }
+        let minimum = *values.iter().min().expect("three color groups") as u16;
+        let scale = spread.max(1) as u16;
+        let saturated = values.map(|value| ((value as u16 - minimum) * 255 / scale) as u8);
+        pixels.extend(rgb_groups.map(|group| saturated[group]));
+    }
+    let colored_fraction_by_stream_line = std::array::from_fn(|line| {
+        if shared_bright[line] == 0 {
+            0.0
+        } else {
+            colored[line] as f64 / shared_bright[line] as f64
+        }
+    });
+    let minimum_tap_fraction = colored_fraction_by_stream_line
+        .iter()
+        .copied()
+        .fold(f64::INFINITY, f64::min);
+    let maximum_tap_fraction = colored_fraction_by_stream_line
+        .iter()
+        .copied()
+        .fold(f64::NEG_INFINITY, f64::max);
+    let tap_bias_detected = maximum_tap_fraction - minimum_tap_fraction >= 0.05
+        && maximum_tap_fraction >= minimum_tap_fraction * 1.5;
+    let counts_by_rgb = |counts: [usize; 3]| rgb_groups.map(|group| counts[group]);
+    (
+        ResidualChromaReport {
+            method: "among pixels with at least two normalized channels >=160, classify spread >=50 by physical four-line tap; the mask is dark gray for neutral shared-bright pixels and maximally saturated for residual chroma".into(),
+            conclusion: if tap_bias_detected {
+                "residual chroma is concentrated in at least one physical CCD tap".into()
+            } else {
+                "residual chroma is balanced across the four physical CCD taps; no single serialized output explains it".into()
+            },
+            file,
+            stream_line_order: STREAM_LINE_ORDER,
+            shared_bright_pixels_by_stream_line: shared_bright,
+            colored_pixels_by_stream_line: colored,
+            colored_fraction_by_stream_line,
+            uniquely_high_pixels_by_rgb: counts_by_rgb(uniquely_high_by_group),
+            uniquely_low_pixels_by_rgb: counts_by_rgb(uniquely_low_by_group),
+        },
+        pixels,
+    )
+}
+
+fn unique_extreme_index(values: [u8; 3], highest: bool) -> Option<usize> {
+    let extreme = if highest {
+        *values.iter().max()?
+    } else {
+        *values.iter().min()?
+    };
+    let mut matches = values
+        .iter()
+        .enumerate()
+        .filter_map(|(index, &value)| (value == extreme).then_some(index));
+    let index = matches.next()?;
+    matches.next().is_none().then_some(index)
+}
+
 fn shared_bright_chroma_spread(mut values: [u8; 3]) -> Option<u8> {
     values.sort_unstable();
     (values[1] >= 160).then_some(values[2] - values[0])
@@ -3138,6 +3284,25 @@ fn write_html(path: &Path, report: &AnalysisReport) -> std::io::Result<()> {
                 correction.corrected_colored_bright_edge_fraction,
             )?;
         }
+        if let Some(residual) = &word.residual_chroma {
+            writeln!(
+                writer,
+                "<h3>Residual chroma attribution</h3>\
+                 <p>{}.</p><p><strong>{}.</strong></p>\
+                 <p>Physical stream-line order: <code>{:?}</code>. Shared-bright pixels: <code>{:?}</code>; colored pixels: <code>{:?}</code>; colored fractions: <code>{:.4?}</code>.</p>\
+                 <p>Unique high outliers by R/G/B: <code>{:?}</code>; unique low outliers by R/G/B: <code>{:?}</code>.</p>\
+                 <img src=\"{}\" alt=\"residual chroma location and direction mask\">",
+                html_escape(&residual.method),
+                html_escape(&residual.conclusion),
+                residual.stream_line_order,
+                residual.shared_bright_pixels_by_stream_line,
+                residual.colored_pixels_by_stream_line,
+                residual.colored_fraction_by_stream_line,
+                residual.uniquely_high_pixels_by_rgb,
+                residual.uniquely_low_pixels_by_rgb,
+                residual.file,
+            )?;
+        }
         writeln!(
             writer,
             "<div style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:1em\">"
@@ -3330,7 +3495,7 @@ mod tests {
         edge_magnitudes, edge_profile_correlation, fit_spatial_color_offsets,
         fit_twelve_line_offset_model, line_pitch_is_supported, rgb_groups_from_band_positions,
         salient_edge_similarity, select_informative_regions, shared_bright_chroma_spread,
-        vertical_shift_evidence,
+        summarize_residual_chroma, vertical_shift_evidence,
     };
 
     #[test]
@@ -3386,6 +3551,28 @@ mod tests {
         assert_eq!(shared_bright_chroma_spread([255, 4, 3]), None);
         assert_eq!(shared_bright_chroma_spread([255, 200, 190]), Some(65));
         assert_eq!(shared_bright_chroma_spread([220, 210, 200]), Some(20));
+    }
+
+    #[test]
+    fn residual_chroma_is_attributed_to_physical_tap_and_rgb_direction() {
+        let width = 8;
+        let height = 2;
+        let mut planes = vec![vec![200; width * height]; 3];
+        for row in 0..height {
+            planes[0][row * width + 1] = 255;
+            planes[1][row * width + 1] = 170;
+            planes[2][row * width + 1] = 170;
+        }
+
+        let (report, pixels) =
+            summarize_residual_chroma(&planes, width, height, width, [0, 1, 2], "mask.bmp".into());
+
+        assert_eq!(report.shared_bright_pixels_by_stream_line, [4; 4]);
+        assert_eq!(report.colored_pixels_by_stream_line, [0, 2, 0, 0]);
+        assert!(report.conclusion.contains("concentrated"));
+        assert_eq!(report.uniquely_high_pixels_by_rgb, [2, 0, 0]);
+        assert_eq!(report.uniquely_low_pixels_by_rgb, [0, 0, 0]);
+        assert_eq!(&pixels[3..6], &[255, 0, 0]);
     }
 
     #[test]
