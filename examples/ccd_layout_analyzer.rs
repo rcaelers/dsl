@@ -240,6 +240,7 @@ struct WordPhaseAnalysisReport {
     sensor_offset_model: Option<SensorOffsetModelReport>,
     stream_registration_diagnostic: Option<StreamRegistrationDiagnosticReport>,
     selected_rgb_assignment: Option<SelectedRgbAssignmentReport>,
+    impulse_correction: Option<ImpulseCorrectionReport>,
     flat_field_calibration: Option<FlatFieldCalibrationReport>,
     previews: Vec<WordPhasePreviewReport>,
     bright_edge_chroma_p95: f64,
@@ -293,6 +294,18 @@ struct FlatFieldCalibrationReport {
     calibrated_colored_bright_edge_fraction: f64,
     adopted: bool,
     raw_previews: Vec<WordPhasePreviewReport>,
+}
+
+#[derive(Debug, Serialize)]
+struct ImpulseCorrectionReport {
+    method: String,
+    corrected_pixels: Vec<usize>,
+    maximum_allowed_pixels_per_channel: usize,
+    raw_bright_edge_chroma_p95: f64,
+    raw_colored_bright_edge_fraction: f64,
+    corrected_bright_edge_chroma_p95: f64,
+    corrected_colored_bright_edge_fraction: f64,
+    adopted: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -851,6 +864,7 @@ fn analyze_word_phases(
         sensor_offset_model: None,
         stream_registration_diagnostic: None,
         selected_rgb_assignment: None,
+        impulse_correction: None,
         flat_field_calibration: None,
         previews,
         bright_edge_chroma_p95,
@@ -1138,18 +1152,56 @@ fn analyze_twelve_line_phases(
     );
     let (raw_bright_edge_chroma_p95, raw_colored_bright_edge_fraction) =
         preview_registration_quality(&raw_planes, args.rgb_width, args.rgb_height);
+    let (corrected_planes, corrected_pixels) =
+        correct_isolated_impulses(&raw_planes, args.rgb_width, args.rgb_height);
+    let (corrected_bright_edge_chroma_p95, corrected_colored_bright_edge_fraction) =
+        preview_registration_quality(&corrected_planes, args.rgb_width, args.rgb_height);
+    let maximum_allowed_pixels_per_channel = (args.rgb_width * args.rgb_height / 100).max(1);
+    let impulse_correction_adopted = corrected_pixels
+        .iter()
+        .all(|&count| count <= maximum_allowed_pixels_per_channel)
+        && calibration_is_pareto_improvement(
+            raw_bright_edge_chroma_p95,
+            raw_colored_bright_edge_fraction,
+            corrected_bright_edge_chroma_p95,
+            corrected_colored_bright_edge_fraction,
+        );
+    let impulse_correction = ImpulseCorrectionReport {
+        method: "rank isolated impulses whose eight-neighbor span is at most 4096 and whose center differs by at least max(2048, 8× neighborhood MAD), then replace the strongest at up to 1% per channel; adopt only on a Pareto chroma improvement".into(),
+        corrected_pixels,
+        maximum_allowed_pixels_per_channel,
+        raw_bright_edge_chroma_p95,
+        raw_colored_bright_edge_fraction,
+        corrected_bright_edge_chroma_p95,
+        corrected_colored_bright_edge_fraction,
+        adopted: impulse_correction_adopted,
+    };
+    let base_planes = if impulse_correction_adopted {
+        &corrected_planes
+    } else {
+        &raw_planes
+    };
+    let (base_bright_edge_chroma_p95, base_colored_bright_edge_fraction) =
+        if impulse_correction_adopted {
+            (
+                corrected_bright_edge_chroma_p95,
+                corrected_colored_bright_edge_fraction,
+            )
+        } else {
+            (raw_bright_edge_chroma_p95, raw_colored_bright_edge_fraction)
+        };
     let (calibrated_planes, mut flat_field_calibration) =
-        calibrate_flat_field(&raw_planes, args.rgb_width, args.rgb_height);
+        calibrate_flat_field(base_planes, args.rgb_width, args.rgb_height);
     let (calibrated_bright_edge_chroma_p95, calibrated_colored_bright_edge_fraction) =
         preview_registration_quality(&calibrated_planes, args.rgb_width, args.rgb_height);
     let calibration_adopted = calibration_is_pareto_improvement(
-        raw_bright_edge_chroma_p95,
-        raw_colored_bright_edge_fraction,
+        base_bright_edge_chroma_p95,
+        base_colored_bright_edge_fraction,
         calibrated_bright_edge_chroma_p95,
         calibrated_colored_bright_edge_fraction,
     );
-    flat_field_calibration.raw_bright_edge_chroma_p95 = raw_bright_edge_chroma_p95;
-    flat_field_calibration.raw_colored_bright_edge_fraction = raw_colored_bright_edge_fraction;
+    flat_field_calibration.raw_bright_edge_chroma_p95 = base_bright_edge_chroma_p95;
+    flat_field_calibration.raw_colored_bright_edge_fraction = base_colored_bright_edge_fraction;
     flat_field_calibration.calibrated_bright_edge_chroma_p95 = calibrated_bright_edge_chroma_p95;
     flat_field_calibration.calibrated_colored_bright_edge_fraction =
         calibrated_colored_bright_edge_fraction;
@@ -1162,9 +1214,9 @@ fn analyze_twelve_line_phases(
         )
     } else {
         (
-            &raw_planes,
-            raw_bright_edge_chroma_p95,
-            raw_colored_bright_edge_fraction,
+            base_planes,
+            base_bright_edge_chroma_p95,
+            base_colored_bright_edge_fraction,
         )
     };
     let permutations = [
@@ -1196,6 +1248,8 @@ fn analyze_twelve_line_phases(
         });
         let variant = if calibration_adopted {
             "calibrated"
+        } else if impulse_correction_adopted {
+            "despeckled"
         } else {
             "uncalibrated"
         };
@@ -1269,6 +1323,7 @@ fn analyze_twelve_line_phases(
             note: "Rows are captured color groups 0,1,2; their B/G/R identities come from the fitted cyclic phase rotation. Columns are serialized CCD lines 2,4,1,3. The left four columns use captured horizontal order and the right four mirror each stream. Fitted vertical offsets are applied. One percentile range per group row preserves relative brightness between its four streams.".into(),
         }),
         selected_rgb_assignment: Some(selected_rgb_assignment),
+        impulse_correction: Some(impulse_correction),
         flat_field_calibration: Some(flat_field_calibration),
         previews,
         bright_edge_chroma_p95,
@@ -2434,6 +2489,68 @@ fn render_twelve_line_planes(
         .collect()
 }
 
+fn correct_isolated_impulses(
+    planes: &[Vec<u16>],
+    width: usize,
+    height: usize,
+) -> (Vec<Vec<u16>>, Vec<usize>) {
+    const MAXIMUM_NEIGHBOR_SPAN: u16 = 4096;
+    const MINIMUM_DEVIATION: u16 = 2048;
+    const MAD_MULTIPLIER: u32 = 8;
+
+    let mut corrected_counts = Vec::with_capacity(planes.len());
+    let corrected = planes
+        .iter()
+        .map(|plane| {
+            let mut output = plane.clone();
+            let maximum_corrections = (width * height / 100).max(1);
+            let mut candidates = Vec::new();
+            if width < 3 || height < 3 {
+                corrected_counts.push(0);
+                return output;
+            }
+            for y in 1..height - 1 {
+                for x in 1..width - 1 {
+                    let index = y * width + x;
+                    let mut neighbors = [
+                        plane[index - width - 1],
+                        plane[index - width],
+                        plane[index - width + 1],
+                        plane[index - 1],
+                        plane[index + 1],
+                        plane[index + width - 1],
+                        plane[index + width],
+                        plane[index + width + 1],
+                    ];
+                    neighbors.sort_unstable();
+                    if neighbors[7] - neighbors[0] > MAXIMUM_NEIGHBOR_SPAN {
+                        continue;
+                    }
+                    let median = ((neighbors[3] as u32 + neighbors[4] as u32) / 2) as u16;
+                    let mut deviations = neighbors.map(|value| value.abs_diff(median));
+                    deviations.sort_unstable();
+                    let mad = ((deviations[3] as u32 + deviations[4] as u32) / 2) as u16;
+                    let threshold = (mad as u32 * MAD_MULTIPLIER)
+                        .max(MINIMUM_DEVIATION as u32)
+                        .min(u16::MAX as u32) as u16;
+                    let deviation = plane[index].abs_diff(median);
+                    if deviation >= threshold {
+                        candidates.push((deviation - threshold, index, median));
+                    }
+                }
+            }
+            candidates.sort_unstable_by_key(|candidate| std::cmp::Reverse(candidate.0));
+            candidates.truncate(maximum_corrections);
+            for &(_, index, median) in &candidates {
+                output[index] = median;
+            }
+            corrected_counts.push(candidates.len());
+            output
+        })
+        .collect();
+    (corrected, corrected_counts)
+}
+
 fn calibrate_flat_field(
     planes: &[Vec<u16>],
     width: usize,
@@ -2941,6 +3058,23 @@ fn write_html(path: &Path, report: &AnalysisReport) -> std::io::Result<()> {
                 html_escape(&assignment.source)
             )?;
         }
+        if let Some(correction) = &word.impulse_correction {
+            writeln!(
+                writer,
+                "<h3>Isolated impulse correction</h3>\
+                 <p>{}. Adopted: <strong>{}</strong>.</p>\
+                 <p>Corrected pixels by captured group: <code>{:?}</code> (maximum {} per group).</p>\
+                 <p>Raw chroma p95/fraction: {:.2}/{:.4}; corrected: {:.2}/{:.4}.</p>",
+                html_escape(&correction.method),
+                correction.adopted,
+                correction.corrected_pixels,
+                correction.maximum_allowed_pixels_per_channel,
+                correction.raw_bright_edge_chroma_p95,
+                correction.raw_colored_bright_edge_fraction,
+                correction.corrected_bright_edge_chroma_p95,
+                correction.corrected_colored_bright_edge_fraction,
+            )?;
+        }
         writeln!(
             writer,
             "<div style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:1em\">"
@@ -3129,10 +3263,10 @@ mod tests {
         CYCLIC_SERIALIZED_BRG_BAND_POSITIONS, Capture, InterleaveAxis, Layout, ShiftEvidence,
         best_joint_phase_shifts, best_shift, best_three_groups_of_four, calibrate_flat_field,
         calibration_is_pareto_improvement, chroma_quality_is_better, column_percentile,
-        combine_shift_evidence, cyclically_order_group, derivative, edge_magnitudes,
-        edge_profile_correlation, fit_spatial_color_offsets, fit_twelve_line_offset_model,
-        rgb_groups_from_band_positions, salient_edge_similarity, select_informative_regions,
-        shared_bright_chroma_spread, vertical_shift_evidence,
+        combine_shift_evidence, correct_isolated_impulses, cyclically_order_group, derivative,
+        edge_magnitudes, edge_profile_correlation, fit_spatial_color_offsets,
+        fit_twelve_line_offset_model, rgb_groups_from_band_positions, salient_edge_similarity,
+        select_informative_regions, shared_bright_chroma_spread, vertical_shift_evidence,
     };
 
     #[test]
@@ -3188,6 +3322,25 @@ mod tests {
         assert_eq!(shared_bright_chroma_spread([255, 4, 3]), None);
         assert_eq!(shared_bright_chroma_spread([255, 200, 190]), Some(65));
         assert_eq!(shared_bright_chroma_spread([220, 210, 200]), Some(20));
+    }
+
+    #[test]
+    fn impulse_correction_replaces_outlier_but_preserves_a_coherent_line() {
+        let width = 5;
+        let height = 5;
+        let mut impulse = vec![1000; width * height];
+        impulse[2 * width + 2] = 60_000;
+        let (corrected, counts) = correct_isolated_impulses(&[impulse], width, height);
+        assert_eq!(corrected[0][2 * width + 2], 1000);
+        assert_eq!(counts, [1]);
+
+        let mut line = vec![1000; width * height];
+        for row in 0..height {
+            line[row * width + 2] = 6000;
+        }
+        let (corrected, counts) = correct_isolated_impulses(&[line.clone()], width, height);
+        assert_eq!(corrected[0], line);
+        assert_eq!(counts, [0]);
     }
 
     #[test]
