@@ -272,6 +272,8 @@ struct SensorOffsetModelReport {
     stream_line_order: [u8; 4],
     line_offset_multipliers: [i32; 4],
     fitted_line_pitch: i32,
+    profile_line_pitch: i32,
+    line_pitch_source: String,
     color_pitch_source: String,
     color_band_positions: [u8; 3],
     color_offsets: [i32; 3],
@@ -970,7 +972,7 @@ fn analyze_twelve_line_phases(
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
-    let (line_pitch, profile_color_offsets) = fit_twelve_line_offset_model(
+    let (profile_line_pitch, profile_color_offsets) = fit_twelve_line_offset_model(
         &polarity_independent_reference_evidence,
         &within_color_evidence,
         &COLOR_LANES,
@@ -997,42 +999,53 @@ fn analyze_twelve_line_phases(
         args.max_row_shift,
     )
     .unwrap_or((profile_color_offsets, [1.0, 0.0, 0.0]));
-    let fitted_color_offsets = fit_color_offsets_by_chroma(
+    let fitted_offsets = fit_offsets_by_chroma(
         capture,
         layout,
-        line_pitch,
+        profile_line_pitch,
         &LINE_OFFSET_MULTIPLIERS,
         &COLOR_LANES,
         &polarity_independent_reference_evidence,
+        &within_color_evidence,
         informative_count,
         MINIMUM_LINE_SEPARATION,
         args.max_row_shift,
     );
-    let (color_fit, color_pitch_source) = if let Some(override_pitch) = args.color_pitch {
-        (
-            ColorOffsetFit {
-                pitch: override_pitch.abs(),
-                band_positions: if override_pitch >= 0 {
-                    [0, 1, 2]
-                } else {
-                    [2, 1, 0]
+    let (line_pitch, color_fit, line_pitch_source, color_pitch_source) =
+        if let Some(override_pitch) = args.color_pitch {
+            (
+                profile_line_pitch,
+                ColorOffsetFit {
+                    pitch: override_pitch.abs(),
+                    band_positions: if override_pitch >= 0 {
+                        [0, 1, 2]
+                    } else {
+                        [2, 1, 0]
+                    },
+                    offsets: [0, override_pitch, 2 * override_pitch],
                 },
-                offsets: [0, override_pitch, 2 * override_pitch],
-            },
-            "command-line color-pitch override with fixed captured group order",
-        )
-    } else if let Some(fitted) = fitted_color_offsets {
-        (fitted, "coarse-preview chroma and band-order search")
-    } else {
-        (
-            ColorOffsetFit {
-                pitch: spatial_edge_color_offsets[1].abs(),
-                band_positions: [0, 1, 2],
-                offsets: spatial_edge_color_offsets,
-            },
-            "2D edge fallback",
-        )
-    };
+                "registration-profile fit",
+                "command-line color-pitch override with fixed captured group order",
+            )
+        } else if let Some((fitted_line_pitch, fitted_color_offsets)) = fitted_offsets {
+            (
+                fitted_line_pitch,
+                fitted_color_offsets,
+                "geometry-gated local chroma refinement",
+                "coarse-preview chroma and band-order search",
+            )
+        } else {
+            (
+                profile_line_pitch,
+                ColorOffsetFit {
+                    pitch: spatial_edge_color_offsets[1].abs(),
+                    band_positions: [0, 1, 2],
+                    offsets: spatial_edge_color_offsets,
+                },
+                "registration-profile fit",
+                "2D edge fallback",
+            )
+        };
     if color_fit.pitch < MINIMUM_LINE_SEPARATION
         || color_fit
             .offsets
@@ -1291,7 +1304,7 @@ fn analyze_twelve_line_phases(
     Ok(WordPhaseAnalysisReport {
         layout: "word modulo 12: BGR × four CCD lines; stream line order 2,4,1,3".into(),
         registration_metric: format!(
-            "contrast-polarity-independent registration tree: color-band anchors are compared across color, then taps only within their band; physical lines 2,4,1,3 use [0,2d,-d,+d], fitted d={line_pitch}; equal-spaced band positions {:?} give offsets={color_offsets:?} selected by {color_pitch_source}",
+            "contrast-polarity-independent registration tree: color-band anchors are compared across color, then taps only within their band; physical lines 2,4,1,3 use [0,2d,-d,+d], fitted d={line_pitch} selected by {line_pitch_source}; equal-spaced band positions {:?} give offsets={color_offsets:?} selected by {color_pitch_source}",
             color_fit.band_positions
         ),
         logical_width: lane_width * 4,
@@ -1306,6 +1319,8 @@ fn analyze_twelve_line_phases(
             stream_line_order: [2, 4, 1, 3],
             line_offset_multipliers: LINE_OFFSET_MULTIPLIERS,
             fitted_line_pitch: line_pitch,
+            profile_line_pitch,
+            line_pitch_source: line_pitch_source.into(),
             color_pitch_source: color_pitch_source.into(),
             color_band_positions: color_fit.band_positions,
             color_offsets,
@@ -1458,80 +1473,128 @@ fn fit_spatial_color_offsets(
     Some(([0, pitch, 2 * pitch], best_color_correlations))
 }
 
-fn fit_color_offsets_by_chroma(
+fn fit_offsets_by_chroma(
     capture: &Capture<'_>,
     layout: Layout,
-    line_pitch: i32,
+    profile_line_pitch: i32,
     line_offset_multipliers: &[i32; 4],
     color_lanes: &[[usize; 4]; 3],
     reference_evidence: &[Vec<ShiftEvidence>],
+    within_color_evidence: &[Vec<Vec<ShiftEvidence>>],
     informative_regions: usize,
     minimum_color_separation: i32,
     maximum_shift: i32,
-) -> Option<ColorOffsetFit> {
+) -> Option<(i32, ColorOffsetFit)> {
     const SEARCH_WIDTH: usize = 320;
     const SEARCH_HEIGHT: usize = 180;
-    let mut best_fit = None;
+    const LINE_PITCH_REFINEMENT_RADIUS: i32 = 3;
+    let mut best_fit: Option<(i32, ColorOffsetFit)> = None;
     let mut best_quality = (f64::INFINITY, f64::INFINITY);
-    for band_positions in CYCLIC_SERIALIZED_BRG_BAND_POSITIONS {
-        for pitch in minimum_color_separation..=(maximum_shift / 2) {
-            let reference_position = band_positions[0] as i32;
-            let offsets =
-                band_positions.map(|position| (position as i32 - reference_position) * pitch);
-            let anchors_supported = (1..color_lanes.len()).all(|color| {
-                let evidence = shift_evidence_at(
-                    &reference_evidence[color_lanes[color][0]],
-                    offsets[color],
-                    maximum_shift,
-                );
-                evidence.median_correlation >= 0.10
-                    && evidence.supporting_regions >= required_region_support(informative_regions)
-            });
-            if !anchors_supported {
-                continue;
-            }
-            let mut shifts = [0; 12];
-            for (color, lanes) in color_lanes.iter().enumerate() {
-                for (tap, &lane) in lanes.iter().enumerate() {
-                    shifts[lane] = offsets[color] + line_offset_multipliers[tap] * line_pitch;
-                }
-            }
-            if shifts.iter().any(|shift| shift.abs() > maximum_shift) {
-                continue;
-            }
-            let registrations = shifts
-                .iter()
-                .enumerate()
-                .map(|(phase, &vertical_shift)| WordPhaseRegistrationReport {
-                    phase,
-                    vertical_shift,
-                    horizontal_shift: 0,
-                    median_edge_correlation: 0.0,
-                    supporting_regions: 0,
-                    total_regions: 0,
-                    region_correlations: Vec::new(),
-                })
-                .collect::<Vec<_>>();
-            let planes = render_twelve_line_planes(
-                capture,
-                layout,
-                &registrations,
-                color_lanes,
-                SEARCH_WIDTH,
-                SEARCH_HEIGHT,
-            );
-            let quality = preview_registration_quality(&planes, SEARCH_WIDTH, SEARCH_HEIGHT);
-            if chroma_quality_is_better(quality, best_quality) {
-                best_fit = Some(ColorOffsetFit {
-                    pitch,
-                    band_positions,
-                    offsets,
+    for line_pitch in (profile_line_pitch - LINE_PITCH_REFINEMENT_RADIUS)
+        ..=(profile_line_pitch + LINE_PITCH_REFINEMENT_RADIUS)
+    {
+        if line_pitch == 0 {
+            continue;
+        }
+        let taps_supported = line_pitch_is_supported(
+            line_pitch,
+            line_offset_multipliers,
+            within_color_evidence,
+            informative_regions,
+            maximum_shift,
+        );
+        if !taps_supported {
+            continue;
+        }
+        for band_positions in CYCLIC_SERIALIZED_BRG_BAND_POSITIONS {
+            for pitch in minimum_color_separation..=(maximum_shift / 2) {
+                let reference_position = band_positions[0] as i32;
+                let offsets =
+                    band_positions.map(|position| (position as i32 - reference_position) * pitch);
+                let anchors_supported = (1..color_lanes.len()).all(|color| {
+                    let evidence = shift_evidence_at(
+                        &reference_evidence[color_lanes[color][0]],
+                        offsets[color],
+                        maximum_shift,
+                    );
+                    evidence.median_correlation >= 0.10
+                        && evidence.supporting_regions
+                            >= required_region_support(informative_regions)
                 });
-                best_quality = quality;
+                if !anchors_supported {
+                    continue;
+                }
+                let mut shifts = [0; 12];
+                for (color, lanes) in color_lanes.iter().enumerate() {
+                    for (tap, &lane) in lanes.iter().enumerate() {
+                        shifts[lane] = offsets[color] + line_offset_multipliers[tap] * line_pitch;
+                    }
+                }
+                if shifts.iter().any(|shift| shift.abs() > maximum_shift) {
+                    continue;
+                }
+                let registrations = shifts
+                    .iter()
+                    .enumerate()
+                    .map(|(phase, &vertical_shift)| WordPhaseRegistrationReport {
+                        phase,
+                        vertical_shift,
+                        horizontal_shift: 0,
+                        median_edge_correlation: 0.0,
+                        supporting_regions: 0,
+                        total_regions: 0,
+                        region_correlations: Vec::new(),
+                    })
+                    .collect::<Vec<_>>();
+                let planes = render_twelve_line_planes(
+                    capture,
+                    layout,
+                    &registrations,
+                    color_lanes,
+                    SEARCH_WIDTH,
+                    SEARCH_HEIGHT,
+                );
+                let quality = preview_registration_quality(&planes, SEARCH_WIDTH, SEARCH_HEIGHT);
+                if chroma_quality_is_better(quality, best_quality)
+                    || (quality == best_quality
+                        && best_fit.is_none_or(|(best_line_pitch, _)| {
+                            line_pitch.abs_diff(profile_line_pitch)
+                                < best_line_pitch.abs_diff(profile_line_pitch)
+                        }))
+                {
+                    best_fit = Some((
+                        line_pitch,
+                        ColorOffsetFit {
+                            pitch,
+                            band_positions,
+                            offsets,
+                        },
+                    ));
+                    best_quality = quality;
+                }
             }
         }
     }
     best_fit
+}
+
+fn line_pitch_is_supported(
+    line_pitch: i32,
+    line_offset_multipliers: &[i32; 4],
+    within_color_evidence: &[Vec<Vec<ShiftEvidence>>],
+    informative_regions: usize,
+    maximum_shift: i32,
+) -> bool {
+    within_color_evidence.iter().all(|color| {
+        color.iter().enumerate().skip(1).all(|(tap, evidence)| {
+            let shift = line_offset_multipliers[tap] * line_pitch;
+            shift.abs() <= maximum_shift && {
+                let selected = shift_evidence_at(evidence, shift, maximum_shift);
+                selected.median_correlation >= 0.10
+                    && selected.supporting_regions >= required_region_support(informative_regions)
+            }
+        })
+    })
 }
 
 fn rgb_groups_from_band_positions(band_positions: [u8; 3]) -> Option<[usize; 3]> {
@@ -3265,8 +3328,9 @@ mod tests {
         calibration_is_pareto_improvement, chroma_quality_is_better, column_percentile,
         combine_shift_evidence, correct_isolated_impulses, cyclically_order_group, derivative,
         edge_magnitudes, edge_profile_correlation, fit_spatial_color_offsets,
-        fit_twelve_line_offset_model, rgb_groups_from_band_positions, salient_edge_similarity,
-        select_informative_regions, shared_bright_chroma_spread, vertical_shift_evidence,
+        fit_twelve_line_offset_model, line_pitch_is_supported, rgb_groups_from_band_positions,
+        salient_edge_similarity, select_informative_regions, shared_bright_chroma_spread,
+        vertical_shift_evidence,
     };
 
     #[test]
@@ -3498,6 +3562,47 @@ mod tests {
         );
 
         assert_eq!(fitted, Some((pitch, color_offsets)));
+    }
+
+    #[test]
+    fn line_pitch_refinement_requires_every_tap_to_keep_geometry_support() {
+        const MAXIMUM_SHIFT: i32 = 8;
+        const MULTIPLIERS: [i32; 4] = [0, 2, -1, 1];
+        let evidence = |supported_shift| {
+            (-MAXIMUM_SHIFT..=MAXIMUM_SHIFT)
+                .map(|shift| ShiftEvidence {
+                    shift,
+                    correlations: vec![if shift == supported_shift { 0.4 } else { 0.0 }; 4],
+                    median_correlation: if shift == supported_shift { 0.4 } else { 0.0 },
+                    supporting_regions: if shift == supported_shift { 4 } else { 0 },
+                })
+                .collect::<Vec<_>>()
+        };
+        let pitch = -2;
+        let mut within_color = (0..3)
+            .map(|_| {
+                MULTIPLIERS
+                    .iter()
+                    .map(|multiplier| evidence(multiplier * pitch))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        assert!(line_pitch_is_supported(
+            pitch,
+            &MULTIPLIERS,
+            &within_color,
+            4,
+            MAXIMUM_SHIFT,
+        ));
+        within_color[2][3] = evidence(1);
+        assert!(!line_pitch_is_supported(
+            pitch,
+            &MULTIPLIERS,
+            &within_color,
+            4,
+            MAXIMUM_SHIFT,
+        ));
     }
 
     #[test]

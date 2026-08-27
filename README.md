@@ -232,8 +232,9 @@ pipeline:
 
 - `ccd_viewer` provides interactive raw, phase, and RGB-hypothesis views.
 - `ccd_layout_analyzer` compares diagnostic layout views, performs a targeted
-  word-modulo-three registration across separated image regions, renders all
-  six RGB phase assignments, and writes an explicit accept/reject decision to
+  registration across separated image regions, reconstructs the V500's BGR ×
+  four-line CCD stream with geometry-gated automatic row-offset fitting, and
+  writes explicit calibration evidence and an accept/reject decision to
   HTML/JSON. TGCK-row modulo views are raster decimations, not CCD-lane proof.
 
 ## Documentation
