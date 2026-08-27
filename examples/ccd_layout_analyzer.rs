@@ -16,6 +16,9 @@ use serde::Serialize;
 
 const WORD_BYTES: usize = 2;
 const DEFAULT_MODULI: &[usize] = &[2, 3, 4, 6, 12];
+// Physical positions are B=0, G=1, R=2 per V500 service manual Figure 2-2.
+// A capture can begin at any phase of the observed serialized B,R,G cycle.
+const CYCLIC_SERIALIZED_BRG_BAND_POSITIONS: [[u8; 3]; 3] = [[0, 2, 1], [2, 1, 0], [1, 0, 2]];
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Rank candidate CCD lane layouts")]
@@ -236,6 +239,7 @@ struct WordPhaseAnalysisReport {
     pairwise_registrations: Vec<WordPhasePairRegistrationReport>,
     sensor_offset_model: Option<SensorOffsetModelReport>,
     stream_registration_diagnostic: Option<StreamRegistrationDiagnosticReport>,
+    selected_rgb_assignment: Option<SelectedRgbAssignmentReport>,
     flat_field_calibration: Option<FlatFieldCalibrationReport>,
     previews: Vec<WordPhasePreviewReport>,
     bright_edge_chroma_p95: f64,
@@ -245,9 +249,17 @@ struct WordPhaseAnalysisReport {
 }
 
 #[derive(Debug, Serialize)]
+struct SelectedRgbAssignmentReport {
+    red_group: usize,
+    green_group: usize,
+    blue_group: usize,
+    source: String,
+}
+
+#[derive(Debug, Serialize)]
 struct StreamRegistrationDiagnosticReport {
     file: String,
-    color_rows: [&'static str; 3],
+    captured_group_rows: [usize; 3],
     stream_line_columns: [u8; 4],
     lane_grid: [[usize; 4]; 3],
     normalization_ranges: [[u16; 2]; 3],
@@ -260,6 +272,7 @@ struct SensorOffsetModelReport {
     line_offset_multipliers: [i32; 4],
     fitted_line_pitch: i32,
     color_pitch_source: String,
+    color_band_positions: [u8; 3],
     color_offsets: [i32; 3],
     profile_color_offsets: [i32; 3],
     spatial_edge_color_offsets: [i32; 3],
@@ -299,6 +312,13 @@ struct ShiftEvidence {
     correlations: Vec<f64>,
     median_correlation: f64,
     supporting_regions: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ColorOffsetFit {
+    pitch: i32,
+    band_positions: [u8; 3],
+    offsets: [i32; 3],
 }
 
 #[derive(Debug, Serialize)]
@@ -830,6 +850,7 @@ fn analyze_word_phases(
         pairwise_registrations,
         sensor_offset_model: None,
         stream_registration_diagnostic: None,
+        selected_rgb_assignment: None,
         flat_field_calibration: None,
         previews,
         bright_edge_chroma_p95,
@@ -962,30 +983,64 @@ fn analyze_twelve_line_phases(
         args.max_row_shift,
     )
     .unwrap_or((profile_color_offsets, [1.0, 0.0, 0.0]));
-    let fitted_color_pitch = fit_color_pitch_by_chroma(
+    let fitted_color_offsets = fit_color_offsets_by_chroma(
         capture,
         layout,
         line_pitch,
         &LINE_OFFSET_MULTIPLIERS,
         &COLOR_LANES,
+        &polarity_independent_reference_evidence,
+        informative_count,
         MINIMUM_LINE_SEPARATION,
         args.max_row_shift,
     );
-    let (color_pitch, color_pitch_source) = if let Some(override_pitch) = args.color_pitch {
-        (override_pitch, "command-line color-pitch override")
-    } else if let Some(fitted_pitch) = fitted_color_pitch {
-        (fitted_pitch, "coarse-preview chroma search")
+    let (color_fit, color_pitch_source) = if let Some(override_pitch) = args.color_pitch {
+        (
+            ColorOffsetFit {
+                pitch: override_pitch.abs(),
+                band_positions: if override_pitch >= 0 {
+                    [0, 1, 2]
+                } else {
+                    [2, 1, 0]
+                },
+                offsets: [0, override_pitch, 2 * override_pitch],
+            },
+            "command-line color-pitch override with fixed captured group order",
+        )
+    } else if let Some(fitted) = fitted_color_offsets {
+        (fitted, "coarse-preview chroma and band-order search")
     } else {
-        (spatial_edge_color_offsets[1], "2D edge fallback")
+        (
+            ColorOffsetFit {
+                pitch: spatial_edge_color_offsets[1].abs(),
+                band_positions: [0, 1, 2],
+                offsets: spatial_edge_color_offsets,
+            },
+            "2D edge fallback",
+        )
     };
-    if color_pitch.abs() < MINIMUM_LINE_SEPARATION || (2 * color_pitch).abs() > args.max_row_shift {
+    if color_fit.pitch < MINIMUM_LINE_SEPARATION
+        || color_fit
+            .offsets
+            .iter()
+            .any(|offset| offset.abs() > args.max_row_shift)
+    {
         return Err(format!(
-            "color pitch {color_pitch} is outside the supported range: |pitch| must be at least {MINIMUM_LINE_SEPARATION} and |2*pitch| at most {}",
-            args.max_row_shift
+            "color fit {:?} is outside the supported range: pitch must be at least {MINIMUM_LINE_SEPARATION} and every offset at most {}",
+            color_fit, args.max_row_shift
         )
         .into());
     }
-    let color_offsets = [0, color_pitch, 2 * color_pitch];
+    let color_offsets = color_fit.offsets;
+    let [red_group, green_group, blue_group] =
+        rgb_groups_from_band_positions(color_fit.band_positions)
+            .expect("the color-band fit contains each physical B/G/R position exactly once");
+    let selected_rgb_assignment = SelectedRgbAssignmentReport {
+        red_group,
+        green_group,
+        blue_group,
+        source: "V500 service manual Figure 2-2 fixes physical band positions B,G,R; capture fitting selects a cyclic rotation of serialized B,R,G groups".into(),
+    };
     let structured_shifts = COLOR_LANES
         .iter()
         .enumerate()
@@ -1182,7 +1237,8 @@ fn analyze_twelve_line_phases(
     Ok(WordPhaseAnalysisReport {
         layout: "word modulo 12: BGR × four CCD lines; stream line order 2,4,1,3".into(),
         registration_metric: format!(
-            "contrast-polarity-independent registration tree: B/G/R anchors are compared across color, then taps only within their color; physical lines 2,4,1,3 use [0,2d,-d,+d], fitted d={line_pitch}; equal BGR band offsets={color_offsets:?} selected by {color_pitch_source}"
+            "contrast-polarity-independent registration tree: color-band anchors are compared across color, then taps only within their band; physical lines 2,4,1,3 use [0,2d,-d,+d], fitted d={line_pitch}; equal-spaced band positions {:?} give offsets={color_offsets:?} selected by {color_pitch_source}",
+            color_fit.band_positions
         ),
         logical_width: lane_width * 4,
         logical_height,
@@ -1197,6 +1253,7 @@ fn analyze_twelve_line_phases(
             line_offset_multipliers: LINE_OFFSET_MULTIPLIERS,
             fitted_line_pitch: line_pitch,
             color_pitch_source: color_pitch_source.into(),
+            color_band_positions: color_fit.band_positions,
             color_offsets,
             profile_color_offsets,
             spatial_edge_color_offsets,
@@ -1205,12 +1262,13 @@ fn analyze_twelve_line_phases(
         }),
         stream_registration_diagnostic: Some(StreamRegistrationDiagnosticReport {
             file: stream_diagnostic_file,
-            color_rows: ["B", "G", "R"],
+            captured_group_rows: [0, 1, 2],
             stream_line_columns: [2, 4, 1, 3],
             lane_grid: COLOR_LANES,
             normalization_ranges,
-            note: "Rows are captured B/G/R groups; columns are physical CCD lines 2,4,1,3. The left four columns use captured horizontal order and the right four mirror each stream. Fitted vertical offsets are applied. One percentile range per color row preserves relative brightness between its four streams.".into(),
+            note: "Rows are captured color groups 0,1,2; their B/G/R identities come from the fitted cyclic phase rotation. Columns are serialized CCD lines 2,4,1,3. The left four columns use captured horizontal order and the right four mirror each stream. Fitted vertical offsets are applied. One percentile range per group row preserves relative brightness between its four streams.".into(),
         }),
+        selected_rgb_assignment: Some(selected_rgb_assignment),
         flat_field_calibration: Some(flat_field_calibration),
         previews,
         bright_edge_chroma_p95,
@@ -1345,62 +1403,88 @@ fn fit_spatial_color_offsets(
     Some(([0, pitch, 2 * pitch], best_color_correlations))
 }
 
-fn fit_color_pitch_by_chroma(
+fn fit_color_offsets_by_chroma(
     capture: &Capture<'_>,
     layout: Layout,
     line_pitch: i32,
     line_offset_multipliers: &[i32; 4],
     color_lanes: &[[usize; 4]; 3],
+    reference_evidence: &[Vec<ShiftEvidence>],
+    informative_regions: usize,
     minimum_color_separation: i32,
     maximum_shift: i32,
-) -> Option<i32> {
+) -> Option<ColorOffsetFit> {
     const SEARCH_WIDTH: usize = 320;
     const SEARCH_HEIGHT: usize = 180;
-
-    let mut best_pitch = None;
+    let mut best_fit = None;
     let mut best_quality = (f64::INFINITY, f64::INFINITY);
-    for color_pitch in -(maximum_shift / 2)..=(maximum_shift / 2) {
-        if color_pitch.abs() < minimum_color_separation {
-            continue;
-        }
-        let mut shifts = [0; 12];
-        for (color, lanes) in color_lanes.iter().enumerate() {
-            for (tap, &lane) in lanes.iter().enumerate() {
-                shifts[lane] =
-                    color as i32 * color_pitch + line_offset_multipliers[tap] * line_pitch;
+    for band_positions in CYCLIC_SERIALIZED_BRG_BAND_POSITIONS {
+        for pitch in minimum_color_separation..=(maximum_shift / 2) {
+            let reference_position = band_positions[0] as i32;
+            let offsets =
+                band_positions.map(|position| (position as i32 - reference_position) * pitch);
+            let anchors_supported = (1..color_lanes.len()).all(|color| {
+                let evidence = shift_evidence_at(
+                    &reference_evidence[color_lanes[color][0]],
+                    offsets[color],
+                    maximum_shift,
+                );
+                evidence.median_correlation >= 0.10
+                    && evidence.supporting_regions >= required_region_support(informative_regions)
+            });
+            if !anchors_supported {
+                continue;
+            }
+            let mut shifts = [0; 12];
+            for (color, lanes) in color_lanes.iter().enumerate() {
+                for (tap, &lane) in lanes.iter().enumerate() {
+                    shifts[lane] = offsets[color] + line_offset_multipliers[tap] * line_pitch;
+                }
+            }
+            if shifts.iter().any(|shift| shift.abs() > maximum_shift) {
+                continue;
+            }
+            let registrations = shifts
+                .iter()
+                .enumerate()
+                .map(|(phase, &vertical_shift)| WordPhaseRegistrationReport {
+                    phase,
+                    vertical_shift,
+                    horizontal_shift: 0,
+                    median_edge_correlation: 0.0,
+                    supporting_regions: 0,
+                    total_regions: 0,
+                    region_correlations: Vec::new(),
+                })
+                .collect::<Vec<_>>();
+            let planes = render_twelve_line_planes(
+                capture,
+                layout,
+                &registrations,
+                color_lanes,
+                SEARCH_WIDTH,
+                SEARCH_HEIGHT,
+            );
+            let quality = preview_registration_quality(&planes, SEARCH_WIDTH, SEARCH_HEIGHT);
+            if chroma_quality_is_better(quality, best_quality) {
+                best_fit = Some(ColorOffsetFit {
+                    pitch,
+                    band_positions,
+                    offsets,
+                });
+                best_quality = quality;
             }
         }
-        if shifts.iter().any(|shift| shift.abs() > maximum_shift) {
-            continue;
-        }
-        let registrations = shifts
-            .iter()
-            .enumerate()
-            .map(|(phase, &vertical_shift)| WordPhaseRegistrationReport {
-                phase,
-                vertical_shift,
-                horizontal_shift: 0,
-                median_edge_correlation: 0.0,
-                supporting_regions: 0,
-                total_regions: 0,
-                region_correlations: Vec::new(),
-            })
-            .collect::<Vec<_>>();
-        let planes = render_twelve_line_planes(
-            capture,
-            layout,
-            &registrations,
-            color_lanes,
-            SEARCH_WIDTH,
-            SEARCH_HEIGHT,
-        );
-        let quality = preview_registration_quality(&planes, SEARCH_WIDTH, SEARCH_HEIGHT);
-        if chroma_quality_is_better(quality, best_quality) {
-            best_pitch = Some(color_pitch);
-            best_quality = quality;
-        }
     }
-    best_pitch
+    best_fit
+}
+
+fn rgb_groups_from_band_positions(band_positions: [u8; 3]) -> Option<[usize; 3]> {
+    Some([
+        band_positions.iter().position(|&position| position == 2)?,
+        band_positions.iter().position(|&position| position == 1)?,
+        band_positions.iter().position(|&position| position == 0)?,
+    ])
 }
 
 fn chroma_quality_is_better(candidate: (f64, f64), current: (f64, f64)) -> bool {
@@ -2482,10 +2566,7 @@ fn preview_registration_quality(planes: &[Vec<u16>], width: usize, height: usize
             normalize(*second, ranges[1].0, ranges[1].1),
             normalize(*third, ranges[2].0, ranges[2].1),
         ];
-        let minimum = *values.iter().min().unwrap_or(&0);
-        let maximum = *values.iter().max().unwrap_or(&0);
-        if maximum >= 160 {
-            let spread = maximum - minimum;
+        if let Some(spread) = shared_bright_chroma_spread(values) {
             spreads.push(spread);
             if spread >= 50 {
                 colored += 1;
@@ -2498,6 +2579,11 @@ fn preview_registration_quality(planes: &[Vec<u16>], width: usize, height: usize
     spreads.sort_unstable();
     let p95 = spreads[(spreads.len() * 95 / 100).min(spreads.len() - 1)] as f64;
     (p95, colored as f64 / spreads.len() as f64)
+}
+
+fn shared_bright_chroma_spread(mut values: [u8; 3]) -> Option<u8> {
+    values.sort_unstable();
+    (values[1] >= 160).then_some(values[2] - values[0])
 }
 
 fn write_rgb_preview(
@@ -2837,11 +2923,22 @@ fn write_html(path: &Path, report: &AnalysisReport) -> std::io::Result<()> {
                  <p>{}</p><p>Rows: <code>{:?}</code>; physical line columns: <code>{:?}</code>; lane grid: <code>{:?}</code>; normalization ranges: <code>{:?}</code>.</p>\
                  <img src=\"{}\" alt=\"registered CCD streams in captured and mirrored horizontal order\">",
                 html_escape(&diagnostic.note),
-                diagnostic.color_rows,
+                diagnostic.captured_group_rows,
                 diagnostic.stream_line_columns,
                 diagnostic.lane_grid,
                 diagnostic.normalization_ranges,
                 diagnostic.file
+            )?;
+        }
+        if let Some(assignment) = &word.selected_rgb_assignment {
+            writeln!(
+                writer,
+                "<h3>Selected RGB assignment</h3>\
+                 <p><strong>R=group {}, G=group {}, B=group {}</strong>. {}</p>",
+                assignment.red_group,
+                assignment.green_group,
+                assignment.blue_group,
+                html_escape(&assignment.source)
             )?;
         }
         writeln!(
@@ -2877,16 +2974,33 @@ fn write_html(path: &Path, report: &AnalysisReport) -> std::io::Result<()> {
             }
             writeln!(
                 writer,
-                "</div><h4>Automatically selected previews</h4>\
+                "</div><h4>Output comparison previews</h4>\
                  <div style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:1em\">"
             )?;
         }
         for preview in &word.previews {
+            let selected = word
+                .selected_rgb_assignment
+                .as_ref()
+                .is_some_and(|assignment| {
+                    preview.red_phase == assignment.red_group
+                        && preview.green_phase == assignment.green_group
+                        && preview.blue_phase == assignment.blue_group
+                });
             writeln!(
                 writer,
-                "<figure><figcaption>R=phase {}, G=phase {}, B=phase {}</figcaption>\
+                "<figure{}><figcaption>{}R=phase {}, G=phase {}, B=phase {}</figcaption>\
              <img src=\"{}\" alt=\"three-phase RGB preview\"></figure>",
-                preview.red_phase, preview.green_phase, preview.blue_phase, preview.file
+                if selected {
+                    " style=\"outline:3px solid #4c8\""
+                } else {
+                    ""
+                },
+                if selected { "SELECTED: " } else { "" },
+                preview.red_phase,
+                preview.green_phase,
+                preview.blue_phase,
+                preview.file
             )?;
         }
         writeln!(writer, "</div>")?;
@@ -3012,12 +3126,13 @@ fn width_from_tgck(offsets: &[usize]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Capture, InterleaveAxis, Layout, ShiftEvidence, best_joint_phase_shifts, best_shift,
-        best_three_groups_of_four, calibrate_flat_field, calibration_is_pareto_improvement,
-        chroma_quality_is_better, column_percentile, combine_shift_evidence,
-        cyclically_order_group, derivative, edge_magnitudes, edge_profile_correlation,
-        fit_spatial_color_offsets, fit_twelve_line_offset_model, salient_edge_similarity,
-        select_informative_regions, vertical_shift_evidence,
+        CYCLIC_SERIALIZED_BRG_BAND_POSITIONS, Capture, InterleaveAxis, Layout, ShiftEvidence,
+        best_joint_phase_shifts, best_shift, best_three_groups_of_four, calibrate_flat_field,
+        calibration_is_pareto_improvement, chroma_quality_is_better, column_percentile,
+        combine_shift_evidence, cyclically_order_group, derivative, edge_magnitudes,
+        edge_profile_correlation, fit_spatial_color_offsets, fit_twelve_line_offset_model,
+        rgb_groups_from_band_positions, salient_edge_similarity, select_informative_regions,
+        shared_bright_chroma_spread, vertical_shift_evidence,
     };
 
     #[test]
@@ -3027,6 +3142,14 @@ mod tests {
         let result = best_shift(&left, &right, 4);
         assert_eq!(result.shift, 2);
         assert!(result.correlation > 0.99);
+    }
+
+    #[test]
+    fn cyclic_brg_phase_rotations_map_to_physical_rgb_groups() {
+        assert_eq!(CYCLIC_SERIALIZED_BRG_BAND_POSITIONS.len(), 3);
+        assert_eq!(rgb_groups_from_band_positions([0, 2, 1]), Some([1, 2, 0]));
+        assert_eq!(rgb_groups_from_band_positions([1, 0, 2]), Some([2, 0, 1]));
+        assert_eq!(rgb_groups_from_band_positions([0, 0, 2]), None);
     }
 
     #[test]
@@ -3058,6 +3181,13 @@ mod tests {
         assert_eq!(combined[0].correlations, [0.8, 0.7, 0.4]);
         assert_eq!(combined[0].median_correlation, 0.75);
         assert_eq!(combined[0].supporting_regions, 2);
+    }
+
+    #[test]
+    fn chroma_gate_ignores_isolated_single_channel_brightness() {
+        assert_eq!(shared_bright_chroma_spread([255, 4, 3]), None);
+        assert_eq!(shared_bright_chroma_spread([255, 200, 190]), Some(65));
+        assert_eq!(shared_bright_chroma_spread([220, 210, 200]), Some(20));
     }
 
     #[test]
