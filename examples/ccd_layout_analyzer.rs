@@ -17,8 +17,16 @@ use serde::Serialize;
 const WORD_BYTES: usize = 2;
 const DEFAULT_MODULI: &[usize] = &[2, 3, 4, 6, 12];
 // Physical positions are B=0, G=1, R=2 per V500 service manual Figure 2-2.
-// A capture can begin at any phase of the observed serialized B,R,G cycle.
-const CYCLIC_SERIALIZED_BRG_BAND_POSITIONS: [[u8; 3]; 3] = [[0, 2, 1], [2, 1, 0], [1, 0, 2]];
+// A capture can begin at any phase and the carriage can traverse the bands in
+// either direction, so both cyclic B,R,G and B,G,R orders must be considered.
+const SERIALIZED_BAND_POSITIONS: [[u8; 3]; 6] = [
+    [0, 2, 1],
+    [2, 1, 0],
+    [1, 0, 2],
+    [0, 1, 2],
+    [1, 2, 0],
+    [2, 0, 1],
+];
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Rank candidate CCD lane layouts")]
@@ -30,6 +38,10 @@ struct Args {
     /// Output directory for report.json, report.html, and montages.
     #[arg(short, long, default_value = "ccd-layout-analysis")]
     output: PathBuf,
+
+    /// Write the accepted full-resolution registered image as 16-bit RGB PPM.
+    #[arg(long)]
+    decoded_image: Option<PathBuf>,
 
     /// Nominal TGCK interval width in bytes; median interval width if omitted.
     #[arg(short, long)]
@@ -240,6 +252,10 @@ struct WordPhaseAnalysisReport {
     sensor_offset_model: Option<SensorOffsetModelReport>,
     stream_registration_diagnostic: Option<StreamRegistrationDiagnosticReport>,
     selected_rgb_assignment: Option<SelectedRgbAssignmentReport>,
+    horizontal_registration: Option<HorizontalRegistrationReport>,
+    subrow_registration: Option<SubrowRegistrationReport>,
+    reference_calibration: Option<ReferenceCalibrationReport>,
+    decoded_image: Option<DecodedImageReport>,
     impulse_correction: Option<ImpulseCorrectionReport>,
     residual_chroma: Option<ResidualChromaReport>,
     flat_field_calibration: Option<FlatFieldCalibrationReport>,
@@ -256,6 +272,66 @@ struct SelectedRgbAssignmentReport {
     green_group: usize,
     blue_group: usize,
     source: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SubrowRegistrationReport {
+    units_per_row: i32,
+    integer_line_pitch_units: i32,
+    selected_line_pitch_units: i32,
+    integer_color_offsets_units: [i32; 3],
+    selected_color_offsets_units: [i32; 3],
+    selected_lane_offsets_units: Vec<i32>,
+    selected_color_skew_units: [i32; 3],
+    selected_lane_skew_units: Vec<i32>,
+    integer_bright_edge_chroma_p95: f64,
+    integer_colored_bright_edge_fraction: f64,
+    refined_bright_edge_chroma_p95: f64,
+    refined_colored_bright_edge_fraction: f64,
+    adopted: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct HorizontalRegistrationReport {
+    candidate_lane_column_offsets: Vec<i32>,
+    candidate_correlations: Vec<f64>,
+    zero_offset_bright_edge_chroma_p95: f64,
+    zero_offset_colored_bright_edge_fraction: f64,
+    shifted_bright_edge_chroma_p95: f64,
+    shifted_colored_bright_edge_fraction: f64,
+    adopted: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct ReferenceCalibrationReport {
+    interpretation: String,
+    white_file: String,
+    dark_file: String,
+    white_rows: usize,
+    dark_rows: usize,
+    valid_columns: usize,
+    total_columns: usize,
+    raw_bright_edge_chroma_p95: f64,
+    raw_colored_bright_edge_fraction: f64,
+    calibrated_bright_edge_chroma_p95: f64,
+    calibrated_colored_bright_edge_fraction: f64,
+    adopted: bool,
+}
+
+struct ReferenceCalibration {
+    report: ReferenceCalibrationReport,
+    dark: Vec<Vec<u16>>,
+    white: Vec<Vec<u16>>,
+}
+
+#[derive(Debug, Serialize)]
+struct DecodedImageReport {
+    file: String,
+    width: usize,
+    height: usize,
+    bits_per_channel: u8,
+    format: String,
+    processing: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -282,6 +358,13 @@ struct SensorOffsetModelReport {
     spatial_edge_color_offsets: [i32; 3],
     spatial_color_correlations: [f64; 3],
     independent_shifts: Vec<i32>,
+    calibrated_tap_pitch_candidates: Vec<LinePitchCandidateReport>,
+}
+
+#[derive(Debug, Serialize)]
+struct LinePitchCandidateReport {
+    line_pitch: i32,
+    median_profile_correlation: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -880,6 +963,10 @@ fn analyze_word_phases(
         sensor_offset_model: None,
         stream_registration_diagnostic: None,
         selected_rgb_assignment: None,
+        horizontal_registration: None,
+        subrow_registration: None,
+        reference_calibration: None,
+        decoded_image: None,
         impulse_correction: None,
         residual_chroma: None,
         flat_field_calibration: None,
@@ -894,7 +981,7 @@ fn analyze_word_phases(
 fn analyze_twelve_line_phases(
     capture: &Capture<'_>,
     layout: Layout,
-    _candidate: &CandidateReport,
+    candidate: &CandidateReport,
     args: &Args,
 ) -> Result<WordPhaseAnalysisReport, Box<dyn std::error::Error>> {
     const REFERENCE_LANE: usize = 0;
@@ -1014,6 +1101,8 @@ fn analyze_twelve_line_phases(
         args.max_row_shift,
     )
     .unwrap_or((profile_color_offsets, [1.0, 0.0, 0.0]));
+    let mut reference_calibration =
+        load_reference_calibration(&args.file, layout.nominal_words, args.start_byte_offset);
     let fitted_offsets = fit_offsets_by_chroma(
         capture,
         layout,
@@ -1025,29 +1114,26 @@ fn analyze_twelve_line_phases(
         informative_count,
         MINIMUM_LINE_SEPARATION,
         args.max_row_shift,
+        reference_calibration.as_ref(),
     );
-    let (line_pitch, color_fit, line_pitch_source, color_pitch_source) =
+    let (mut line_pitch, color_fit, mut line_pitch_source, color_pitch_source) =
         if let Some(override_pitch) = args.color_pitch {
             (
                 profile_line_pitch,
                 ColorOffsetFit {
                     pitch: override_pitch.abs(),
-                    band_positions: if override_pitch >= 0 {
-                        [0, 1, 2]
-                    } else {
-                        [2, 1, 0]
-                    },
-                    offsets: [0, override_pitch, 2 * override_pitch],
+                    band_positions: [0, 2, 1],
+                    offsets: [0, 2 * override_pitch, override_pitch],
                 },
                 "registration-profile fit",
-                "command-line color-pitch override with fixed captured group order",
+                "command-line color-pitch override with fixed captured B,R,G group order",
             )
         } else if let Some((fitted_line_pitch, fitted_color_offsets)) = fitted_offsets {
             (
                 fitted_line_pitch,
                 fitted_color_offsets,
                 "geometry-gated local chroma refinement",
-                "coarse-preview chroma and band-order search",
+                "captured-reference calibrated chroma and bidirectional band-order search",
             )
         } else {
             (
@@ -1061,6 +1147,21 @@ fn analyze_twelve_line_phases(
                 "2D edge fallback",
             )
         };
+    let calibrated_tap_pitch_candidates = reference_calibration
+        .as_ref()
+        .map(|calibration| {
+            let (calibrated_pitch, candidates) = fit_calibrated_tap_line_pitch(
+                capture,
+                layout,
+                &LINE_OFFSET_MULTIPLIERS,
+                &COLOR_LANES,
+                calibration,
+            );
+            line_pitch = calibrated_pitch;
+            line_pitch_source = "captured-reference calibrated full-row tap continuity";
+            candidates
+        })
+        .unwrap_or_default();
     if color_fit.pitch < MINIMUM_LINE_SEPARATION
         || color_fit
             .offsets
@@ -1081,7 +1182,7 @@ fn analyze_twelve_line_phases(
         red_group,
         green_group,
         blue_group,
-        source: "V500 service manual Figure 2-2 fixes physical band positions B,G,R; capture fitting selects a cyclic rotation of serialized B,R,G groups".into(),
+        source: "V500 service manual Figure 2-2 fixes physical band positions B,G,R; calibrated capture fitting selects the serialized phase and carriage traversal direction".into(),
     };
     let structured_shifts = COLOR_LANES
         .iter()
@@ -1111,7 +1212,7 @@ fn analyze_twelve_line_phases(
         })
         .collect::<Vec<_>>();
 
-    let registrations = selected
+    let mut registrations = selected
         .iter()
         .enumerate()
         .map(|(lane, evidence)| WordPhaseRegistrationReport {
@@ -1159,6 +1260,76 @@ fn analyze_twelve_line_phases(
         }
     }
 
+    let candidate_lane_column_offsets = (0..12)
+        .map(|lane| pair_offsets(&candidate.pairs, REFERENCE_LANE, lane).1)
+        .collect::<Vec<_>>();
+    let candidate_correlations = (0..12)
+        .map(|lane| {
+            if lane == REFERENCE_LANE {
+                1.0
+            } else {
+                candidate
+                    .pairs
+                    .iter()
+                    .find(|pair| {
+                        (pair.lane_a == REFERENCE_LANE && pair.lane_b == lane)
+                            || (pair.lane_b == REFERENCE_LANE && pair.lane_a == lane)
+                    })
+                    .expect("all lane pairs are present")
+                    .horizontal
+                    .correlation
+            }
+        })
+        .collect::<Vec<_>>();
+    let zero_offset_planes = render_twelve_line_planes(
+        capture,
+        layout,
+        &registrations,
+        &COLOR_LANES,
+        args.rgb_width,
+        args.rgb_height,
+    );
+    let zero_offset_quality =
+        preview_registration_quality(&zero_offset_planes, args.rgb_width, args.rgb_height);
+    for (registration, &column_offset) in
+        registrations.iter_mut().zip(&candidate_lane_column_offsets)
+    {
+        registration.horizontal_shift = column_offset;
+    }
+    let shifted_planes = render_twelve_line_planes(
+        capture,
+        layout,
+        &registrations,
+        &COLOR_LANES,
+        args.rgb_width,
+        args.rgb_height,
+    );
+    let shifted_quality =
+        preview_registration_quality(&shifted_planes, args.rgb_width, args.rgb_height);
+    let horizontal_registration_adopted = candidate_correlations
+        .iter()
+        .all(|correlation| *correlation >= 0.10)
+        && registration_improvement_is_meaningful(
+            zero_offset_quality.0,
+            zero_offset_quality.1,
+            shifted_quality.0,
+            shifted_quality.1,
+        );
+    if !horizontal_registration_adopted {
+        for registration in &mut registrations {
+            registration.horizontal_shift = 0;
+        }
+    }
+    let horizontal_registration = HorizontalRegistrationReport {
+        candidate_lane_column_offsets,
+        candidate_correlations,
+        zero_offset_bright_edge_chroma_p95: zero_offset_quality.0,
+        zero_offset_colored_bright_edge_fraction: zero_offset_quality.1,
+        shifted_bright_edge_chroma_p95: shifted_quality.0,
+        shifted_colored_bright_edge_fraction: shifted_quality.1,
+        adopted: horizontal_registration_adopted,
+    };
+
     let stream_diagnostic_file = "line12-registered-streams-normal-vs-mirrored.bmp".to_owned();
     let normalization_ranges = write_registered_stream_diagnostic(
         capture,
@@ -1170,7 +1341,7 @@ fn analyze_twelve_line_phases(
         &args.output.join(&stream_diagnostic_file),
     )?;
 
-    let raw_planes = render_twelve_line_planes(
+    let integer_raw_planes = render_twelve_line_planes(
         capture,
         layout,
         &registrations,
@@ -1178,10 +1349,79 @@ fn analyze_twelve_line_phases(
         args.rgb_width,
         args.rgb_height,
     );
+    let (subrow_registration, raw_planes) = refine_subrow_registration(
+        capture,
+        layout,
+        &integer_raw_planes,
+        &registrations
+            .iter()
+            .map(|registration| registration.horizontal_shift)
+            .collect::<Vec<_>>(),
+        line_pitch,
+        color_fit,
+        &LINE_OFFSET_MULTIPLIERS,
+        &COLOR_LANES,
+        &polarity_independent_reference_evidence,
+        &within_color_evidence,
+        informative_count,
+        args.max_row_shift,
+        args.rgb_width,
+        args.rgb_height,
+        reference_calibration.as_ref(),
+    );
     let (raw_bright_edge_chroma_p95, raw_colored_bright_edge_fraction) =
         preview_registration_quality(&raw_planes, args.rgb_width, args.rgb_height);
+    let lane_column_offsets = registrations
+        .iter()
+        .map(|registration| registration.horizontal_shift)
+        .collect::<Vec<_>>();
+    let reference_calibrated_planes = reference_calibration.as_ref().map(|calibration| {
+        apply_reference_calibration(
+            &raw_planes,
+            args.rgb_width,
+            args.rgb_height,
+            layout,
+            &lane_column_offsets,
+            &COLOR_LANES,
+            calibration,
+        )
+    });
+    let reference_calibrated_quality = reference_calibrated_planes
+        .as_ref()
+        .map(|planes| preview_registration_quality(planes, args.rgb_width, args.rgb_height));
+    let reference_calibration_adopted = reference_calibrated_quality.is_some_and(|quality| {
+        calibration_is_pareto_improvement(
+            raw_bright_edge_chroma_p95,
+            raw_colored_bright_edge_fraction,
+            quality.0,
+            quality.1,
+        )
+    });
+    if let (Some(calibration), Some(quality)) =
+        (&mut reference_calibration, reference_calibrated_quality)
+    {
+        calibration.report.raw_bright_edge_chroma_p95 = raw_bright_edge_chroma_p95;
+        calibration.report.raw_colored_bright_edge_fraction = raw_colored_bright_edge_fraction;
+        calibration.report.calibrated_bright_edge_chroma_p95 = quality.0;
+        calibration.report.calibrated_colored_bright_edge_fraction = quality.1;
+        calibration.report.adopted = reference_calibration_adopted;
+    }
+    let (pre_impulse_planes, pre_impulse_quality) = if reference_calibration_adopted {
+        (
+            reference_calibrated_planes
+                .as_ref()
+                .expect("an adopted reference calibration has calibrated planes"),
+            reference_calibrated_quality
+                .expect("an adopted reference calibration has quality metrics"),
+        )
+    } else {
+        (
+            &raw_planes,
+            (raw_bright_edge_chroma_p95, raw_colored_bright_edge_fraction),
+        )
+    };
     let (corrected_planes, corrected_pixels) =
-        correct_isolated_impulses(&raw_planes, args.rgb_width, args.rgb_height);
+        correct_isolated_impulses(pre_impulse_planes, args.rgb_width, args.rgb_height);
     let (corrected_bright_edge_chroma_p95, corrected_colored_bright_edge_fraction) =
         preview_registration_quality(&corrected_planes, args.rgb_width, args.rgb_height);
     let maximum_allowed_pixels_per_channel = (args.rgb_width * args.rgb_height / 100).max(1);
@@ -1189,8 +1429,8 @@ fn analyze_twelve_line_phases(
         .iter()
         .all(|&count| count <= maximum_allowed_pixels_per_channel)
         && calibration_is_pareto_improvement(
-            raw_bright_edge_chroma_p95,
-            raw_colored_bright_edge_fraction,
+            pre_impulse_quality.0,
+            pre_impulse_quality.1,
             corrected_bright_edge_chroma_p95,
             corrected_colored_bright_edge_fraction,
         );
@@ -1198,8 +1438,8 @@ fn analyze_twelve_line_phases(
         method: "rank isolated impulses whose eight-neighbor span is at most 4096 and whose center differs by at least max(2048, 8× neighborhood MAD), then replace the strongest at up to 1% per channel; adopt only on a Pareto chroma improvement".into(),
         corrected_pixels,
         maximum_allowed_pixels_per_channel,
-        raw_bright_edge_chroma_p95,
-        raw_colored_bright_edge_fraction,
+        raw_bright_edge_chroma_p95: pre_impulse_quality.0,
+        raw_colored_bright_edge_fraction: pre_impulse_quality.1,
         corrected_bright_edge_chroma_p95,
         corrected_colored_bright_edge_fraction,
         adopted: impulse_correction_adopted,
@@ -1207,7 +1447,7 @@ fn analyze_twelve_line_phases(
     let base_planes = if impulse_correction_adopted {
         &corrected_planes
     } else {
-        &raw_planes
+        pre_impulse_planes
     };
     let (base_bright_edge_chroma_p95, base_colored_bright_edge_fraction) =
         if impulse_correction_adopted {
@@ -1216,7 +1456,7 @@ fn analyze_twelve_line_phases(
                 corrected_colored_bright_edge_fraction,
             )
         } else {
-            (raw_bright_edge_chroma_p95, raw_colored_bright_edge_fraction)
+            pre_impulse_quality
         };
     let (calibrated_planes, mut flat_field_calibration) =
         calibrate_flat_field(base_planes, args.rgb_width, args.rgb_height);
@@ -1315,11 +1555,24 @@ fn analyze_twelve_line_phases(
     }
     flat_field_calibration.raw_previews = raw_previews;
 
-    let registrations_supported = pairwise_registrations.iter().all(|registration| {
+    let registration_is_supported = |registration: &WordPhasePairRegistrationReport| {
         registration.supporting_regions >= required_region_support(registration.total_regions)
             && registration.median_edge_correlation >= 0.10
-    });
+    };
+    let cross_color_registrations_supported = pairwise_registrations
+        .iter()
+        .take(2)
+        .all(registration_is_supported);
+    let within_color_registrations_supported = pairwise_registrations
+        .iter()
+        .skip(2)
+        .all(registration_is_supported);
     let chroma_supported = bright_edge_chroma_p95 <= 80.0 && colored_bright_edge_fraction <= 0.25;
+    let calibrated_color_geometry_supported = reference_calibration_adopted
+        && bright_edge_chroma_p95 <= 50.0
+        && colored_bright_edge_fraction <= 0.05;
+    let registrations_supported = within_color_registrations_supported
+        && (cross_color_registrations_supported || calibrated_color_geometry_supported);
     let accepted = registrations_supported && chroma_supported;
     let decision = if accepted {
         "twelve registered CCD lines reconstruct consistent color planes"
@@ -1329,12 +1582,33 @@ fn analyze_twelve_line_phases(
         "rejected: twelve-line reconstruction retains excessive bright-edge color separation"
     }
     .into();
+    let decoded_image = if let Some(path) = &args.decoded_image {
+        if !accepted {
+            return Err("refusing full-resolution export because the twelve-line decoder has not passed its geometry and color gates".into());
+        }
+        Some(write_full_resolution_ppm(
+            path,
+            capture,
+            layout,
+            &subrow_registration.selected_lane_offsets_units,
+            &subrow_registration.selected_lane_skew_units,
+            subrow_registration.units_per_row,
+            &lane_column_offsets,
+            &COLOR_LANES,
+            [red_group, green_group, blue_group],
+            reference_calibration
+                .as_ref()
+                .filter(|calibration| calibration.report.adopted),
+        )?)
+    } else {
+        None
+    };
     let (lane_width, logical_height) = layout.dimensions(0);
 
     Ok(WordPhaseAnalysisReport {
         layout: "word modulo 12: BGR × four CCD lines; stream line order 2,4,1,3".into(),
         registration_metric: format!(
-            "contrast-polarity-independent registration tree: color-band anchors are compared across color, then taps only within their band; physical lines 2,4,1,3 use [0,2d,-d,+d], fitted d={line_pitch} selected by {line_pitch_source}; equal-spaced band positions {:?} give offsets={color_offsets:?} selected by {color_pitch_source}",
+            "contrast-polarity-independent registration tree: taps are registered within each color band; cross-band candidates use captured-reference calibrated neutral-edge chroma when references pass validation, otherwise direct color-band edge anchors; physical lines 2,4,1,3 use [0,2d,-d,+d], fitted d={line_pitch} selected by {line_pitch_source}; equal-spaced band positions {:?} give offsets={color_offsets:?} selected by {color_pitch_source}",
             color_fit.band_positions
         ),
         logical_width: lane_width * 4,
@@ -1358,6 +1632,7 @@ fn analyze_twelve_line_phases(
             spatial_edge_color_offsets,
             spatial_color_correlations,
             independent_shifts,
+            calibrated_tap_pitch_candidates,
         }),
         stream_registration_diagnostic: Some(StreamRegistrationDiagnosticReport {
             file: stream_diagnostic_file,
@@ -1368,6 +1643,10 @@ fn analyze_twelve_line_phases(
             note: "Rows are captured color groups 0,1,2; their B/G/R identities come from the fitted cyclic phase rotation. Columns are serialized CCD lines 2,4,1,3. The left four columns use captured horizontal order and the right four mirror each stream. Fitted vertical offsets are applied. One percentile range per group row preserves relative brightness between its four streams.".into(),
         }),
         selected_rgb_assignment: Some(selected_rgb_assignment),
+        horizontal_registration: Some(horizontal_registration),
+        subrow_registration: Some(subrow_registration),
+        reference_calibration: reference_calibration.map(|calibration| calibration.report),
+        decoded_image,
         impulse_correction: Some(impulse_correction),
         residual_chroma: Some(residual_chroma),
         flat_field_calibration: Some(flat_field_calibration),
@@ -1504,6 +1783,76 @@ fn fit_spatial_color_offsets(
     Some(([0, pitch, 2 * pitch], best_color_correlations))
 }
 
+fn fit_calibrated_tap_line_pitch(
+    capture: &Capture<'_>,
+    layout: Layout,
+    line_offset_multipliers: &[i32; 4],
+    color_lanes: &[[usize; 4]; 3],
+    calibration: &ReferenceCalibration,
+) -> (i32, Vec<LinePitchCandidateReport>) {
+    const MAXIMUM_LINE_PITCH: i32 = 12;
+    const COLUMN_SAMPLES: usize = 256;
+
+    let (lane_width, logical_height) = layout.dimensions(0);
+    let mut candidates = Vec::new();
+    for line_pitch in -MAXIMUM_LINE_PITCH..=MAXIMUM_LINE_PITCH {
+        let offsets = line_offset_multipliers.map(|multiplier| multiplier * line_pitch);
+        let (row_origin, rows) = common_overlap(logical_height, &offsets);
+        let mut correlations = Vec::with_capacity(9);
+        for lanes in color_lanes {
+            let profiles = lanes
+                .iter()
+                .enumerate()
+                .map(|(tap, &lane)| {
+                    let offset = offsets[tap];
+                    (0..rows)
+                        .map(|row| {
+                            let source_row =
+                                (row_origin as i64 + row as i64 + offset as i64) as usize;
+                            let sum = (0..COLUMN_SAMPLES)
+                                .map(|sample| {
+                                    let column =
+                                        proportional_index(sample, COLUMN_SAMPLES, lane_width);
+                                    let value = capture
+                                        .layout_word(layout, lane, source_row, column)
+                                        .unwrap_or(0);
+                                    calibrate_reference_word(value, lane, column, calibration)
+                                        as f64
+                                })
+                                .sum::<f64>();
+                            sum / COLUMN_SAMPLES as f64
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+            let derivatives = profiles
+                .iter()
+                .map(|profile| derivative(profile))
+                .collect::<Vec<_>>();
+            for tap in 1..4 {
+                let broad = edge_profile_correlation(&derivatives[0], &derivatives[tap]).max(0.0);
+                let salient = salient_edge_similarity(&derivatives[0], &derivatives[tap]).max(0.0);
+                correlations.push((broad + salient) * 0.5);
+            }
+        }
+        candidates.push(LinePitchCandidateReport {
+            line_pitch,
+            median_profile_correlation: median(&correlations),
+        });
+    }
+    let selected = candidates
+        .iter()
+        .max_by(|left, right| {
+            left.median_profile_correlation
+                .partial_cmp(&right.median_profile_correlation)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| right.line_pitch.abs().cmp(&left.line_pitch.abs()))
+        })
+        .map_or(0, |candidate| candidate.line_pitch);
+    (selected, candidates)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn fit_offsets_by_chroma(
     capture: &Capture<'_>,
     layout: Layout,
@@ -1515,11 +1864,13 @@ fn fit_offsets_by_chroma(
     informative_regions: usize,
     minimum_color_separation: i32,
     maximum_shift: i32,
+    reference_calibration: Option<&ReferenceCalibration>,
 ) -> Option<(i32, ColorOffsetFit)> {
     const SEARCH_WIDTH: usize = 320;
     const SEARCH_HEIGHT: usize = 180;
     const LINE_PITCH_REFINEMENT_RADIUS: i32 = 3;
     let mut best_fit: Option<(i32, ColorOffsetFit)> = None;
+    let mut best_registration_score = (f64::NEG_INFINITY, 0, f64::NEG_INFINITY);
     let mut best_quality = (f64::INFINITY, f64::INFINITY);
     for line_pitch in (profile_line_pitch - LINE_PITCH_REFINEMENT_RADIUS)
         ..=(profile_line_pitch + LINE_PITCH_REFINEMENT_RADIUS)
@@ -1537,24 +1888,11 @@ fn fit_offsets_by_chroma(
         if !taps_supported {
             continue;
         }
-        for band_positions in CYCLIC_SERIALIZED_BRG_BAND_POSITIONS {
+        for band_positions in SERIALIZED_BAND_POSITIONS {
             for pitch in minimum_color_separation..=(maximum_shift / 2) {
                 let reference_position = band_positions[0] as i32;
                 let offsets =
                     band_positions.map(|position| (position as i32 - reference_position) * pitch);
-                let anchors_supported = (1..color_lanes.len()).all(|color| {
-                    let evidence = shift_evidence_at(
-                        &reference_evidence[color_lanes[color][0]],
-                        offsets[color],
-                        maximum_shift,
-                    );
-                    evidence.median_correlation >= 0.10
-                        && evidence.supporting_regions
-                            >= required_region_support(informative_regions)
-                });
-                if !anchors_supported {
-                    continue;
-                }
                 let mut shifts = [0; 12];
                 for (color, lanes) in color_lanes.iter().enumerate() {
                     for (tap, &lane) in lanes.iter().enumerate() {
@@ -1564,6 +1902,26 @@ fn fit_offsets_by_chroma(
                 if shifts.iter().any(|shift| shift.abs() > maximum_shift) {
                     continue;
                 }
+                let anchor_evidence = (1..color_lanes.len())
+                    .flat_map(|color| {
+                        color_lanes[color].iter().map(move |&lane| {
+                            shift_evidence_at(
+                                &reference_evidence[lane],
+                                shifts[lane],
+                                maximum_shift,
+                            )
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                let anchors_supported = anchor_evidence.iter().all(|evidence| {
+                    evidence.median_correlation >= 0.10
+                        && evidence.supporting_regions
+                            >= required_region_support(informative_regions)
+                });
+                if reference_calibration.is_none() && !anchors_supported {
+                    continue;
+                }
+                let registration_score = registration_evidence_score(&anchor_evidence);
                 let registrations = shifts
                     .iter()
                     .enumerate()
@@ -1585,9 +1943,35 @@ fn fit_offsets_by_chroma(
                     SEARCH_WIDTH,
                     SEARCH_HEIGHT,
                 );
-                let quality = preview_registration_quality(&planes, SEARCH_WIDTH, SEARCH_HEIGHT);
-                if chroma_quality_is_better(quality, best_quality)
-                    || (quality == best_quality
+                let calibrated_planes = reference_calibration.map(|calibration| {
+                    apply_reference_calibration(
+                        &planes,
+                        SEARCH_WIDTH,
+                        SEARCH_HEIGHT,
+                        layout,
+                        &[0; 12],
+                        color_lanes,
+                        calibration,
+                    )
+                });
+                let scored_planes = calibrated_planes.as_deref().unwrap_or(&planes);
+                let quality =
+                    preview_registration_quality(scored_planes, SEARCH_WIDTH, SEARCH_HEIGHT);
+                let better = if reference_calibration.is_some() {
+                    chroma_quality_is_better(quality, best_quality)
+                        || (quality == best_quality
+                            && evidence_score_is_better(
+                                registration_score,
+                                best_registration_score,
+                            ))
+                } else {
+                    evidence_score_is_better(registration_score, best_registration_score)
+                        || (registration_score == best_registration_score
+                            && chroma_quality_is_better(quality, best_quality))
+                };
+                if better
+                    || (registration_score == best_registration_score
+                        && quality == best_quality
                         && best_fit.is_none_or(|(best_line_pitch, _)| {
                             line_pitch.abs_diff(profile_line_pitch)
                                 < best_line_pitch.abs_diff(profile_line_pitch)
@@ -1601,12 +1985,276 @@ fn fit_offsets_by_chroma(
                             offsets,
                         },
                     ));
+                    best_registration_score = registration_score;
                     best_quality = quality;
                 }
             }
         }
     }
     best_fit
+}
+
+#[allow(clippy::too_many_arguments)]
+fn refine_subrow_registration(
+    capture: &Capture<'_>,
+    layout: Layout,
+    integer_planes: &[Vec<u16>],
+    lane_column_offsets: &[i32],
+    integer_line_pitch: i32,
+    color_fit: ColorOffsetFit,
+    line_offset_multipliers: &[i32; 4],
+    color_lanes: &[[usize; 4]; 3],
+    reference_evidence: &[Vec<ShiftEvidence>],
+    within_color_evidence: &[Vec<Vec<ShiftEvidence>>],
+    informative_regions: usize,
+    maximum_shift: i32,
+    width: usize,
+    height: usize,
+    reference_calibration: Option<&ReferenceCalibration>,
+) -> (SubrowRegistrationReport, Vec<Vec<u16>>) {
+    const UNITS_PER_ROW: i32 = 4;
+    const LINE_PITCH_REFINEMENT_RADIUS: i32 = 2;
+    const COLOR_OFFSET_REFINEMENT_RADIUS: i32 = 6;
+    const COLOR_SKEW_REFINEMENT_RADIUS: i32 = 8;
+
+    let integer_line_pitch_units = integer_line_pitch * UNITS_PER_ROW;
+    let reference_position = color_fit.band_positions[0] as i32;
+    let integer_color_offsets_units = color_fit
+        .band_positions
+        .map(|position| (position as i32 - reference_position) * color_fit.pitch * UNITS_PER_ROW);
+    let integer_calibrated_planes = reference_calibration.map(|calibration| {
+        apply_reference_calibration(
+            integer_planes,
+            width,
+            height,
+            layout,
+            lane_column_offsets,
+            color_lanes,
+            calibration,
+        )
+    });
+    let integer_quality = preview_registration_quality(
+        integer_calibrated_planes
+            .as_deref()
+            .unwrap_or(integer_planes),
+        width,
+        height,
+    );
+    let mut best_line_pitch_units = integer_line_pitch_units;
+    let mut best_color_offsets_units = integer_color_offsets_units;
+    let mut best_offsets = structured_lane_offsets_units(
+        integer_line_pitch_units,
+        integer_color_offsets_units,
+        line_offset_multipliers,
+        color_lanes,
+    );
+    let mut best_quality = integer_quality;
+    let mut best_planes = integer_planes.to_vec();
+
+    for line_pitch_units in (integer_line_pitch_units - LINE_PITCH_REFINEMENT_RADIUS)
+        ..=(integer_line_pitch_units + LINE_PITCH_REFINEMENT_RADIUS)
+    {
+        let rounded_line_pitch = rounded_units_to_rows(line_pitch_units, UNITS_PER_ROW);
+        if !line_pitch_is_supported(
+            rounded_line_pitch,
+            line_offset_multipliers,
+            within_color_evidence,
+            informative_regions,
+            maximum_shift,
+        ) {
+            continue;
+        }
+        for color_1_offset_units in (integer_color_offsets_units[1]
+            - COLOR_OFFSET_REFINEMENT_RADIUS)
+            ..=(integer_color_offsets_units[1] + COLOR_OFFSET_REFINEMENT_RADIUS)
+        {
+            for color_2_offset_units in (integer_color_offsets_units[2]
+                - COLOR_OFFSET_REFINEMENT_RADIUS)
+                ..=(integer_color_offsets_units[2] + COLOR_OFFSET_REFINEMENT_RADIUS)
+            {
+                let color_offsets_units = [0, color_1_offset_units, color_2_offset_units];
+                let offsets = structured_lane_offsets_units(
+                    line_pitch_units,
+                    color_offsets_units,
+                    line_offset_multipliers,
+                    color_lanes,
+                );
+                if offsets
+                    .iter()
+                    .any(|offset| offset.abs() > maximum_shift * UNITS_PER_ROW)
+                {
+                    continue;
+                }
+                let anchors_supported = (1..color_lanes.len()).all(|color| {
+                    let lane = color_lanes[color][0];
+                    let shift = rounded_units_to_rows(offsets[lane], UNITS_PER_ROW);
+                    let evidence =
+                        shift_evidence_at(&reference_evidence[lane], shift, maximum_shift);
+                    evidence.median_correlation >= 0.10
+                        && evidence.supporting_regions
+                            >= required_region_support(informative_regions)
+                });
+                if !anchors_supported {
+                    continue;
+                }
+                let planes = render_twelve_line_planes_subrow(
+                    capture,
+                    layout,
+                    &offsets,
+                    lane_column_offsets,
+                    UNITS_PER_ROW,
+                    color_lanes,
+                    width,
+                    height,
+                );
+                let calibrated_planes = reference_calibration.map(|calibration| {
+                    apply_reference_calibration(
+                        &planes,
+                        width,
+                        height,
+                        layout,
+                        lane_column_offsets,
+                        color_lanes,
+                        calibration,
+                    )
+                });
+                let quality = preview_registration_quality(
+                    calibrated_planes.as_deref().unwrap_or(&planes),
+                    width,
+                    height,
+                );
+                if registration_improvement_is_meaningful(
+                    integer_quality.0,
+                    integer_quality.1,
+                    quality.0,
+                    quality.1,
+                ) && chroma_quality_is_better(quality, best_quality)
+                {
+                    best_line_pitch_units = line_pitch_units;
+                    best_color_offsets_units = color_offsets_units;
+                    best_offsets = offsets;
+                    best_quality = quality;
+                    best_planes = planes;
+                }
+            }
+        }
+    }
+    let constant_quality = best_quality;
+    let mut best_color_skew_units = [0; 3];
+    let mut best_lane_skew_units = vec![0; 12];
+    for color_1_skew_units in -COLOR_SKEW_REFINEMENT_RADIUS..=COLOR_SKEW_REFINEMENT_RADIUS {
+        for color_2_skew_units in -COLOR_SKEW_REFINEMENT_RADIUS..=COLOR_SKEW_REFINEMENT_RADIUS {
+            let color_skew_units = [0, color_1_skew_units, color_2_skew_units];
+            let lane_skew_units = structured_lane_skew_units(color_skew_units, color_lanes);
+            let planes = render_twelve_line_planes_subrow_affine(
+                capture,
+                layout,
+                &best_offsets,
+                &lane_skew_units,
+                lane_column_offsets,
+                UNITS_PER_ROW,
+                color_lanes,
+                width,
+                height,
+            );
+            let calibrated_planes = reference_calibration.map(|calibration| {
+                apply_reference_calibration(
+                    &planes,
+                    width,
+                    height,
+                    layout,
+                    lane_column_offsets,
+                    color_lanes,
+                    calibration,
+                )
+            });
+            let quality = preview_registration_quality(
+                calibrated_planes.as_deref().unwrap_or(&planes),
+                width,
+                height,
+            );
+            if registration_improvement_is_meaningful(
+                constant_quality.0,
+                constant_quality.1,
+                quality.0,
+                quality.1,
+            ) && chroma_quality_is_better(quality, best_quality)
+            {
+                best_color_skew_units = color_skew_units;
+                best_lane_skew_units = lane_skew_units;
+                best_quality = quality;
+                best_planes = planes;
+            }
+        }
+    }
+    let adopted = best_quality != integer_quality;
+    (
+        SubrowRegistrationReport {
+            units_per_row: UNITS_PER_ROW,
+            integer_line_pitch_units,
+            selected_line_pitch_units: best_line_pitch_units,
+            integer_color_offsets_units,
+            selected_color_offsets_units: best_color_offsets_units,
+            selected_lane_offsets_units: best_offsets,
+            selected_color_skew_units: best_color_skew_units,
+            selected_lane_skew_units: best_lane_skew_units,
+            integer_bright_edge_chroma_p95: integer_quality.0,
+            integer_colored_bright_edge_fraction: integer_quality.1,
+            refined_bright_edge_chroma_p95: best_quality.0,
+            refined_colored_bright_edge_fraction: best_quality.1,
+            adopted,
+        },
+        best_planes,
+    )
+}
+
+fn structured_lane_offsets_units(
+    line_pitch_units: i32,
+    color_offsets_units: [i32; 3],
+    line_offset_multipliers: &[i32; 4],
+    color_lanes: &[[usize; 4]; 3],
+) -> Vec<i32> {
+    color_lanes
+        .iter()
+        .enumerate()
+        .flat_map(|(color, lanes)| {
+            lanes.iter().enumerate().map(move |(tap, &lane)| {
+                (
+                    lane,
+                    color_offsets_units[color] + line_offset_multipliers[tap] * line_pitch_units,
+                )
+            })
+        })
+        .fold(vec![0; 12], |mut offsets, (lane, offset)| {
+            offsets[lane] = offset;
+            offsets
+        })
+}
+
+fn structured_lane_skew_units(
+    color_skew_units: [i32; 3],
+    color_lanes: &[[usize; 4]; 3],
+) -> Vec<i32> {
+    color_lanes
+        .iter()
+        .enumerate()
+        .flat_map(|(color, lanes)| {
+            lanes
+                .iter()
+                .map(move |&lane| (lane, color_skew_units[color]))
+        })
+        .fold(vec![0; 12], |mut skews, (lane, skew)| {
+            skews[lane] = skew;
+            skews
+        })
+}
+
+fn rounded_units_to_rows(units: i32, units_per_row: i32) -> i32 {
+    if units >= 0 {
+        (units + units_per_row / 2) / units_per_row
+    } else {
+        (units - units_per_row / 2) / units_per_row
+    }
 }
 
 fn line_pitch_is_supported(
@@ -2555,13 +3203,71 @@ fn render_twelve_line_planes(
     width: usize,
     height: usize,
 ) -> Vec<Vec<u16>> {
-    let (lane_width, logical_height) = layout.dimensions(0);
-    let row_offsets = registrations
+    let offsets = registrations
         .iter()
         .map(|registration| registration.vertical_shift)
         .collect::<Vec<_>>();
-    let (row_origin, valid_rows) = common_overlap(logical_height, &row_offsets);
-    let full_width = lane_width * 4;
+    let column_offsets = registrations
+        .iter()
+        .map(|registration| registration.horizontal_shift)
+        .collect::<Vec<_>>();
+    render_twelve_line_planes_subrow(
+        capture,
+        layout,
+        &offsets,
+        &column_offsets,
+        1,
+        color_lanes,
+        width,
+        height,
+    )
+}
+
+fn render_twelve_line_planes_subrow(
+    capture: &Capture<'_>,
+    layout: Layout,
+    lane_offsets_units: &[i32],
+    lane_column_offsets: &[i32],
+    units_per_row: i32,
+    color_lanes: &[[usize; 4]; 3],
+    width: usize,
+    height: usize,
+) -> Vec<Vec<u16>> {
+    render_twelve_line_planes_subrow_affine(
+        capture,
+        layout,
+        lane_offsets_units,
+        &vec![0; lane_offsets_units.len()],
+        lane_column_offsets,
+        units_per_row,
+        color_lanes,
+        width,
+        height,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_twelve_line_planes_subrow_affine(
+    capture: &Capture<'_>,
+    layout: Layout,
+    lane_offsets_units: &[i32],
+    lane_skew_units: &[i32],
+    lane_column_offsets: &[i32],
+    units_per_row: i32,
+    color_lanes: &[[usize; 4]; 3],
+    width: usize,
+    height: usize,
+) -> Vec<Vec<u16>> {
+    let (lane_width, logical_height) = layout.dimensions(0);
+    let endpoint_offsets = lane_offsets_units
+        .iter()
+        .zip(lane_skew_units)
+        .flat_map(|(&offset, &skew)| [offset, offset + skew])
+        .collect::<Vec<_>>();
+    let (row_origin, valid_rows) =
+        subrow_common_overlap(logical_height, &endpoint_offsets, units_per_row);
+    let (column_origin, valid_columns) = common_overlap(lane_width, lane_column_offsets);
+    let full_width = valid_columns * 4;
     color_lanes
         .iter()
         .map(|lanes| {
@@ -2572,15 +3278,68 @@ fn render_twelve_line_planes(
                     let full_column = proportional_index(x, width, full_width);
                     let tap = full_column % 4;
                     let lane = lanes[tap];
-                    let column = full_column / 4;
-                    let row =
-                        (base_row as i64 + registrations[lane].vertical_shift as i64) as usize;
-                    plane.push(capture.layout_word(layout, lane, row, column).unwrap_or(0));
+                    let column = (column_origin as i64
+                        + (full_column / 4) as i64
+                        + lane_column_offsets[lane] as i64)
+                        as usize;
+                    let horizontal_scale = full_width.saturating_sub(1).max(1) as i64;
+                    let row_scale = units_per_row as i64 * horizontal_scale;
+                    let row_units = base_row as i64 * row_scale
+                        + lane_offsets_units[lane] as i64 * horizontal_scale
+                        + lane_skew_units[lane] as i64 * full_column as i64;
+                    let row = row_units.div_euclid(row_scale) as usize;
+                    let fraction = row_units.rem_euclid(row_scale) as u64;
+                    let first = capture.layout_word(layout, lane, row, column).unwrap_or(0) as u64;
+                    let second = if fraction == 0 {
+                        first
+                    } else {
+                        capture
+                            .layout_word(layout, lane, row + 1, column)
+                            .unwrap_or(first as u16) as u64
+                    };
+                    plane.push(interpolate_u16_ratio(
+                        first as u16,
+                        second as u16,
+                        fraction,
+                        row_scale as u64,
+                    ));
                 }
             }
             plane
         })
         .collect()
+}
+
+#[cfg(test)]
+fn interpolate_u16(first: u16, second: u16, fraction_units: i32, units_per_row: i32) -> u16 {
+    interpolate_u16_ratio(first, second, fraction_units as u64, units_per_row as u64)
+}
+
+fn interpolate_u16_ratio(first: u16, second: u16, fraction: u64, scale: u64) -> u16 {
+    ((first as u64 * (scale - fraction) + second as u64 * fraction + scale / 2) / scale) as u16
+}
+
+fn subrow_common_overlap(length: usize, offsets: &[i32], units_per_row: i32) -> (usize, usize) {
+    let scale = units_per_row as i64;
+    let start = offsets
+        .iter()
+        .map(|&offset| -((offset as i64).div_euclid(scale)))
+        .max()
+        .unwrap_or(0)
+        .clamp(0, length as i64);
+    let last = offsets
+        .iter()
+        .map(|&offset| {
+            ((length.saturating_sub(1) as i64 * scale) - offset as i64).div_euclid(scale)
+        })
+        .min()
+        .unwrap_or(-1)
+        .clamp(-1, length.saturating_sub(1) as i64);
+    if last < start {
+        (start as usize, 0)
+    } else {
+        (start as usize, (last - start + 1) as usize)
+    }
 }
 
 fn correct_isolated_impulses(
@@ -2643,6 +3402,51 @@ fn correct_isolated_impulses(
         })
         .collect();
     (corrected, corrected_counts)
+}
+
+fn apply_reference_calibration(
+    planes: &[Vec<u16>],
+    width: usize,
+    height: usize,
+    layout: Layout,
+    lane_column_offsets: &[i32],
+    color_lanes: &[[usize; 4]; 3],
+    calibration: &ReferenceCalibration,
+) -> Vec<Vec<u16>> {
+    const MINIMUM_WHITE_DARK_SPAN: u16 = 512;
+
+    let lane_width = layout.dimensions(0).0;
+    let (column_origin, valid_columns) = common_overlap(lane_width, lane_column_offsets);
+    let full_width = valid_columns * 4;
+    planes
+        .iter()
+        .zip(color_lanes)
+        .map(|(plane, lanes)| {
+            let mut calibrated = Vec::with_capacity(width * height);
+            for y in 0..height {
+                for x in 0..width {
+                    let full_column = proportional_index(x, width, full_width);
+                    let tap = full_column % 4;
+                    let lane = lanes[tap];
+                    let column = (column_origin as i64
+                        + (full_column / 4) as i64
+                        + lane_column_offsets[lane] as i64)
+                        as usize;
+                    let dark = calibration.dark[lane][column];
+                    let white = calibration.white[lane][column];
+                    let value = plane[y * width + x];
+                    if white.saturating_sub(dark) < MINIMUM_WHITE_DARK_SPAN {
+                        calibrated.push(value);
+                    } else {
+                        let corrected = value.saturating_sub(dark) as u64 * u16::MAX as u64
+                            / white.saturating_sub(dark) as u64;
+                        calibrated.push(corrected.min(u16::MAX as u64) as u16);
+                    }
+                }
+            }
+            calibrated
+        })
+        .collect()
 }
 
 fn calibrate_flat_field(
@@ -2739,6 +3543,24 @@ fn calibration_is_pareto_improvement(
         && calibrated_colored_fraction <= raw_colored_fraction
         && (calibrated_chroma_p95 < raw_chroma_p95
             || calibrated_colored_fraction < raw_colored_fraction)
+}
+
+fn registration_improvement_is_meaningful(
+    raw_chroma_p95: f64,
+    raw_colored_fraction: f64,
+    candidate_chroma_p95: f64,
+    candidate_colored_fraction: f64,
+) -> bool {
+    const MINIMUM_P95_IMPROVEMENT: f64 = 2.0;
+    const MINIMUM_FRACTION_IMPROVEMENT: f64 = 0.05;
+    calibration_is_pareto_improvement(
+        raw_chroma_p95,
+        raw_colored_fraction,
+        candidate_chroma_p95,
+        candidate_colored_fraction,
+    ) && (candidate_chroma_p95 <= raw_chroma_p95 - MINIMUM_P95_IMPROVEMENT
+        || candidate_colored_fraction
+            <= raw_colored_fraction * (1.0 - MINIMUM_FRACTION_IMPROVEMENT))
 }
 
 fn column_percentile(
@@ -2931,6 +3753,135 @@ fn write_rgb_preview(
         pixels.push(normalize(blue_value, ranges[blue].0, ranges[blue].1));
     }
     write_bmp_rgb(path, width, height, &pixels)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_full_resolution_ppm(
+    path: &Path,
+    capture: &Capture<'_>,
+    layout: Layout,
+    lane_offsets_units: &[i32],
+    lane_skew_units: &[i32],
+    units_per_row: i32,
+    lane_column_offsets: &[i32],
+    color_lanes: &[[usize; 4]; 3],
+    rgb_groups: [usize; 3],
+    calibration: Option<&ReferenceCalibration>,
+) -> Result<DecodedImageReport, Box<dyn std::error::Error>> {
+    let (lane_width, logical_height) = layout.dimensions(0);
+    let endpoint_offsets = lane_offsets_units
+        .iter()
+        .zip(lane_skew_units)
+        .flat_map(|(&offset, &skew)| [offset, offset + skew])
+        .collect::<Vec<_>>();
+    let (row_origin, height) =
+        subrow_common_overlap(logical_height, &endpoint_offsets, units_per_row);
+    let (column_origin, valid_columns) = common_overlap(lane_width, lane_column_offsets);
+    let width = valid_columns * 4;
+    if width == 0 || height == 0 {
+        return Err("the selected lane offsets have no common image area".into());
+    }
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        create_dir_all(parent)?;
+    }
+    let mut writer = BufWriter::new(File::create(path)?);
+    write!(writer, "P6\n{width} {height}\n65535\n")?;
+    let mut row_bytes = Vec::with_capacity(width * 6);
+    for output_row in 0..height {
+        row_bytes.clear();
+        let base_row = row_origin + output_row;
+        for full_column in 0..width {
+            let tap = full_column % 4;
+            let base_column = full_column / 4;
+            for group in rgb_groups {
+                let lane = color_lanes[group][tap];
+                let column = (column_origin as i64
+                    + base_column as i64
+                    + lane_column_offsets[lane] as i64) as usize;
+                let value = sample_subrow_word(
+                    capture,
+                    layout,
+                    lane,
+                    base_row,
+                    column,
+                    lane_offsets_units[lane],
+                    lane_skew_units[lane],
+                    full_column,
+                    width,
+                    units_per_row,
+                );
+                let value = calibration.map_or(value, |profile| {
+                    calibrate_reference_word(value, lane, column, profile)
+                });
+                row_bytes.extend_from_slice(&value.to_be_bytes());
+            }
+        }
+        writer.write_all(&row_bytes)?;
+    }
+    writer.flush()?;
+    Ok(DecodedImageReport {
+        file: path.display().to_string(),
+        width,
+        height,
+        bits_per_channel: 16,
+        format: "binary PPM (P6), network-byte-order samples".into(),
+        processing: if calibration.is_some() {
+            "native-resolution twelve-lane reconstruction, fractional vertical registration, and captured per-lane dark/white reference calibration; no preview normalization or denoising".into()
+        } else {
+            "native-resolution twelve-lane reconstruction and fractional vertical registration; raw ADC values, no preview normalization or denoising".into()
+        },
+    })
+}
+
+fn sample_subrow_word(
+    capture: &Capture<'_>,
+    layout: Layout,
+    lane: usize,
+    base_row: usize,
+    column: usize,
+    offset_units: i32,
+    skew_units: i32,
+    full_column: usize,
+    width: usize,
+    units_per_row: i32,
+) -> u16 {
+    let horizontal_scale = width.saturating_sub(1).max(1) as i64;
+    let row_scale = units_per_row as i64 * horizontal_scale;
+    let row_units = base_row as i64 * row_scale
+        + offset_units as i64 * horizontal_scale
+        + skew_units as i64 * full_column as i64;
+    let row = row_units.div_euclid(row_scale) as usize;
+    let fraction = row_units.rem_euclid(row_scale) as u64;
+    let first = capture.layout_word(layout, lane, row, column).unwrap_or(0);
+    if fraction == 0 {
+        first
+    } else {
+        let second = capture
+            .layout_word(layout, lane, row + 1, column)
+            .unwrap_or(first);
+        interpolate_u16_ratio(first, second, fraction, row_scale as u64)
+    }
+}
+
+fn calibrate_reference_word(
+    value: u16,
+    lane: usize,
+    column: usize,
+    calibration: &ReferenceCalibration,
+) -> u16 {
+    const MINIMUM_WHITE_DARK_SPAN: u16 = 512;
+
+    let dark = calibration.dark[lane][column];
+    let white = calibration.white[lane][column];
+    if white.saturating_sub(dark) < MINIMUM_WHITE_DARK_SPAN {
+        value
+    } else {
+        (value.saturating_sub(dark) as u64 * u16::MAX as u64 / white.saturating_sub(dark) as u64)
+            .min(u16::MAX as u64) as u16
+    }
 }
 
 fn write_registered_stream_diagnostic(
@@ -3267,6 +4218,81 @@ fn write_html(path: &Path, report: &AnalysisReport) -> std::io::Result<()> {
                 html_escape(&assignment.source)
             )?;
         }
+        if let Some(horizontal) = &word.horizontal_registration {
+            writeln!(
+                writer,
+                "<h3>Horizontal lane registration</h3>\
+                 <p>Per-lane offsets from horizontal edge-profile correlation: <code>{:?}</code>; correlations: <code>{:.4?}</code>. Adopted: <strong>{}</strong>.</p>\
+                 <p>Zero-offset chroma p95/fraction: {:.2}/{:.4}; shifted: {:.2}/{:.4}.</p>",
+                horizontal.candidate_lane_column_offsets,
+                horizontal.candidate_correlations,
+                horizontal.adopted,
+                horizontal.zero_offset_bright_edge_chroma_p95,
+                horizontal.zero_offset_colored_bright_edge_fraction,
+                horizontal.shifted_bright_edge_chroma_p95,
+                horizontal.shifted_colored_bright_edge_fraction,
+            )?;
+        }
+        if let Some(subrow) = &word.subrow_registration {
+            writeln!(
+                writer,
+                "<h3>Fractional-row registration</h3>\
+                 <p>Linear interpolation at {} units per captured row; every candidate remains gated by the integer registration evidence. Adopted: <strong>{}</strong>.</p>\
+                 <p>Line pitch: {}/{} → {}/{} rows; independent color offsets: {:?}/{} → {:?}/{} rows.</p>\
+                 <p>Integer chroma p95/fraction: {:.2}/{:.4}; refined: {:.2}/{:.4}. Selected lane offsets: <code>{:?}</code> units; end-to-end color/lane skew: <code>{:?}</code>/<code>{:?}</code> units.</p>",
+                subrow.units_per_row,
+                subrow.adopted,
+                subrow.integer_line_pitch_units,
+                subrow.units_per_row,
+                subrow.selected_line_pitch_units,
+                subrow.units_per_row,
+                subrow.integer_color_offsets_units,
+                subrow.units_per_row,
+                subrow.selected_color_offsets_units,
+                subrow.units_per_row,
+                subrow.integer_bright_edge_chroma_p95,
+                subrow.integer_colored_bright_edge_fraction,
+                subrow.refined_bright_edge_chroma_p95,
+                subrow.refined_colored_bright_edge_fraction,
+                subrow.selected_lane_offsets_units,
+                subrow.selected_color_skew_units,
+                subrow.selected_lane_skew_units,
+            )?;
+        }
+        if let Some(calibration) = &word.reference_calibration {
+            writeln!(
+                writer,
+                "<h3>Scanner reference calibration</h3>\
+                 <p>{}</p>\
+                 <p>Per-lane, per-column bright-strip/black-level correction from <code>{}</code> ({} rows) and <code>{}</code> ({} rows). Valid columns: {}/{}. Adopted: <strong>{}</strong>.</p>\
+                 <p>Raw chroma p95/fraction: {:.2}/{:.4}; reference-calibrated: {:.2}/{:.4}.</p>",
+                html_escape(&calibration.interpretation),
+                html_escape(&calibration.white_file),
+                calibration.white_rows,
+                html_escape(&calibration.dark_file),
+                calibration.dark_rows,
+                calibration.valid_columns,
+                calibration.total_columns,
+                calibration.adopted,
+                calibration.raw_bright_edge_chroma_p95,
+                calibration.raw_colored_bright_edge_fraction,
+                calibration.calibrated_bright_edge_chroma_p95,
+                calibration.calibrated_colored_bright_edge_fraction,
+            )?;
+        }
+        if let Some(image) = &word.decoded_image {
+            writeln!(
+                writer,
+                "<h3>Full-resolution decoded image</h3>\
+                 <p><code>{}</code>: {} × {}, {} bits/channel, {}.</p><p>{}.</p>",
+                html_escape(&image.file),
+                image.width,
+                image.height,
+                image.bits_per_channel,
+                html_escape(&image.format),
+                html_escape(&image.processing),
+            )?;
+        }
         if let Some(correction) = &word.impulse_correction {
             writeln!(
                 writer,
@@ -3476,6 +4502,102 @@ fn load_tgck(path: &Path) -> Option<Vec<usize>> {
     (offsets.len() >= 2).then_some(offsets)
 }
 
+fn load_reference_calibration(
+    scene_path: &Path,
+    nominal_words: usize,
+    start_byte_offset: i32,
+) -> Option<ReferenceCalibration> {
+    const MINIMUM_WHITE_DARK_SPAN: u16 = 512;
+
+    let stem = scene_path.file_stem()?.to_str()?;
+    let number = stem.strip_prefix("capture_")?.parse::<u32>().ok()?;
+    if number < 3 {
+        return None;
+    }
+    let directory = scene_path.parent()?;
+    let white_path = directory.join(format!("capture_{:04}.bin", number - 2));
+    let dark_path = directory.join(format!("capture_{:04}.bin", number - 1));
+    let white_data = std::fs::read(&white_path).ok()?;
+    let dark_data = std::fs::read(&dark_path).ok()?;
+    let white_starts = load_tgck(&tgck_path(&white_path))?;
+    let dark_starts = load_tgck(&tgck_path(&dark_path))?;
+    if width_from_tgck(&white_starts)? / WORD_BYTES != nominal_words
+        || width_from_tgck(&dark_starts)? / WORD_BYTES != nominal_words
+        || white_starts.len() <= dark_starts.len()
+    {
+        return None;
+    }
+    let white_capture = Capture {
+        data: &white_data,
+        line_starts: &white_starts,
+        start_byte_offset,
+    };
+    let dark_capture = Capture {
+        data: &dark_data,
+        line_starts: &dark_starts,
+        start_byte_offset,
+    };
+    let layout = Layout {
+        axis: InterleaveAxis::Word,
+        modulus: 12,
+        nominal_words,
+        input_rows: white_starts.len() - 1,
+    };
+    let white = lane_column_medians(&white_capture, layout);
+    let dark = lane_column_medians(
+        &dark_capture,
+        Layout {
+            input_rows: dark_starts.len() - 1,
+            ..layout
+        },
+    );
+    let total_columns = white.iter().map(Vec::len).sum();
+    let valid_columns = white
+        .iter()
+        .zip(&dark)
+        .flat_map(|(white_lane, dark_lane)| white_lane.iter().zip(dark_lane))
+        .filter(|&(white, dark)| white.saturating_sub(*dark) >= MINIMUM_WHITE_DARK_SPAN)
+        .count();
+    if valid_columns * 4 < total_columns * 3 {
+        return None;
+    }
+    Some(ReferenceCalibration {
+        report: ReferenceCalibrationReport {
+            interpretation: "the two captures immediately before the page capture are inferred to be the scanner's final bright-strip and black-level calibration passes; adoption additionally requires matching TGCK geometry, a bright-minus-black span on at least 75% of lane-columns, and improved scene chroma".into(),
+            white_file: white_path.display().to_string(),
+            dark_file: dark_path.display().to_string(),
+            white_rows: white_starts.len() - 1,
+            dark_rows: dark_starts.len() - 1,
+            valid_columns,
+            total_columns,
+            raw_bright_edge_chroma_p95: 0.0,
+            raw_colored_bright_edge_fraction: 0.0,
+            calibrated_bright_edge_chroma_p95: 0.0,
+            calibrated_colored_bright_edge_fraction: 0.0,
+            adopted: false,
+        },
+        dark,
+        white,
+    })
+}
+
+fn lane_column_medians(capture: &Capture<'_>, layout: Layout) -> Vec<Vec<u16>> {
+    (0..layout.modulus)
+        .map(|lane| {
+            let (width, height) = layout.dimensions(lane);
+            (0..width)
+                .map(|column| {
+                    let mut values = (0..height)
+                        .filter_map(|row| capture.layout_word(layout, lane, row, column))
+                        .collect::<Vec<_>>();
+                    values.sort_unstable();
+                    percentile_of_sorted(&values, 50)
+                })
+                .collect()
+        })
+        .collect()
+}
+
 fn width_from_tgck(offsets: &[usize]) -> Option<usize> {
     let mut widths: Vec<usize> = offsets
         .windows(2)
@@ -3488,14 +4610,17 @@ fn width_from_tgck(offsets: &[usize]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CYCLIC_SERIALIZED_BRG_BAND_POSITIONS, Capture, InterleaveAxis, Layout, ShiftEvidence,
+        Capture, InterleaveAxis, Layout, ReferenceCalibration, ReferenceCalibrationReport,
+        SERIALIZED_BAND_POSITIONS, ShiftEvidence, apply_reference_calibration,
         best_joint_phase_shifts, best_shift, best_three_groups_of_four, calibrate_flat_field,
-        calibration_is_pareto_improvement, chroma_quality_is_better, column_percentile,
-        combine_shift_evidence, correct_isolated_impulses, cyclically_order_group, derivative,
-        edge_magnitudes, edge_profile_correlation, fit_spatial_color_offsets,
-        fit_twelve_line_offset_model, line_pitch_is_supported, rgb_groups_from_band_positions,
-        salient_edge_similarity, select_informative_regions, shared_bright_chroma_spread,
-        summarize_residual_chroma, vertical_shift_evidence,
+        calibrate_reference_word, calibration_is_pareto_improvement, chroma_quality_is_better,
+        column_percentile, combine_shift_evidence, correct_isolated_impulses,
+        cyclically_order_group, derivative, edge_magnitudes, edge_profile_correlation,
+        fit_calibrated_tap_line_pitch, fit_spatial_color_offsets, fit_twelve_line_offset_model,
+        interpolate_u16, line_pitch_is_supported, registration_improvement_is_meaningful,
+        rgb_groups_from_band_positions, rounded_units_to_rows, salient_edge_similarity,
+        select_informative_regions, shared_bright_chroma_spread, subrow_common_overlap,
+        summarize_residual_chroma, vertical_shift_evidence, write_full_resolution_ppm,
     };
 
     #[test]
@@ -3508,11 +4633,81 @@ mod tests {
     }
 
     #[test]
-    fn cyclic_brg_phase_rotations_map_to_physical_rgb_groups() {
-        assert_eq!(CYCLIC_SERIALIZED_BRG_BAND_POSITIONS.len(), 3);
+    fn both_sensor_traversal_directions_map_to_physical_rgb_groups() {
+        assert_eq!(SERIALIZED_BAND_POSITIONS.len(), 6);
         assert_eq!(rgb_groups_from_band_positions([0, 2, 1]), Some([1, 2, 0]));
         assert_eq!(rgb_groups_from_band_positions([1, 0, 2]), Some([2, 0, 1]));
+        assert_eq!(rgb_groups_from_band_positions([0, 1, 2]), Some([2, 1, 0]));
+        assert_eq!(rgb_groups_from_band_positions([1, 2, 0]), Some([1, 0, 2]));
         assert_eq!(rgb_groups_from_band_positions([0, 0, 2]), None);
+    }
+
+    #[test]
+    fn horizontal_registration_rejects_metric_noise() {
+        assert!(!registration_improvement_is_meaningful(
+            71.0, 0.1521, 71.0, 0.1505
+        ));
+        assert!(!registration_improvement_is_meaningful(
+            71.0, 0.1521, 70.0, 0.1521
+        ));
+        assert!(registration_improvement_is_meaningful(
+            71.0, 0.1521, 69.0, 0.1521
+        ));
+        assert!(registration_improvement_is_meaningful(
+            71.0, 0.1521, 71.0, 0.1400
+        ));
+        assert!(!registration_improvement_is_meaningful(
+            71.0, 0.1521, 70.0, 0.1600
+        ));
+    }
+
+    #[test]
+    fn full_resolution_export_is_16_bit_big_endian_rgb_ppm() {
+        let mut data = Vec::new();
+        for row in 0..2_u16 {
+            for lane in 0..12_u16 {
+                data.extend_from_slice(&(row * 100 + lane + 1).to_le_bytes());
+            }
+        }
+        let starts = [0, 24, 48];
+        let capture = Capture {
+            data: &data,
+            line_starts: &starts,
+            start_byte_offset: 0,
+        };
+        let layout = Layout {
+            axis: InterleaveAxis::Word,
+            modulus: 12,
+            nominal_words: 12,
+            input_rows: 2,
+        };
+        let directory = tempfile::tempdir().expect("temporary output directory");
+        let path = directory.path().join("decoded.ppm");
+        let report = write_full_resolution_ppm(
+            &path,
+            &capture,
+            layout,
+            &[0; 12],
+            &[0; 12],
+            4,
+            &[0; 12],
+            &[[0, 3, 6, 9], [1, 4, 7, 10], [2, 5, 8, 11]],
+            [0, 1, 2],
+            None,
+        )
+        .expect("write synthetic PPM");
+        let bytes = std::fs::read(path).expect("read synthetic PPM");
+        let header = b"P6\n4 2\n65535\n";
+        assert_eq!(&bytes[..header.len()], header);
+        let samples = bytes[header.len()..]
+            .chunks_exact(2)
+            .map(|sample| u16::from_be_bytes([sample[0], sample[1]]))
+            .collect::<Vec<_>>();
+        assert_eq!(samples, (1..=12).chain(101..=112).collect::<Vec<_>>());
+        assert_eq!(
+            (report.width, report.height, report.bits_per_channel),
+            (4, 2, 16)
+        );
     }
 
     #[test]
@@ -3551,6 +4746,128 @@ mod tests {
         assert_eq!(shared_bright_chroma_spread([255, 4, 3]), None);
         assert_eq!(shared_bright_chroma_spread([255, 200, 190]), Some(65));
         assert_eq!(shared_bright_chroma_spread([220, 210, 200]), Some(20));
+    }
+
+    #[test]
+    fn quarter_row_interpolation_and_overlap_preserve_valid_samples() {
+        assert_eq!(interpolate_u16(1000, 2000, 0, 4), 1000);
+        assert_eq!(interpolate_u16(1000, 2000, 1, 4), 1250);
+        assert_eq!(interpolate_u16(1000, 2000, 2, 4), 1500);
+        assert_eq!(interpolate_u16(1000, 2000, 3, 4), 1750);
+        assert_eq!(subrow_common_overlap(10, &[-1, 0, 3], 4), (1, 8));
+        assert_eq!(rounded_units_to_rows(-5, 4), -1);
+        assert_eq!(rounded_units_to_rows(-6, 4), -2);
+        assert_eq!(rounded_units_to_rows(5, 4), 1);
+        assert_eq!(rounded_units_to_rows(6, 4), 2);
+    }
+
+    #[test]
+    fn scanner_reference_calibration_maps_dark_and_white_to_full_range() {
+        let calibration = ReferenceCalibration {
+            report: ReferenceCalibrationReport {
+                interpretation: String::new(),
+                white_file: String::new(),
+                dark_file: String::new(),
+                white_rows: 1,
+                dark_rows: 1,
+                valid_columns: 12,
+                total_columns: 12,
+                raw_bright_edge_chroma_p95: 0.0,
+                raw_colored_bright_edge_fraction: 0.0,
+                calibrated_bright_edge_chroma_p95: 0.0,
+                calibrated_colored_bright_edge_fraction: 0.0,
+                adopted: false,
+            },
+            dark: vec![vec![100]; 12],
+            white: vec![vec![1100]; 12],
+        };
+        let layout = Layout {
+            axis: InterleaveAxis::Word,
+            modulus: 12,
+            nominal_words: 12,
+            input_rows: 1,
+        };
+        let planes = vec![vec![100, 600, 1100, 1600]; 3];
+        let calibrated = apply_reference_calibration(
+            &planes,
+            4,
+            1,
+            layout,
+            &[0; 12],
+            &[[0, 3, 6, 9], [1, 4, 7, 10], [2, 5, 8, 11]],
+            &calibration,
+        );
+
+        assert_eq!(calibrated[0], [0, 32_767, 65_535, 65_535]);
+        assert_eq!(calibrated[1], calibrated[0]);
+        assert_eq!(calibrated[2], calibrated[0]);
+        assert_eq!(calibrate_reference_word(600, 0, 0, &calibration), 32_767);
+    }
+
+    #[test]
+    fn calibrated_tap_fit_recovers_already_row_aligned_frontend_streams() {
+        let rows = 40;
+        let mut data = Vec::with_capacity(rows * 24);
+        for row in 0..rows {
+            let value = (100 + (row * 137 + row * row * 17) % 800) as u16;
+            for _ in 0..12 {
+                data.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        let starts = (0..=rows).map(|row| row * 24).collect::<Vec<_>>();
+        let capture = Capture {
+            data: &data,
+            line_starts: &starts,
+            start_byte_offset: 0,
+        };
+        let layout = Layout {
+            axis: InterleaveAxis::Word,
+            modulus: 12,
+            nominal_words: 12,
+            input_rows: rows,
+        };
+        let calibration = ReferenceCalibration {
+            report: ReferenceCalibrationReport {
+                interpretation: String::new(),
+                white_file: String::new(),
+                dark_file: String::new(),
+                white_rows: 1,
+                dark_rows: 1,
+                valid_columns: 12,
+                total_columns: 12,
+                raw_bright_edge_chroma_p95: 0.0,
+                raw_colored_bright_edge_fraction: 0.0,
+                calibrated_bright_edge_chroma_p95: 0.0,
+                calibrated_colored_bright_edge_fraction: 0.0,
+                adopted: false,
+            },
+            dark: vec![vec![0]; 12],
+            white: vec![vec![1000]; 12],
+        };
+        let (pitch, candidates) = fit_calibrated_tap_line_pitch(
+            &capture,
+            layout,
+            &[0, 2, -1, 1],
+            &[[0, 3, 6, 9], [1, 4, 7, 10], [2, 5, 8, 11]],
+            &calibration,
+        );
+        let selected = candidates
+            .iter()
+            .max_by(|left, right| {
+                left.median_profile_correlation
+                    .partial_cmp(&right.median_profile_correlation)
+                    .expect("finite correlation")
+            })
+            .expect("line-pitch candidate");
+        let runner_up = candidates
+            .iter()
+            .filter(|candidate| candidate.line_pitch != 0)
+            .map(|candidate| candidate.median_profile_correlation)
+            .fold(f64::NEG_INFINITY, f64::max);
+
+        assert_eq!(pitch, 0);
+        assert_eq!(selected.line_pitch, 0);
+        assert!(selected.median_profile_correlation > runner_up + 0.20);
     }
 
     #[test]

@@ -230,12 +230,63 @@ cargo run --release --bin logic-conduit -- graphs/spi_controlled_decode.json
 The standalone CCD Rust utilities inspect captured image data outside the graph
 pipeline:
 
-- `ccd_viewer` provides interactive raw, phase, and RGB-hypothesis views.
+- `ccd_viewer` opens the verified native-width V500 reconstruction by default:
+  54,720 little-endian words per TGCK interval become 18,240 pixels from three
+  captured B/R/G groups across four serialized taps. It applies the measured
+  color-band row offsets and automatically uses valid N-2/N-1 scanner
+  bright-strip/black-level captures for per-lane, per-column calibration. The unfiltered
+  reconstruction remains the default. For diagnosis, `--chroma-filter` (or `C`)
+  median-filters only the two chroma components in a 3x3 neighborhood while
+  preserving each pixel's luminance. Raw and modulo-three diagnostic views
+  remain available from the keyboard.
 - `ccd_layout_analyzer` compares diagnostic layout views, performs a targeted
   registration across separated image regions, reconstructs the V500's BGR ×
-  four-line CCD stream with geometry-gated automatic row-offset fitting, and
-  writes explicit calibration evidence and an accept/reject decision to
+  four-line CCD stream with geometry-gated automatic row-offset fitting, uses
+  captured bright-strip/black-level references to select the color-band traversal direction,
+  and writes explicit calibration evidence and an accept/reject decision to
   HTML/JSON. TGCK-row modulo views are raster decimations, not CCD-lane proof.
+
+To decode a full native-width image, keep each capture's TGCK boundary CSV next
+to its binary file (`capture_NNNN_tgck.csv`). For the recorded V500 sequence,
+the analyzer interprets the two immediately preceding captures as the scanner's
+final bright-strip and black-level calibration passes. It adopts them only when
+they pass dimension, row-count, signal-span, and scene-improvement checks. When
+the sibling `capture.csv` and `captures.csv` files are available, the viewer also
+requires captures 20, 21, and 22 to share the same recorded frontend offset/gain
+settings before applying the profiles. It writes a streaming
+16-bit RGB PPM only after the twelve-line geometry and color gates pass:
+
+```bash
+cargo run --release -p logic-analyzer-examples --example ccd_layout_analyzer -- \
+  --file output/capture_0022.bin \
+  --output output/capture_0022-analysis \
+  --decoded-image output/capture_0022-decoded-16bit.ppm
+```
+
+The PPM contains big-endian 16-bit samples as required by P6, at the complete
+18,240-pixel sensor width. It applies the accepted per-lane bright/black profiles
+but deliberately performs no display normalization or destructive denoising;
+the HTML previews are normalized separately for inspection.
+
+The interactive viewer uses the same lane and calibration model. For the
+recorded L scan, run:
+
+```bash
+cargo run --release -p logic-analyzer-examples --example ccd_viewer -- \
+  --file /Volumes/Extreme/src/linevision/_captures/scan-L-20260824-1835/output/capture_0022.bin
+```
+
+The viewer automatically discovers the sibling `decoded/analysis/report.json`
+and uses its accepted scan-specific RGB assignment and quarter-row offsets.
+Without a compatible report it uses the physical 80/40 nominal offsets.
+Explicit color/group arguments override the report; use `--no-analysis-report`
+to ignore it entirely. Add `--validate-only` for a headless geometry/reference
+check. Pass `--no-calibration` only to inspect uncorrected ADC values.
+The chroma filter affects only the interactive 8-bit display. Analyzer output
+and captured ADC samples remain unfiltered.
+Use `R`, `G`, or `B` to move a color plane by one source row, with Shift to
+reverse direction; hold Control for quarter-row steps. Command-line row offsets
+also accept quarter rows, for example `--red-row-offset 79.75`.
 
 ## Documentation
 
