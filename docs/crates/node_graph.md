@@ -160,9 +160,10 @@ document replacement cannot reuse stale connection identities.
 
 The private `widget/graph/routing` owner contains geometry and path painting without
 document or node-definition knowledge. Connection styling belongs to the enclosing
-widget's `connection_paint` owner. External connections use output-first cubic handles
-with a 50-screen-pixel minimum horizontal span; their layout-space representation scales
-that minimum with zoom. Interaction subdivision targets a half-screen-pixel error, with
+widget's `connection_paint` owner. Checked external connections use rectilinear paths.
+Failed routes and drag previews use output-first cubic handles with a 50-screen-pixel
+minimum horizontal span; their layout-space representation scales that minimum with zoom.
+Interaction subdivision targets a half-screen-pixel error, with
 a finite depth limit for pathological geometry. Queries test the resulting segments,
 including collinear overlap, rather than isolated samples. This approximation is not an
 obstacle-collision proof. Preview wires use the same geometry representation; muted-node
@@ -171,8 +172,10 @@ undo history.
 
 The private individual router accepts node rectangles and explicit left/right port geometry.
 Its layout adapter includes offscreen nodes, excludes frame rectangles, and assigns temporary
-obstacle indices in sorted node-ID order. The editor continues to paint the legacy paths;
-checked routing is a separate internal entry point, exercised without changing the document.
+obstacle indices in sorted node-ID order. Every layout generation computes checked routes
+without changing the document. Each pass shares one work budget across connections in stable
+endpoint order. Routes and failures live only in that layout snapshot; there is no retained
+route history across topology edits, load, undo, or redo.
 
 The router validates finite geometry and configuration, expands node bodies, and creates
 horizontal escape segments. Only each escape's own expanded body is exempt from its collision
@@ -189,6 +192,19 @@ The outermost coordinates provide a finite envelope outside all obstacles. Coord
 state allocation, search, and validation consume explicit limits; invalid geometry, blocked
 escapes, no corridor, and exhausted work are distinct errors. Successful results use the same
 line/cubic path contract as painting, with line segments only and no smoothing safety claim.
+
+Failed connections use editable orange fallback curves with warning markers and hover
+explanations. A canvas summary also reports failures whose socket geometry cannot be drawn;
+non-finite endpoint geometry never creates a fallback path. Layout edits automatically retry
+routing. The empty-canvas context menu opens Routing diagnostics, with independent overlays
+for expanded obstacles, port escapes, and route results. Diagnostic settings are transient
+widget state and do not alter the document or its processing revision.
+
+An unconnected node being dragged or singly placed is temporarily excluded from routing
+obstacles so it can target a wire for splicing. The paint and interaction snapshot share this
+provisional geometry and highlight the splice candidate. Release checks the current node
+position, applies the existing topology operation, and returns to ordinary obstacle checking.
+Existing reroute nodes and their branching connections retain their saved representation.
 
 Interaction highlights:
 

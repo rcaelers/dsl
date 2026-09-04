@@ -10,5 +10,7 @@ mod search;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use contract::{PortGeometry, PortSide, RouteConfig, RouteFailure, RouteInput};
-pub(crate) use router::route;
+pub(crate) use contract::{
+    PortGeometry, PortSide, RouteConfig, RouteFailure, RouteInput, WorkBudget,
+};
+pub(crate) use router::route_with_budget;

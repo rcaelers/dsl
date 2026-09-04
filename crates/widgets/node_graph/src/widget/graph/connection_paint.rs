@@ -89,6 +89,15 @@ impl<F: Fn(Pos2) -> Pos2> ConnectionPaintContext<'_, F> {
             .and_then(|n| n.outputs.get(conn.from.index))
             .map(|s| self.registry.socket_display(s).0)
             .unwrap_or(Color32::from_rgb(160, 160, 160));
+        let base = if self
+            .layout
+            .wire_failures
+            .contains_key(&(conn.from, conn.to))
+        {
+            Color32::from_rgb(255, 170, 50)
+        } else {
+            base
+        };
         let (color, width) = match emphasis {
             WireEmphasis::Normal => (base, self.wire_width),
             WireEmphasis::Highlight => (brighten_wire_color(base), self.wire_width * 2.0),
@@ -241,9 +250,11 @@ mod connection_paint_tests {
     }
 
     #[test]
-    fn layout_preserves_screen_space_legacy_control_points_without_document_edits() {
+    fn failed_routes_preserve_legacy_control_points_without_document_edits() {
         for zoom in [0.25, 1.0, 3.0] {
-            let (mut widget, _, _) = fixture(zoom);
+            let (mut widget, _, candidate) = fixture(zoom);
+            widget.graph.nodes.get_mut(&candidate).unwrap().pos.x = 25.0;
+            widget.graph.nodes.get_mut(&candidate).unwrap().pos.y = 0.0;
             widget.view.pan = Vec2::new(42.0, -13.0);
             let before = serde_json::to_value(&widget.graph).unwrap();
             let undo_len = widget.undo_stack.len();

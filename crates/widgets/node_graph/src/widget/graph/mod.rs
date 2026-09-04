@@ -10,14 +10,10 @@ mod panel;
 mod render;
 mod response;
 mod routing;
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "layout routing adapter is activated by the next implementation step"
-    )
-)]
+#[cfg(test)]
+mod routing_activation_tests;
 mod routing_input;
+mod routing_presentation;
 mod selection;
 mod snapshot_error;
 mod widget;

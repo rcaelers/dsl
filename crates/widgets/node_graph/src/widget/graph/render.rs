@@ -48,12 +48,11 @@ impl NodeGraphWidget {
 
         // While a node is dragged over a wire, that wire previews the drop:
         // highlighted when the node can be spliced in, muted when it can't.
-        let insert_candidate =
-            if let InteractionState::DraggingNode { node_id, .. } = self.interaction_state {
-                self.compute_insert_candidate_wire(node_id, pointer_canvas, layout)
-            } else {
-                None
-            };
+        let insert_candidate = if let Some(node_id) = layout.routing_excluded {
+            self.compute_insert_candidate_wire(node_id, pointer_canvas, layout)
+        } else {
+            None
+        };
         // Likewise, the frame a dragged node would join on release gets a
         // brighter outline so the drop target is obvious before release
         // (Phase 1.3). A node already in a frame is never a candidate here —

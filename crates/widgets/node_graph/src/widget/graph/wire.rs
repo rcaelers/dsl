@@ -730,6 +730,16 @@ mod wire_tests {
         assert_eq!(source_of(&widget, sink, 2), Some(feeds[1]));
         assert_eq!(source_of(&widget, sink, 3), Some(feeds[2]));
         assert_eq!(widget.graph.connections.len(), 4);
+        let layout = widget.build_layout(Pos2::ZERO);
+        let stale_key = (output(feeds[1]), input(sink, 1));
+        assert!(!layout.wire_paths.contains_key(&stale_key));
+        assert!(!layout.wire_failures.contains_key(&stale_key));
+        for connection in &widget.graph.connections {
+            let key = (connection.from, connection.to);
+            assert!(
+                layout.wire_paths.contains_key(&key) || layout.wire_failures.contains_key(&key)
+            );
+        }
     }
 
     #[test]

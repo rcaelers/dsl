@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use egui::{Pos2, Rect};
 
-use super::routing::WirePath;
+use super::routing::{RouteFailure, WirePath};
 use super::widget::NodeGraphWidget;
 use crate::model::{FrameId, NodeId, NodeKind, SocketDirection, SocketId};
 use crate::support::{SOCKET_RADIUS, to_screen_rect};
@@ -22,6 +22,8 @@ const FRAME_TITLE_PADDING: f32 = 44.0;
 
 pub(crate) struct GraphWidgetLayout {
     pub nodes: HashMap<NodeId, NodeWidget>,
+    pub wire_failures: HashMap<(SocketId, SocketId), RouteFailure>,
+    pub routing_excluded: Option<NodeId>,
     pub wire_paths: HashMap<(SocketId, SocketId), WirePath>,
     pub node_rects: HashMap<NodeId, Rect>,
     pub frame_rects: HashMap<FrameId, Rect>,
@@ -35,6 +37,14 @@ pub(crate) struct GraphWidgetLayout {
 
 impl NodeGraphWidget {
     pub(crate) fn build_layout(&self, origin: Pos2) -> GraphWidgetLayout {
+        self.build_layout_excluding(origin, self.routing_splice_candidate())
+    }
+
+    pub(crate) fn build_layout_excluding(
+        &self,
+        origin: Pos2,
+        excluded: Option<NodeId>,
+    ) -> GraphWidgetLayout {
         let nodes: HashMap<NodeId, NodeWidget> = self
             .graph
             .nodes
@@ -159,27 +169,11 @@ impl NodeGraphWidget {
             }
         }
 
-        let wire_paths = self
-            .graph
-            .connections
-            .iter()
-            .filter_map(|connection| {
-                let from = nodes
-                    .get(&connection.from.node)?
-                    .output_socket_pos(connection.from.index)?;
-                let to = nodes
-                    .get(&connection.to.node)?
-                    .input_socket_pos(connection.to.index)?;
-                Some((
-                    (connection.from, connection.to),
-                    WirePath::legacy(from, to, self.view.zoom),
-                ))
-            })
-            .collect();
-
-        GraphWidgetLayout {
+        let mut layout = GraphWidgetLayout {
             nodes,
-            wire_paths,
+            wire_paths: HashMap::new(),
+            wire_failures: HashMap::new(),
+            routing_excluded: excluded,
             node_rects,
             frame_rects,
             frame_screen_rects,
@@ -188,7 +182,9 @@ impl NodeGraphWidget {
             collapse_toggle_screen_rects,
             socket_screen_pos,
             socket_hit_rects,
-        }
+        };
+        layout.rebuild_routes(&self.graph.connections, self.view.zoom);
+        layout
     }
 }
 #[cfg(test)]

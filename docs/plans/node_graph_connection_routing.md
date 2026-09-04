@@ -34,13 +34,13 @@ appearance until the checked router is activated in step 3.
 
 ## 3. Editor activation and compatibility
 
-- [ ] Integrate individual results into the shared snapshot. Add visible diagnostic fallback
+- [x] Integrate individual results into the shared snapshot. Add visible diagnostic fallback
   treatment and hover explanations, with automatic recovery after geometry edits.
-- [ ] Use transient endpoint-pair keys within a topology generation. Clear history on
+- [x] Use transient endpoint-pair keys within a topology generation. Clear history on
   topology edits, load, undo, and redo. Preserve reroute nodes and branching as documented.
-- [ ] Preserve node-on-wire splicing through the provisional candidate-obstacle exception.
+- [x] Preserve node-on-wire splicing through the provisional candidate-obstacle exception.
   Cover visibility, collapse, dynamic sizing, and variadic socket-index changes.
-- [ ] Add obstacle/escape/result overlays and visual fixtures. Acceptance: detoured wires
+- [x] Add obstacle/escape/result overlays and visual fixtures. Acceptance: detoured wires
   can be cut and edited where drawn; failed wires remain editable; routing alone changes
   neither saved topology, undo history, processing revisions, nor processing outputs.
 

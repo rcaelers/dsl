@@ -104,6 +104,7 @@ pub(crate) enum GraphAction {
         action_id: String,
     },
     ToggleMinimap,
+    ToggleRoutingDebug,
     TogglePanel,
     /// Selects every node and frame (Phase 2, Blender's `A`).
     SelectAll,
@@ -116,6 +117,7 @@ impl GraphAction {
         !matches!(
             self,
             Self::Copy { .. }
+                | Self::ToggleRoutingDebug
                 | Self::ToggleMinimap
                 | Self::TogglePanel
                 | Self::SelectAll
@@ -325,6 +327,10 @@ impl NodeGraphWidget {
             }
             GraphAction::HostNodeAction { target, action_id } => {
                 self.node_context_action_request = Some((target, action_id));
+                ActionEffect::None
+            }
+            GraphAction::ToggleRoutingDebug => {
+                self.routing_debug.open = !self.routing_debug.open;
                 ActionEffect::None
             }
             GraphAction::ToggleMinimap => {

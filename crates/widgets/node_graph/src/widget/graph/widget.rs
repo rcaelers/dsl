@@ -10,6 +10,7 @@ use super::interaction_state::InteractionState;
 use super::menu::MenuController;
 use super::panel::PanelState;
 use super::response::GraphResponses;
+use super::routing_presentation::RoutingDebug;
 use super::snapshot_error::GraphSnapshotError;
 use super::{layout, render};
 use crate::api::{
@@ -34,6 +35,7 @@ pub struct NodeGraphWidget {
     pub(crate) hovered_input_context: Option<&'static str>,
     pub(crate) registry: NodeTypeRegistry,
     pub(crate) minimap_visible: bool,
+    pub(crate) routing_debug: RoutingDebug,
     pub(crate) top_node: Option<NodeId>,
     pub(crate) menu: MenuController,
     /// Pending copy/paste confirmation ("Copied 3 node(s)"), taken and
@@ -200,6 +202,7 @@ impl NodeGraphWidget {
             hovered_input_context: None,
             registry,
             minimap_visible: true,
+            routing_debug: RoutingDebug::default(),
             top_node: None,
             menu: MenuController::new(),
             io_status: None,
@@ -777,6 +780,13 @@ impl NodeGraphWidget {
         }
         self.update_panel_tab_bar_interaction(ui, tab_bar_rect);
 
+        self.show_routing_presentation(
+            ui,
+            &painter,
+            &layout,
+            (content_rect, origin),
+            graph_pointer,
+        );
         self.show_socket_tooltip(&responses, hovered_socket);
         if let Some(panel_rect) = panel_rect {
             self.show_active_panel(ui, panel_rect, panel_data, &mut panel_actions);

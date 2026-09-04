@@ -424,14 +424,20 @@ pub(crate) fn build_context_entries(context: ContextMenuState<'_>) -> Vec<MenuEn
         ]);
         entries
     } else {
-        build_empty_canvas_entries(
+        let mut entries = build_empty_canvas_entries(
             registry,
             canvas_pos,
             can_paste,
             can_undo,
             can_redo,
             input_bindings,
-        )
+        );
+        entries.push(MenuEntry::separator());
+        entries.push(MenuEntry::action(
+            "Routing diagnostics…",
+            GraphAction::ToggleRoutingDebug,
+        ));
+        entries
     }
 }
 
