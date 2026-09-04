@@ -68,6 +68,14 @@ Task IDs start with their ownership category and remain stable when task wording
 
 ### Node graph editor
 
+- [graph.editor.connection-routing] Add ordered obstacle-avoiding connection drawing without changing
+  saved topology or processing behavior. See the [design proposal](writing-block.md) and
+  [implementation plan](docs/plans/node_graph_connection_routing.md). One numbered step per branch:
+  2. [ ] Implement checked individual routing, endpoint exemptions, and backward/failure handling.
+  3. [ ] Integrate routing, diagnostic presentation, reroute compatibility, and splice gestures.
+  4. [ ] Add compatible bundles, shared-output fan-out, and channel-opening capacity checks.
+  5. [ ] Add validated smoothing and capacity-aware variable spacing.
+  6. [ ] Add stable incremental updates and record native/browser performance evidence.
 - [graph.editor.socket-renaming] Add generic instance-local socket renaming. Node definitions explicitly mark which input and
   output sockets are renameable; sockets without that capability remain definition-owned. Preserve stable schema IDs and
   runtime port contracts independently from display names, persist user overrides in saved graphs, and provide a way to reset

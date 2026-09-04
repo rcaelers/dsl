@@ -4,7 +4,7 @@
 //! insertion, and node-on-wire splicing. It mutates topology through the graph
 //! widget but does not dispatch menus or coordinate unrelated gestures.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use egui::Pos2;
@@ -14,8 +14,6 @@ use super::layout::GraphWidgetLayout;
 use super::response::GraphResponses;
 use super::widget::NodeGraphWidget;
 use crate::model::{Connection, NodeId, NodeKind, SocketDirection, SocketId};
-use crate::support::{bezier_wire_distance, bezier_wire_intersects_rect, wire_intersects_knife};
-use crate::widget::node::NodeWidget;
 
 impl NodeGraphWidget {
     fn compatible_wire_target(&self, from: SocketId, to: SocketId) -> bool {
@@ -317,14 +315,14 @@ impl NodeGraphWidget {
         &mut self,
         node_id: NodeId,
         pointer_canvas: Option<Pos2>,
-        nodes: &HashMap<NodeId, NodeWidget>,
+        layout: &GraphWidgetLayout,
     ) {
         let Some(point) =
-            pointer_canvas.or_else(|| Some(nodes.get(&node_id)?.node_rect().center()))
+            pointer_canvas.or_else(|| Some(layout.nodes.get(&node_id)?.node_rect().center()))
         else {
             return;
         };
-        let Some(idx) = self.closest_insert_wire(node_id, point, nodes) else {
+        let Some(idx) = self.closest_insert_wire(node_id, point, layout) else {
             return;
         };
         let conn = self.graph.connections[idx].clone();
@@ -436,7 +434,7 @@ impl NodeGraphWidget {
         InteractionState::Idle
     }
 
-    pub(crate) fn apply_knife_cut(&mut self, path: &[Pos2], nodes: &HashMap<NodeId, NodeWidget>) {
+    pub(crate) fn apply_knife_cut(&mut self, path: &[Pos2], layout: &GraphWidgetLayout) {
         if path.len() < 2 {
             return;
         }
@@ -446,14 +444,9 @@ impl NodeGraphWidget {
             .iter()
             .enumerate()
             .filter_map(|(idx, conn)| {
-                let fp = nodes
-                    .get(&conn.from.node)
-                    .and_then(|w| w.output_socket_pos(conn.from.index))?;
-                let tp = nodes
-                    .get(&conn.to.node)
-                    .and_then(|w| w.input_socket_pos(conn.to.index))?;
+                let route = layout.wire_paths.get(&(conn.from, conn.to))?;
                 path.windows(2)
-                    .any(|w| wire_intersects_knife(fp, tp, w[0], w[1]))
+                    .any(|w| route.intersects_segment([w[0], w[1]]))
                     .then_some(idx)
             })
             .collect();
@@ -477,7 +470,7 @@ impl NodeGraphWidget {
         &mut self,
         ui: &egui::Ui,
         pointer_canvas: Option<Pos2>,
-        nodes: &HashMap<NodeId, NodeWidget>,
+        layout: &GraphWidgetLayout,
         mut path: Vec<Pos2>,
     ) -> InteractionState {
         let button = self
@@ -493,7 +486,7 @@ impl NodeGraphWidget {
             }
             return InteractionState::CuttingWire { path };
         }
-        self.apply_knife_cut(&path, nodes);
+        self.apply_knife_cut(&path, layout);
         InteractionState::Idle
     }
     /// Connection nearest `point_canvas`, within snap distance — double-click
@@ -503,21 +496,15 @@ impl NodeGraphWidget {
     pub(crate) fn wire_near_point(
         &self,
         point_canvas: Pos2,
-        nodes: &HashMap<NodeId, NodeWidget>,
+        layout: &GraphWidgetLayout,
     ) -> Option<usize> {
         let threshold = WIRE_SNAP_DISTANCE / self.view.zoom;
         let mut best: Option<(usize, f32)> = None;
         for (idx, conn) in self.graph.connections.iter().enumerate() {
-            let fp = nodes
-                .get(&conn.from.node)
-                .and_then(|w| w.output_socket_pos(conn.from.index));
-            let tp = nodes
-                .get(&conn.to.node)
-                .and_then(|w| w.input_socket_pos(conn.to.index));
-            let (Some(fp), Some(tp)) = (fp, tp) else {
+            let Some(route) = layout.wire_paths.get(&(conn.from, conn.to)) else {
                 continue;
             };
-            let dist = bezier_wire_distance(fp, tp, point_canvas);
+            let dist = route.distance(point_canvas);
             if dist <= threshold && dist < best.map_or(f32::INFINITY, |(_, d)| d) {
                 best = Some((idx, dist));
             }
@@ -572,27 +559,21 @@ impl NodeGraphWidget {
         &self,
         node_id: NodeId,
         point: Pos2,
-        nodes: &HashMap<NodeId, NodeWidget>,
+        layout: &GraphWidgetLayout,
     ) -> Option<usize> {
-        let node_rect = nodes.get(&node_id)?.node_rect();
+        let node_rect = layout.nodes.get(&node_id)?.node_rect();
         let mut best: Option<(usize, f32)> = None;
         for (idx, conn) in self.graph.connections.iter().enumerate() {
             if conn.from.node == node_id || conn.to.node == node_id {
                 continue;
             }
-            let fp = nodes
-                .get(&conn.from.node)
-                .and_then(|w| w.output_socket_pos(conn.from.index));
-            let tp = nodes
-                .get(&conn.to.node)
-                .and_then(|w| w.input_socket_pos(conn.to.index));
-            let (Some(fp), Some(tp)) = (fp, tp) else {
+            let Some(route) = layout.wire_paths.get(&(conn.from, conn.to)) else {
                 continue;
             };
-            if !bezier_wire_intersects_rect(fp, tp, node_rect) {
+            if !route.intersects_rect(node_rect) {
                 continue;
             }
-            let dist = bezier_wire_distance(fp, tp, point);
+            let dist = route.distance(point);
             if dist < best.map_or(f32::INFINITY, |(_, d)| d) {
                 best = Some((idx, dist));
             }
@@ -640,10 +621,11 @@ impl NodeGraphWidget {
         &self,
         node_id: NodeId,
         pointer_canvas: Option<Pos2>,
-        nodes: &HashMap<NodeId, NodeWidget>,
+        layout: &GraphWidgetLayout,
     ) -> Option<(usize, bool)> {
-        let point = pointer_canvas.or_else(|| Some(nodes.get(&node_id)?.node_rect().center()))?;
-        let idx = self.closest_insert_wire(node_id, point, nodes)?;
+        let point =
+            pointer_canvas.or_else(|| Some(layout.nodes.get(&node_id)?.node_rect().center()))?;
+        let idx = self.closest_insert_wire(node_id, point, layout)?;
         let conn = self.graph.connections.get(idx)?;
         Some((idx, self.wire_insert_sockets(node_id, conn).is_some()))
     }

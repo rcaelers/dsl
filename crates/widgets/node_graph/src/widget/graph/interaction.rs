@@ -283,7 +283,7 @@ impl NodeGraphWidget {
                     && responses.canvas.clicked_by(button)
             });
         if (responses.canvas.double_clicked_by(reroute_button) || modified_click)
-            && let Some(idx) = self.wire_near_point(pc, &layout.nodes)
+            && let Some(idx) = self.wire_near_point(pc, layout)
         {
             self.insert_reroute_on_wire(idx, pc);
             return InteractionState::Idle;
@@ -450,7 +450,7 @@ impl NodeGraphWidget {
             };
         }
 
-        self.try_wire_insert(node_id, pointer_canvas, &layout.nodes);
+        self.try_wire_insert(node_id, pointer_canvas, layout);
         let selected: Vec<NodeId> = self
             .graph
             .nodes
@@ -528,7 +528,7 @@ impl NodeGraphWidget {
                     .map(|node| node.id)
                     .collect();
                 if let [only] = selected[..] {
-                    self.try_wire_insert(only, pointer_canvas, &layout.nodes);
+                    self.try_wire_insert(only, pointer_canvas, layout);
                 }
                 self.resolve_frame_membership_on_drop(&selected, layout);
                 return InteractionState::Idle;
@@ -754,7 +754,7 @@ impl NodeGraphWidget {
         if matches!(self.interaction_state, InteractionState::CuttingWire { .. }) {
             let state = std::mem::replace(&mut self.interaction_state, InteractionState::Idle);
             if let InteractionState::CuttingWire { path } = state {
-                self.apply_knife_cut(&path, &layout.nodes);
+                self.apply_knife_cut(&path, layout);
             }
         }
 
@@ -820,7 +820,7 @@ impl NodeGraphWidget {
                 current_canvas,
             } => self.update_box_select(ui, pointer_canvas, layout, start_canvas, current_canvas),
             InteractionState::CuttingWire { path } => {
-                self.update_cut_wire(ui, pointer_canvas, &layout.nodes, path)
+                self.update_cut_wire(ui, pointer_canvas, layout, path)
             }
             InteractionState::PlacingNodes {
                 anchor_canvas,

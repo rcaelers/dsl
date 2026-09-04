@@ -151,6 +151,24 @@ responses → route input (hotkeys, menus, wire drags, selection, pan/zoom) → 
 (connections, nodes, frames, badges, minimap, panel) — a single immediate-mode pass with no
 retained scene graph.
 
+The layout owns a transient map from connection endpoint pairs to `WirePath` geometry.
+Each path holds exact line/cubic segments, conservative control-hull bounds, and an
+adaptive line approximation for interaction. Painting, proximity checks, knife cutting,
+reroute insertion, and node splicing consume that geometry; they do not reconstruct
+curves from endpoints. Layout rebuilds also rebuild the map, so socket renumbering and
+document replacement cannot reuse stale connection identities.
+
+The private `widget/graph/routing` owner contains geometry and path painting without
+document or node-definition knowledge. Connection styling belongs to the enclosing
+widget's `connection_paint` owner. External connections use output-first cubic handles
+with a 50-screen-pixel minimum horizontal span; their layout-space representation scales
+that minimum with zoom. Interaction subdivision targets a half-screen-pixel error, with
+a finite depth limit for pathological geometry. Queries test the resulting segments,
+including collinear overlap, rather than isolated samples. This approximation is not an
+obstacle-collision proof. Preview wires use the same geometry representation; muted-node
+internal dashed links remain separate decoration. Paths are not persisted or added to
+undo history.
+
 Interaction highlights:
 
 - **Wire dragging** with live compatibility checking and snap-to-socket; a snap candidate

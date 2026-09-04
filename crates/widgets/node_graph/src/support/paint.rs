@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 
-use egui::epaint::CubicBezierShape;
 use egui::{Color32, CornerRadius, FontId, Painter, Pos2, Rect, Stroke, Vec2};
 
 use super::view::ViewState;
-use crate::model::{Connection, GraphState, SocketId};
+use crate::model::GraphState;
 
 pub(crate) const SOCKET_RADIUS: f32 = 5.5;
 
@@ -15,7 +14,7 @@ pub(crate) fn to_screen_rect(r: Rect, view: &ViewState, origin: Pos2) -> Rect {
     )
 }
 
-/// Points sampled along the same cubic bezier that `draw_wire` renders.
+/// Samples of the internal muted-node pass-through decoration.
 fn bezier_wire_points(from: Pos2, to: Pos2, steps: usize) -> impl Iterator<Item = Pos2> {
     let dx = (to.x - from.x).abs().max(50.0) * 0.5;
     let cp1 = from + Vec2::new(dx, 0.0);
@@ -34,18 +33,6 @@ fn bezier_wire_points(from: Pos2, to: Pos2, steps: usize) -> impl Iterator<Item 
                 + t * t * t * to.y,
         )
     })
-}
-
-pub(crate) fn bezier_wire_distance(from: Pos2, to: Pos2, point: Pos2) -> f32 {
-    bezier_wire_points(from, to, 24)
-        .map(|p| point.distance(p))
-        .fold(f32::INFINITY, f32::min)
-}
-
-/// Whether the wire passes through `rect`. Sampled densely enough that even
-/// a collapsed node can't fit between consecutive samples of a long wire.
-pub(crate) fn bezier_wire_intersects_rect(from: Pos2, to: Pos2, rect: Rect) -> bool {
-    bezier_wire_points(from, to, 64).any(|p| rect.contains(p))
 }
 
 pub(crate) fn draw_grid(painter: &Painter, rect: Rect, view: &ViewState) {
@@ -149,26 +136,7 @@ pub(crate) fn draw_frames(
     }
 }
 
-pub(crate) fn draw_wire(painter: &Painter, from: Pos2, to: Pos2, color: Color32, width: f32) {
-    let dx = (to.x - from.x).abs().max(50.0) * 0.5;
-    let cp1 = from + Vec2::new(dx, 0.0);
-    let cp2 = to - Vec2::new(dx, 0.0);
-    let points = [from, cp1, cp2, to];
-    painter.add(CubicBezierShape::from_points_stroke(
-        points,
-        false,
-        Color32::TRANSPARENT,
-        Stroke::new(width + 2.0, Color32::from_rgba_premultiplied(0, 0, 0, 170)),
-    ));
-    painter.add(CubicBezierShape::from_points_stroke(
-        points,
-        false,
-        Color32::TRANSPARENT,
-        Stroke::new(width, color),
-    ));
-}
-
-/// Same curve as `draw_wire`, but dashed — for the internal pass-through
+/// Legacy endpoint curve, dashed — for the internal pass-through
 /// link a muted node draws between one of its own input and output sockets
 /// (Blender's mute convention: external wires stay solid, an internal
 /// dashed link shows what the node passes straight through).
@@ -192,109 +160,6 @@ pub(crate) fn draw_wire_dashed(
         6.0,
         4.0,
     ));
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WireEmphasis {
-    Normal,
-    /// Connected to a selected node, or a valid insert target for the
-    /// dragged node: brighter and thicker.
-    Highlight,
-    /// Insert target the dragged node cannot splice into: dimmed.
-    Muted,
-    /// Not painted at all: the link a wire drag is carrying elsewhere, which
-    /// stays in the document until the drag lands.
-    Hidden,
-}
-
-fn brighten_wire_color(base: Color32) -> Color32 {
-    let mix = |channel: u8| ((channel as f32 * 0.48) + (255.0 * 0.52)).round() as u8;
-    Color32::from_rgba_unmultiplied(mix(base.r()), mix(base.g()), mix(base.b()), 255)
-}
-
-fn mute_wire_color(base: Color32) -> Color32 {
-    Color32::from_rgba_unmultiplied(
-        (base.r() as f32 * 0.35) as u8,
-        (base.g() as f32 * 0.35) as u8,
-        (base.b() as f32 * 0.35) as u8,
-        255,
-    )
-}
-
-pub(crate) fn draw_connections(
-    painter: &Painter,
-    graph: &GraphState,
-    registry: &crate::runtime::NodeTypeRegistry,
-    socket_positions: &HashMap<SocketId, Pos2>,
-    wire_width: f32,
-    emphasis: impl Fn(usize, &Connection) -> WireEmphasis,
-) {
-    let mut highlighted = Vec::new();
-    for (idx, conn) in graph.connections.iter().enumerate() {
-        let emphasis = emphasis(idx, conn);
-        if emphasis == WireEmphasis::Hidden {
-            continue;
-        }
-        if emphasis == WireEmphasis::Highlight {
-            highlighted.push((idx, conn));
-            continue;
-        }
-        draw_connection(
-            painter,
-            graph,
-            registry,
-            socket_positions,
-            wire_width,
-            conn,
-            emphasis,
-        );
-    }
-    for (idx, conn) in highlighted {
-        draw_connection(
-            painter,
-            graph,
-            registry,
-            socket_positions,
-            wire_width,
-            conn,
-            emphasis(idx, conn),
-        );
-    }
-}
-
-fn draw_connection(
-    painter: &Painter,
-    graph: &GraphState,
-    registry: &crate::runtime::NodeTypeRegistry,
-    socket_positions: &HashMap<SocketId, Pos2>,
-    wire_width: f32,
-    conn: &Connection,
-    emphasis: WireEmphasis,
-) {
-    let Some(&from_p) = socket_positions.get(&conn.from) else {
-        return;
-    };
-    let Some(&to_p) = socket_positions.get(&conn.to) else {
-        return;
-    };
-    // `socket.color` is the socket's *idle* look; a resolved polymorphic
-    // socket (e.g. a reroute's `Any` output taking on whatever flows
-    // through it) needs the connected type's registry-wide color instead —
-    // the same lookup socket dots already use — or the wire renders in the
-    // socket's flat default color forever, mismatched with the dot beside it.
-    let base = graph
-        .nodes
-        .get(&conn.from.node)
-        .and_then(|n| n.outputs.get(conn.from.index))
-        .map(|s| registry.socket_display(s).0)
-        .unwrap_or(Color32::from_rgb(160, 160, 160));
-    let (color, width) = match emphasis {
-        WireEmphasis::Normal => (base, wire_width),
-        WireEmphasis::Highlight => (brighten_wire_color(base), wire_width * 2.0),
-        WireEmphasis::Muted => (mute_wire_color(base), wire_width),
-        WireEmphasis::Hidden => return,
-    };
-    draw_wire(painter, from_p, to_p, color, width);
 }
 
 pub(crate) fn draw_box_select(painter: &Painter, start: Pos2, end: Pos2) {
@@ -323,54 +188,4 @@ pub(crate) fn draw_knife_line(painter: &Painter, points: &[Pos2]) {
             Stroke::new(1.5_f32, Color32::from_rgb(255, 170, 60)),
         );
     }
-}
-
-/// Returns true if the cubic bezier wire from `fp` to `tp` crosses the knife segment.
-/// All coordinates are in canvas space.
-pub(crate) fn wire_intersects_knife(
-    fp: Pos2,
-    tp: Pos2,
-    knife_start: Pos2,
-    knife_end: Pos2,
-) -> bool {
-    let dx = (tp.x - fp.x).abs().max(50.0) * 0.5;
-    let cp1 = fp + Vec2::new(dx, 0.0);
-    let cp2 = tp - Vec2::new(dx, 0.0);
-    const STEPS: usize = 20;
-    let mut prev = fp;
-    for i in 1..=STEPS {
-        let t = i as f32 / STEPS as f32;
-        let next = bezier_point([fp, cp1, cp2, tp], t);
-        if segments_intersect(prev, next, knife_start, knife_end) {
-            return true;
-        }
-        prev = next;
-    }
-    false
-}
-
-fn bezier_point(pts: [Pos2; 4], t: f32) -> Pos2 {
-    let u = 1.0 - t;
-    Pos2::new(
-        u * u * u * pts[0].x
-            + 3.0 * u * u * t * pts[1].x
-            + 3.0 * u * t * t * pts[2].x
-            + t * t * t * pts[3].x,
-        u * u * u * pts[0].y
-            + 3.0 * u * u * t * pts[1].y
-            + 3.0 * u * t * t * pts[2].y
-            + t * t * t * pts[3].y,
-    )
-}
-
-fn segments_intersect(p1: Pos2, p2: Pos2, q1: Pos2, q2: Pos2) -> bool {
-    let d1 = p2 - p1;
-    let d2 = q2 - q1;
-    let cross = d1.x * d2.y - d1.y * d2.x;
-    if cross.abs() < 1e-8 {
-        return false;
-    }
-    let t = ((q1.x - p1.x) * d2.y - (q1.y - p1.y) * d2.x) / cross;
-    let u = ((q1.x - p1.x) * d1.y - (q1.y - p1.y) * d1.x) / cross;
-    (0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u)
 }

@@ -1,14 +1,16 @@
 use egui::{Color32, CornerRadius, Painter, Pos2, Rect, RichText, Stroke, Vec2};
 
+use super::connection_paint::{WireEmphasis, draw_connections};
 use super::interaction_state::InteractionState;
 use super::layout::GraphWidgetLayout;
 use super::minimap;
 use super::response::GraphResponses;
+use super::routing::{WirePath, draw_path};
 use super::widget::NodeGraphWidget;
 use crate::model::{NodeId, Socket, SocketDirection, SocketId};
 use crate::support::{
-    SOCKET_RADIUS, WireEmphasis, draw_box_select, draw_connections, draw_frames, draw_grid,
-    draw_knife_line, draw_wire, egui_color, to_screen_rect,
+    SOCKET_RADIUS, draw_box_select, draw_frames, draw_grid, draw_knife_line, egui_color,
+    to_screen_rect,
 };
 use crate::widget::node::{NodeControlContext, NodeDrawContext};
 
@@ -48,7 +50,7 @@ impl NodeGraphWidget {
         // highlighted when the node can be spliced in, muted when it can't.
         let insert_candidate =
             if let InteractionState::DraggingNode { node_id, .. } = self.interaction_state {
-                self.compute_insert_candidate_wire(node_id, pointer_canvas, &layout.nodes)
+                self.compute_insert_candidate_wire(node_id, pointer_canvas, layout)
             } else {
                 None
             };
@@ -93,7 +95,8 @@ impl NodeGraphWidget {
             painter,
             &self.graph,
             &self.registry,
-            &layout.socket_screen_pos,
+            layout,
+            |point| self.view.canvas_to_screen(origin, point),
             wire_w,
             |idx, conn| match insert_candidate {
                 _ if moved_link == Some(conn.to) => WireEmphasis::Hidden,
@@ -173,7 +176,13 @@ impl NodeGraphWidget {
             } else {
                 (free_screen, anchor_screen)
             };
-            draw_wire(painter, wire_start, wire_end, color, wire_w);
+            draw_path(
+                painter,
+                &WirePath::legacy(wire_start, wire_end, 1.0),
+                |point| point,
+                color,
+                wire_w,
+            );
             if let Some((target, target_canvas)) = snap {
                 let target_socket =
                     self.graph
@@ -673,7 +682,7 @@ mod render_tests {
     use crate::runtime::NodeTypeRegistry;
 
     /// The four control points of the drag preview painted for a wire drag
-    /// anchored at a socket of `direction`, in the order `draw_wire`
+    /// anchored at a socket of `direction`, in the order `draw_path`
     /// emitted them.
     fn preview_curve(direction: SocketDirection, pointer: Pos2) -> [Pos2; 4] {
         let context = egui::Context::default();

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use egui::{Pos2, Rect};
 
+use super::routing::WirePath;
 use super::widget::NodeGraphWidget;
 use crate::model::{FrameId, NodeId, NodeKind, SocketDirection, SocketId};
 use crate::support::{SOCKET_RADIUS, to_screen_rect};
@@ -21,6 +22,7 @@ const FRAME_TITLE_PADDING: f32 = 44.0;
 
 pub(crate) struct GraphWidgetLayout {
     pub nodes: HashMap<NodeId, NodeWidget>,
+    pub wire_paths: HashMap<(SocketId, SocketId), WirePath>,
     pub node_rects: HashMap<NodeId, Rect>,
     pub frame_rects: HashMap<FrameId, Rect>,
     pub frame_screen_rects: HashMap<FrameId, Rect>,
@@ -157,8 +159,27 @@ impl NodeGraphWidget {
             }
         }
 
+        let wire_paths = self
+            .graph
+            .connections
+            .iter()
+            .filter_map(|connection| {
+                let from = nodes
+                    .get(&connection.from.node)?
+                    .output_socket_pos(connection.from.index)?;
+                let to = nodes
+                    .get(&connection.to.node)?
+                    .input_socket_pos(connection.to.index)?;
+                Some((
+                    (connection.from, connection.to),
+                    WirePath::legacy(from, to, self.view.zoom),
+                ))
+            })
+            .collect();
+
         GraphWidgetLayout {
             nodes,
+            wire_paths,
             node_rects,
             frame_rects,
             frame_screen_rects,

@@ -1,4 +1,5 @@
 mod action;
+mod connection_paint;
 mod input_dispatch;
 mod interaction;
 mod interaction_state;
@@ -8,6 +9,7 @@ mod minimap;
 mod panel;
 mod render;
 mod response;
+mod routing;
 mod selection;
 mod snapshot_error;
 mod widget;

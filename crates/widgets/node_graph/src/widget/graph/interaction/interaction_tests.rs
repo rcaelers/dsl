@@ -1041,7 +1041,7 @@ fn double_click_wire_inserts_a_reroute_and_rewires_both_halves() {
     // (REROUTE_SIZE/2); this point sits right on that wire.
     let click = Pos2::new(100.0, 12.0);
     let idx = widget
-        .wire_near_point(click, &layout.nodes)
+        .wire_near_point(click, &layout)
         .expect("click should land on the wire");
     widget.insert_reroute_on_wire(idx, click);
 
