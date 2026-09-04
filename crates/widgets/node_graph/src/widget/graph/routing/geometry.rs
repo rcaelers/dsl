@@ -3,13 +3,6 @@ use egui::{Pos2, Rect, Vec2};
 /// Exact geometry; disconnected sections remain disconnected during hit testing.
 #[derive(Clone, Debug)]
 pub(crate) enum PathSegment {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "line paths are exercised by shared-path tests before obstacle routing is enabled"
-        )
-    )]
     Line([Pos2; 2]),
     Cubic([Pos2; 4]),
 }

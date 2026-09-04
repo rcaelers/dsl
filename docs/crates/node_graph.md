@@ -169,6 +169,27 @@ obstacle-collision proof. Preview wires use the same geometry representation; mu
 internal dashed links remain separate decoration. Paths are not persisted or added to
 undo history.
 
+The private individual router accepts node rectangles and explicit left/right port geometry.
+Its layout adapter includes offscreen nodes, excludes frame rectangles, and assigns temporary
+obstacle indices in sorted node-ID order. The editor continues to paint the legacy paths;
+checked routing is a separate internal entry point, exercised without changing the document.
+
+The router validates finite geometry and configuration, expands node bodies, and creates
+horizontal escape segments. Only each escape's own expanded body is exempt from its collision
+check; every other body remains an obstacle. Escape endpoints lie beyond their expanded body
+even when the requested escape is shorter than the clearance.
+
+Search uses a finite visibility lattice at escape coordinates and just outside obstacle
+boundaries. Columns partition the plane into slabs; search retains Y position and incoming
+direction rather than collapsing an entire free interval to one cost. Forward routes first
+use increasing-X transitions; a failed monotonic search retries with both horizontal directions.
+Backward and equal-X connections use that bidirectional search directly. Candidate edges and
+final line segments use analytic closed-rectangle intersection checks, including corner contact.
+The outermost coordinates provide a finite envelope outside all obstacles. Coordinate counts,
+state allocation, search, and validation consume explicit limits; invalid geometry, blocked
+escapes, no corridor, and exhausted work are distinct errors. Successful results use the same
+line/cubic path contract as painting, with line segments only and no smoothing safety claim.
+
 Interaction highlights:
 
 - **Wire dragging** with live compatibility checking and snap-to-socket; a snap candidate

@@ -3,8 +3,9 @@
 Owner: `graph.editor.connection-routing` in [TODO.md](../../TODO.md).
 Design: [ordered obstacle-avoiding routing proposal](../../writing-block.md).
 
-This is proposed feature work. Each numbered step is one branch; merge and verify it
-before starting the next. Do not combine unrelated refactorings. Preserve current wire
+This is proposed feature work. Each numbered step is one branch; commit and verify it
+before starting the next. Dependent branches may be stacked and merge in dependency order.
+Do not combine unrelated refactorings. Preserve current wire
 appearance until the checked router is activated in step 3.
 
 ## 1. Shared path geometry and interaction
@@ -21,13 +22,13 @@ appearance until the checked router is activated in step 3.
 
 ## 2. Checked individual routing
 
-- [ ] Add layout-to-geometry adaptation, finite input validation, expanded obstacles,
+- [x] Add layout-to-geometry adaptation, finite input validation, expanded obstacles,
   endpoint-only escape exemptions, configuration, and classified route outcomes.
-- [ ] Implement monotonic slab search and the non-monotonic visibility fallback with
+- [x] Implement monotonic slab search and the non-monotonic visibility fallback with
   stable ties, appropriate direction/position state, and work limits.
-- [ ] Add conservative collision checks and validated line-path output. Include offscreen
+- [x] Add conservative collision checks and validated line-path output. Include offscreen
   nodes and exclude frames. Keep solver activation for the next step.
-- [ ] Test backward/equal-X paths, blocked escapes, overlap, corner contacts, impossible
+- [x] Test backward/equal-X paths, blocked escapes, overlap, corner contacts, impossible
   layouts, and work exhaustion. Acceptance: successful paths satisfy endpoint/obstacle
   constraints; failures are explicit and distinguish geometric failure from budget limits.
 
