@@ -35,17 +35,15 @@ fn scene() -> (NodeGraphWidget, Connection, NodeId) {
     (widget, connection, obstacle)
 }
 
-fn lines(widget: &NodeGraphWidget, connection: &Connection) -> Vec<[Pos2; 2]> {
+fn path_geometry(widget: &NodeGraphWidget, connection: &Connection) -> Vec<Vec<Pos2>> {
     let layout = widget.build_layout(Pos2::ZERO);
     assert!(layout.wire_failures.is_empty());
     layout.wire_paths[&(connection.from, connection.to)]
         .segments()
         .iter()
-        .map(|segment| {
-            let PathSegment::Line(points) = segment else {
-                panic!("checked route")
-            };
-            *points
+        .map(|segment| match segment {
+            PathSegment::Line(points) => points.to_vec(),
+            PathSegment::Cubic(points) => points.to_vec(),
         })
         .collect()
 }
@@ -56,11 +54,12 @@ fn activated_paths_survive_pan_zoom_load_and_history_without_persisting_routes()
     let before = serde_json::to_value(&widget.graph).unwrap();
     let revision = widget.graph.semantic_revision();
     let undo_len = widget.undo_stack.len();
-    let original = lines(&widget, &connection);
+    let original = path_geometry(&widget, &connection);
+    assert!(original.iter().any(|points| points.len() == 4));
     for zoom in [0.2, 1.0, 3.0] {
         widget.view.zoom = zoom;
         widget.view.pan = Vec2::new(100.0, -30.0);
-        assert_eq!(lines(&widget, &connection), original);
+        assert_eq!(path_geometry(&widget, &connection), original);
     }
     assert_eq!(before, serde_json::to_value(&widget.graph).unwrap());
     assert_eq!(widget.graph.semantic_revision(), revision);
@@ -68,14 +67,14 @@ fn activated_paths_survive_pan_zoom_load_and_history_without_persisting_routes()
 
     widget.push_undo_snapshot();
     widget.graph.nodes.get_mut(&obstacle).unwrap().pos.y = 300.0;
-    let moved = lines(&widget, &connection);
+    let moved = path_geometry(&widget, &connection);
     assert_ne!(moved, original);
     widget.undo();
-    assert_eq!(lines(&widget, &connection), original);
+    assert_eq!(path_geometry(&widget, &connection), original);
     widget.execute_action(GraphAction::Redo, &egui::Context::default(), None);
-    assert_eq!(lines(&widget, &connection), moved);
+    assert_eq!(path_geometry(&widget, &connection), moved);
     widget.set_graph(serde_json::from_value(before).unwrap());
-    assert_eq!(lines(&widget, &connection), original);
+    assert_eq!(path_geometry(&widget, &connection), original);
 }
 
 #[test]
@@ -303,7 +302,11 @@ fn routing_visual_fixtures_have_expected_path_classes() {
         for shape in &output.shapes {
             match &shape.shape {
                 Shape::LineSegment { points, stroke } => svg.push_str(&format!("<path d='M {} {} L {} {}' fill='none' stroke='#{:02x}{:02x}{:02x}' stroke-width='{}'/>", points[0].x, points[0].y, points[1].x, points[1].y, stroke.color.r(), stroke.color.g(), stroke.color.b(), stroke.width)),
-                Shape::CubicBezier(curve) => { let p = curve.points; svg.push_str(&format!("<path d='M {} {} C {} {},{} {},{} {}' fill='none' stroke='#ffaa32' stroke-width='2'/>", p[0].x,p[0].y,p[1].x,p[1].y,p[2].x,p[2].y,p[3].x,p[3].y)); }
+                Shape::CubicBezier(curve) => {
+                    let p = curve.points;
+                    let egui::epaint::ColorMode::Solid(color) = curve.stroke.color else { panic!("solid wire fixture") };
+                    svg.push_str(&format!("<path d='M {} {} C {} {},{} {},{} {}' fill='none' stroke='#{:02x}{:02x}{:02x}' stroke-width='{}'/>", p[0].x,p[0].y,p[1].x,p[1].y,p[2].x,p[2].y,p[3].x,p[3].y,color.r(),color.g(),color.b(),curve.stroke.width));
+                }
                 _ => {}
             }
         }

@@ -6,7 +6,8 @@ use super::interaction_state::InteractionState;
 use super::layout::GraphWidgetLayout;
 use super::routing::{
     BundleCandidate, BundleMember, PortGeometry, PortSide, RouteConfig, RouteFailure, RouteInput,
-    WirePath, WorkBudget, compatible_groups, route_bundle, route_with_budget,
+    WirePath, WorkBudget, compatible_groups, improve_route, route_quality_bundle,
+    route_with_budget,
 };
 use super::widget::NodeGraphWidget;
 use super::wire::node_has_any_connection;
@@ -36,6 +37,7 @@ impl GraphWidgetLayout {
         self.wire_failures.clear();
         let config = RouteConfig::default();
         let mut budget = WorkBudget::new(config.max_work);
+        let mut smoothing_budget = WorkBudget::new(config.max_smoothing_work);
         let mut groups = self.connection_groups(connections, config.max_work);
         groups.reverse();
         while let Some(group) = groups.pop() {
@@ -43,7 +45,14 @@ impl GraphWidgetLayout {
                 let result =
                     self.routing_geometry(&group, &mut budget)
                         .and_then(|(nodes, members)| {
-                            route_bundle(&nodes, &members, &config, &mut budget)
+                            route_quality_bundle(
+                                &nodes,
+                                &members,
+                                &config,
+                                zoom,
+                                &mut budget,
+                                &mut smoothing_budget,
+                            )
                         });
                 if let Ok(paths) = result {
                     for (connection, path) in group.into_iter().zip(paths) {
@@ -63,6 +72,14 @@ impl GraphWidgetLayout {
             let key = (connection.from, connection.to);
             match self.route_connection_with_budget(connection, &config, &mut budget) {
                 Ok(path) => {
+                    // Optional quality work never spends the checked-search budget.
+                    let path = self.smooth_connection(
+                        connection,
+                        path,
+                        &config,
+                        zoom,
+                        &mut smoothing_budget,
+                    );
                     self.wire_paths.insert(key, path);
                 }
                 Err(failure) => {
@@ -88,6 +105,33 @@ impl GraphWidgetLayout {
                 }
             }
         }
+    }
+
+    fn smooth_connection(
+        &self,
+        connection: &Connection,
+        path: WirePath,
+        config: &RouteConfig,
+        zoom: f32,
+        budget: &mut WorkBudget,
+    ) -> WirePath {
+        let Ok((nodes, mut members)) = self.routing_geometry(&[connection], budget) else {
+            return path;
+        };
+        let Some(member) = members.pop() else {
+            return path;
+        };
+        improve_route(
+            RouteInput {
+                nodes: &nodes,
+                source: member.source,
+                target: member.target,
+            },
+            path,
+            config,
+            zoom,
+            budget,
+        )
     }
 
     fn connection_groups<'a>(
@@ -296,11 +340,13 @@ mod routing_input_tests {
                 let (nodes, members) = layout
                     .routing_geometry(&refs, &mut WorkBudget::new(config.max_work))
                     .unwrap();
-                expected = route_bundle(
+                expected = route_quality_bundle(
                     &nodes,
                     &members,
                     &config,
+                    zoom,
                     &mut WorkBudget::new(config.max_work),
+                    &mut WorkBudget::new(config.max_smoothing_work),
                 )
                 .unwrap();
             }
@@ -359,7 +405,14 @@ mod routing_input_tests {
             let mut expected = Vec::new();
             layout = widget.build_layout(Pos2::ZERO);
             let bundle_connections = if split {
-                expected.push(layout.route_connection(&connections[0], &config).unwrap());
+                let path = layout.route_connection(&connections[0], &config).unwrap();
+                expected.push(layout.smooth_connection(
+                    &connections[0],
+                    path,
+                    &config,
+                    1.0,
+                    &mut WorkBudget::new(config.max_smoothing_work),
+                ));
                 &connections[1..]
             } else {
                 &connections[..]
@@ -371,11 +424,13 @@ mod routing_input_tests {
                 )
                 .unwrap();
             expected.extend(
-                route_bundle(
+                route_quality_bundle(
                     &nodes,
                     &members,
                     &config,
+                    1.0,
                     &mut WorkBudget::new(config.max_work),
+                    &mut WorkBudget::new(config.max_smoothing_work),
                 )
                 .unwrap(),
             );

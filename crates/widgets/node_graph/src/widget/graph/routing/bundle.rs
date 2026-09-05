@@ -16,6 +16,10 @@ pub(crate) struct BundleMember {
     pub(crate) target_socket: usize,
 }
 
+pub(crate) fn endpoint_fan_width(count: usize, spacing: f32) -> f32 {
+    (count + 1) as f32 * spacing
+}
+
 pub(crate) fn route_bundle(
     nodes: &[Rect],
     members: &[BundleMember],
@@ -58,7 +62,7 @@ pub(crate) fn route_bundle(
         .fold(f32::NEG_INFINITY, f32::max);
     let target_x = targets.iter().map(|p| p.x).fold(f32::INFINITY, f32::min);
     let height = (members.len() - 1) as f32 * config.lane_spacing;
-    let fan_width = (members.len() + 1) as f32 * config.lane_spacing;
+    let fan_width = endpoint_fan_width(members.len(), config.lane_spacing);
     let left = source_x + fan_width;
     let right = target_x - fan_width;
     if !height.is_finite() || !left.is_finite() || !right.is_finite() || left >= right {

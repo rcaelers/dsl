@@ -62,13 +62,23 @@ appearance until the checked router is activated in step 3.
 
 ## 5. Smooth curves and variable spacing
 
-- [ ] Add centerline/offset geometry with common monotonic X parameterization and ordered
-  Y control coefficients. Reserve preferred spacing before corridor commitment; reduce
-  toward minimum spacing or split when needed.
-- [ ] Add horizontal port/lane tangents and derivative-matched smooth joins. Prove collision
-  safety with hull bounds/subdivision. Bound handle retries and retain checked line routes
-  when smoothing cannot be proved safe.
-- [ ] Test whole-curve ordering, tight corners, varying transition lengths, endpoint fan-out,
+- [x] Add conservative cubic collision proof with outward-rounded hull subdivision and
+  a separate bounded quality budget. Activate eligible individual interior-corner rounding,
+  preserve endpoint escapes, and retain checked line paths when quality work cannot finish.
+- [x] Test tangency, tight corners, asymmetric clearance, quality-work exhaustion, and
+  zoom-scaled interactions on rounded individual paths.
+- [x] Add common monotonic X cubic sections with ordered Y control coefficients, matching
+  zero Y(X) derivatives at joins, and shared-socket endpoint fan-outs. Validate curves
+  conservatively and restore the whole checked bundle when quality cannot be proved.
+- [x] Reserve preferred uniform spacing and smoothing clearance before displayed corridor
+  commitment, using budget-isolated searches and retaining a checked minimum-spacing route.
+- [x] Vary centerline offsets/spacing along a corridor with local capacity. Start from a
+  checked spacing lower bound, widen locally with coefficient-order and adjoining-curve
+  clearance proof, and retain narrow sections or split groups that cannot fit at minimum.
+- [x] Extend smooth joins across individual endpoint escape transitions with optional
+  reserved straight runs, preserving mandatory escapes and checking curves against all
+  nodes. Cover left/right port orientations, blocked reservation, and zoom-scaled gestures.
+- [x] Test whole-curve ordering, tight corners, varying transition lengths, endpoint fan-out,
   asymmetric clearance, and rejected smoothing. Acceptance: smoothing retains collision
   and ordering guarantees; visual fixtures show smooth ordered bundles where feasible.
 

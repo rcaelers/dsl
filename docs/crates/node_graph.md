@@ -160,7 +160,8 @@ document replacement cannot reuse stale connection identities.
 
 The private `widget/graph/routing` owner contains geometry and path painting without
 document or node-definition knowledge. Connection styling belongs to the enclosing
-widget's `connection_paint` owner. Checked external connections use rectilinear paths.
+widget's `connection_paint` owner. Checked external connections use rectilinear paths with
+optional validated curves on individual connections and ordered bundles.
 Failed routes and drag previews use output-first cubic handles with a 50-screen-pixel
 minimum horizontal span; their layout-space representation scales that minimum with zoom.
 Interaction subdivision targets a half-screen-pixel error, with
@@ -227,7 +228,61 @@ final line segments use analytic closed-rectangle intersection checks, including
 The outermost coordinates provide a finite envelope outside all obstacles. Coordinate counts,
 state allocation, search, and validation consume explicit limits; invalid geometry, blocked
 escapes, no corridor, and exhausted work are distinct errors. Successful results use the same
-line/cubic path contract as painting, with line segments only and no smoothing safety claim.
+line/cubic path contract as painting.
+
+Individual routes have optional quality work with a separate 50,000-unit frame budget.
+When a checked route turns at an escape endpoint, a budget-isolated search tries longer
+straight escapes, reserving two corner radii beyond the larger of the configured escape
+and horizontal clearance plus safety. Failed reservation retains the original checked route.
+Corner rounding preserves each mandatory straight escape, coalesces collinear interior
+steps, and tries up to six decreasing radii at each eligible corner. Endpoint transitions
+can trim only the reserved extension, never the mandatory escape.
+Accepted cubic handles align with the adjoining line tangents. Each curve must avoid all
+expanded bodies, with no endpoint-node exemption. Unproved corners stay sharp; exhausted
+rounding work restores its checked input path without spending the routing-search budget
+or marking a safe route as failed. This pass does not assert derivative-matched joins or
+bundle ordering and does not modify bundle paths.
+
+Bundle corridor preferences share the optional quality budget. A checked minimum-spacing
+route is retained first. Before committing the displayed corridor, optional searches try
+12-unit preferred spacing with a full corner-radius clearance reservation, minimum spacing
+with that reservation, then preferred spacing with ordinary clearance. Failure or exhausted
+quality work retains the minimum-spacing route without consuming additional safety-search
+work. The selected spacing determines the endpoint-fan width; smoothing validates against
+ordinary clearance, allowing curves to use the reserved room. This selected spacing is
+the interior lower bound for subsequent local widening.
+
+Bundle smoothing is a separate, group-atomic quality pass sharing the frame's smoothing
+budget. It merges overlapping transition windows around vertical runs and places common
+X knots at their boundaries and at the two endpoint-fan boundaries. All lanes use identical,
+strictly increasing X control points on each cubic section. Their ordered Y control
+coefficients prove whole-curve ordering via nonnegative Bernstein weights; equal coefficients
+are allowed only for explicit shared-socket prefixes/suffixes. Interior coefficients preserve
+the configured minimum lane spacing. Horizontal Y handles give zero endpoint slope with
+respect to X, matching derivatives at section joins and the unchanged horizontal escapes.
+
+Every candidate cubic must pass conservative obstacle validation. Up to twelve decreasing
+transition widths are tried. Invalid ordering, unrepresentable controls, exhausted quality
+work, or unproved clearance restores the entire checked group; smoothed and unsmoothed lanes
+are never mixed within one bundle. The pass can shorten unnecessary excursions.
+
+Validated cubic bundles can widen locally toward preferred spacing. Common knots near
+expanded obstacle boundaries and at interior interval midpoints expose changes in available
+room. At each interior knot, up to six decreasing widening amounts try centered expansion,
+then expansion anchored at either outer lane. This permits asymmetric centerline shifts.
+Both adjoining sections of every lane must pass collision proof before the knot is committed;
+actual f32 coefficient gaps must not decrease. Common X controls and zero Y(X) derivatives
+remain unchanged, preserving whole-curve order and smooth joins. Endpoint fans and their
+boundary spacing stay fixed. Narrow sections retain their checked lower-bound spacing, and
+groups that cannot fit even at minimum spacing are split by the checked router. Exhausted
+local-widening work retains the fully validated cubic bundle, including earlier certified
+knot changes. This bounded local search does not claim globally optimal spacing.
+
+Cubic collision validation is separate from interaction flattening. It uses convex-hull
+rectangle separation and bounded de Casteljau subdivision with outward-rounded f64 interval
+control points. Strict separation proves clearance; contact or unresolved overlap at the
+depth bound is rejected. Painting and gestures share the accepted line/cubic path, whose
+interaction approximation uses a half-screen-pixel tolerance at the current zoom.
 
 Failed connections use editable orange fallback curves with warning markers and hover
 explanations. A canvas summary also reports failures whose socket geometry cannot be drawn;
