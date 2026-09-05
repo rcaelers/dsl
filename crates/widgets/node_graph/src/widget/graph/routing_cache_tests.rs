@@ -1,10 +1,11 @@
 use egui::{Pos2, Rect, Vec2};
 
+use super::interaction_state::InteractionState;
 use super::layout::GraphWidgetLayout;
 use super::routing::{RouteConfig, RouteFailure};
 use super::routing_cache::RoutingCache;
 use super::widget::NodeGraphWidget;
-use crate::model::{Connection, NodeId, SocketDirection, SocketId};
+use crate::model::{Connection, FrameId, NodeId, NodeKind, SocketDirection, SocketId};
 use crate::runtime::NodeTypeRegistry;
 use crate::widget::node::NodeWidget;
 
@@ -221,4 +222,280 @@ fn moving_an_obstacle_into_an_escape_keeps_old_layouts_independent_and_rechecks(
         recovered.wire_paths[&key].segments().as_ptr(),
         blocked.wire_paths[&key].segments().as_ptr()
     );
+}
+
+#[test]
+fn drag_history_keeps_a_valid_detour_and_release_discovers_the_open_corridor() {
+    let (mut widget, connection, obstacle) = scene();
+    let key = (connection.from, connection.to);
+    let initial = widget.build_layout(Pos2::ZERO);
+    let document = serde_json::to_string(&widget.graph).unwrap();
+    // A frame gesture has no single-node provisional splice exclusion.
+    widget.interaction_state = InteractionState::DraggingFrame {
+        frame_id: FrameId(9000),
+        last_canvas: Pos2::ZERO,
+    };
+    let started = widget.build_layout(Pos2::ZERO);
+    assert_eq!(
+        initial.wire_paths[&key].segments().as_ptr(),
+        started.wire_paths[&key].segments().as_ptr()
+    );
+    assert_eq!(document, serde_json::to_string(&widget.graph).unwrap());
+    widget.graph.nodes.get_mut(&obstacle).unwrap().pos.y = 500.0;
+    let moving = widget.build_layout(Pos2::ZERO);
+    assert!(moving.wire_failures.is_empty());
+    assert_eq!(
+        initial.wire_paths[&key].segments().as_ptr(),
+        moving.wire_paths[&key].segments().as_ptr()
+    );
+    widget.interaction_state = InteractionState::Idle;
+    let mut released = widget.build_layout(Pos2::ZERO);
+    assert_ne!(
+        format!("{:?}", moving.wire_paths[&key].segments()),
+        format!("{:?}", released.wire_paths[&key].segments())
+    );
+    assert_cold_matches(
+        &mut released,
+        &widget.graph.connections,
+        &RouteConfig::default(),
+    );
+    let stationary = widget.build_layout(Pos2::ZERO);
+    let repeated = widget.build_layout(Pos2::ZERO);
+    assert_eq!(
+        stationary.wire_paths[&key].segments().as_ptr(),
+        repeated.wire_paths[&key].segments().as_ptr()
+    );
+}
+
+#[test]
+fn dragging_into_an_escape_rejects_history_and_recovers_from_the_warning() {
+    let (widget, connection, obstacle) = scene();
+    let key = (connection.from, connection.to);
+    let mut layout = widget.build_layout(Pos2::ZERO);
+    let mut cache = RoutingCache::default();
+    let config = RouteConfig::default();
+    cache.route_interactive(&mut layout, &widget.graph.connections, &config, 1.0, true);
+    let safe = layout.wire_paths[&key].clone();
+    layout.node_rects.insert(
+        obstacle,
+        Rect::from_min_size(Pos2::new(68.0, 120.0), Vec2::splat(24.0)),
+    );
+    cache.route_interactive(&mut layout, &widget.graph.connections, &config, 1.0, true);
+    assert_eq!(layout.wire_failures[&key], RouteFailure::BlockedEscape);
+    assert_ne!(
+        safe.segments().as_ptr(),
+        layout.wire_paths[&key].segments().as_ptr()
+    );
+    layout.node_rects.insert(
+        obstacle,
+        Rect::from_min_size(Pos2::new(250.0, 500.0), Vec2::splat(24.0)),
+    );
+    cache.route_interactive(&mut layout, &widget.graph.connections, &config, 1.0, true);
+    assert!(layout.wire_failures.is_empty());
+    assert_cold_matches(&mut layout, &widget.graph.connections, &config);
+}
+
+#[test]
+fn exhausted_history_work_rebuilds_instead_of_claiming_unchecked_reuse() {
+    for allowance in [0, 4] {
+        let (widget, connection, obstacle) = scene();
+        let key = (connection.from, connection.to);
+        let config = RouteConfig {
+            max_history_work: allowance,
+            ..RouteConfig::default()
+        };
+        let mut layout = widget.build_layout(Pos2::ZERO);
+        let mut cache = RoutingCache::default();
+        cache.route_interactive(&mut layout, &widget.graph.connections, &config, 1.0, true);
+        let before = layout.wire_paths[&key].clone();
+        let body = layout.node_rects[&obstacle];
+        layout
+            .node_rects
+            .insert(obstacle, body.translate(Vec2::new(0.0, 500.0)));
+        cache.route_interactive(&mut layout, &widget.graph.connections, &config, 1.0, true);
+        assert_ne!(
+            before.segments().as_ptr(),
+            layout.wire_paths[&key].segments().as_ptr()
+        );
+        assert!(layout.wire_failures.is_empty());
+        assert_cold_matches(&mut layout, &widget.graph.connections, &config);
+    }
+}
+
+#[test]
+fn changed_one_socket_invalidates_every_member_of_the_node_pair() {
+    let (mut widget, connection, obstacle) = scene();
+    widget.graph.nodes.get_mut(&obstacle).unwrap().pos.y = 500.0;
+    for id in [connection.from.node, connection.to.node] {
+        let node = widget.graph.nodes.get_mut(&id).unwrap();
+        node.kind = NodeKind::Regular;
+        node.inputs = vec![node.inputs[0].clone(); 3];
+        node.outputs = vec![node.outputs[0].clone(); 3];
+    }
+    let mut second = connection.clone();
+    second.from.index = 2;
+    second.to.index = 2;
+    widget.graph.add_connection(second.from, second.to);
+    let mut layout = widget.build_layout(Pos2::ZERO);
+    let config = RouteConfig::default();
+    let mut cache = RoutingCache::default();
+    cache.route_interactive(&mut layout, &widget.graph.connections, &config, 1.0, true);
+    assert!(layout.wire_failures.is_empty());
+    let first = layout.wire_paths[&(connection.from, connection.to)].clone();
+    let unchanged = layout.nodes[&connection.from.node].output_socket_pos(0);
+    let changed = layout.nodes[&connection.from.node].output_socket_pos(2);
+    let mut source = widget.graph.nodes[&connection.from.node].clone();
+    source.outputs[1].hidden = true;
+    layout.nodes.insert(
+        connection.from.node,
+        NodeWidget::new(&widget.graph, connection.from.node, &source, None),
+    );
+    assert_eq!(
+        unchanged,
+        layout.nodes[&connection.from.node].output_socket_pos(0)
+    );
+    assert_ne!(
+        changed,
+        layout.nodes[&connection.from.node].output_socket_pos(2)
+    );
+    cache.route_interactive(&mut layout, &widget.graph.connections, &config, 1.0, true);
+    assert_ne!(
+        first.segments().as_ptr(),
+        layout.wire_paths[&(connection.from, connection.to)]
+            .segments()
+            .as_ptr()
+    );
+    assert_cold_matches(&mut layout, &widget.graph.connections, &config);
+}
+
+#[test]
+fn drag_history_resets_on_endpoint_extents_topology_exclusion_config_and_zoom() {
+    for case in 0..7 {
+        let (widget, connection, obstacle) = scene();
+        let key = (connection.from, connection.to);
+        let mut layout = widget.build_layout(Pos2::ZERO);
+        let mut connections = widget.graph.connections.clone();
+        let mut config = RouteConfig::default();
+        let mut zoom = 1.0;
+        let mut cache = RoutingCache::default();
+        cache.route_interactive(&mut layout, &connections, &config, zoom, true);
+        let before = layout.wire_paths[&key].clone();
+        match case {
+            0 => {
+                let body = layout.node_rects[&connection.from.node];
+                layout.node_rects.insert(
+                    connection.from.node,
+                    Rect::from_min_max(body.min, body.max + Vec2::new(0.0, 2.0)),
+                );
+            }
+            1 => connections.push(connection.clone()),
+            2 => layout.routing_excluded = Some(obstacle),
+            3 => config.corner_radius += 1.0,
+            4 => zoom = 1.7,
+            5 => {
+                layout.node_rects.remove(&obstacle);
+            }
+            _ => {
+                layout.node_rects.insert(
+                    NodeId(9999),
+                    Rect::from_min_size(Pos2::new(9000.0, 9000.0), Vec2::splat(24.0)),
+                );
+            }
+        }
+        cache.route_interactive(&mut layout, &connections, &config, zoom, true);
+        assert_ne!(
+            before.segments().as_ptr(),
+            layout.wire_paths[&key].segments().as_ptr(),
+            "case {case}"
+        );
+    }
+}
+
+#[test]
+fn identical_drag_histories_have_identical_geometry_and_failures() {
+    let sequence = || {
+        let (widget, _, obstacle) = scene();
+        let mut layout = widget.build_layout(Pos2::ZERO);
+        let mut cache = RoutingCache::default();
+        let mut results = Vec::new();
+        for position in [
+            Pos2::new(250.0, 110.0),
+            Pos2::new(250.0, 500.0),
+            Pos2::new(68.0, 120.0),
+            Pos2::new(250.0, 500.0),
+        ] {
+            layout
+                .node_rects
+                .insert(obstacle, Rect::from_min_size(position, Vec2::splat(24.0)));
+            cache.route_interactive(
+                &mut layout,
+                &widget.graph.connections,
+                &RouteConfig::default(),
+                1.0,
+                true,
+            );
+            let c = &widget.graph.connections[0];
+            results.push((
+                format!("{:?}", layout.wire_paths[&(c.from, c.to)].segments()),
+                layout.wire_failures.clone(),
+            ));
+        }
+        results
+    };
+    assert_eq!(sequence(), sequence());
+}
+
+#[test]
+fn moving_a_connected_node_rebuilds_incident_paths_but_shares_unrelated_geometry() {
+    let (mut widget, connection, _) = scene();
+    let from = widget
+        .add_node_at("Reroute", Pos2::new(900.0, 500.0))
+        .unwrap();
+    let to = widget
+        .add_node_at("Reroute", Pos2::new(1400.0, 500.0))
+        .unwrap();
+    let remote = Connection {
+        from: SocketId {
+            node: from,
+            index: 0,
+            direction: SocketDirection::Output,
+        },
+        to: SocketId {
+            node: to,
+            index: 0,
+            direction: SocketDirection::Input,
+        },
+    };
+    widget.graph.add_connection(remote.from, remote.to);
+    let initial = widget.build_layout(Pos2::ZERO);
+    assert!(initial.wire_failures.is_empty());
+    widget.interaction_state = InteractionState::DraggingNode {
+        node_id: from,
+        offset: Vec2::ZERO,
+        constraint: None,
+    };
+    widget.graph.nodes.get_mut(&from).unwrap().pos.y += 10.0;
+    let moved = widget.build_layout(Pos2::ZERO);
+    assert!(moved.wire_failures.is_empty());
+    let key = (connection.from, connection.to);
+    assert_eq!(
+        initial.wire_paths[&key].segments().as_ptr(),
+        moved.wire_paths[&key].segments().as_ptr()
+    );
+    assert_ne!(
+        initial.wire_paths[&(remote.from, remote.to)]
+            .segments()
+            .as_ptr(),
+        moved.wire_paths[&(remote.from, remote.to)]
+            .segments()
+            .as_ptr()
+    );
+    widget.view.pan = Vec2::new(200.0, 100.0);
+    let panned = widget.build_layout(Pos2::new(30.0, 40.0));
+    for (key, path) in &moved.wire_paths {
+        assert_eq!(
+            path.segments().as_ptr(),
+            panned.wire_paths[key].segments().as_ptr()
+        );
+    }
 }

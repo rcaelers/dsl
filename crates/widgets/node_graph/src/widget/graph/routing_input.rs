@@ -1,5 +1,7 @@
 //! Adapts a complete widget layout into identity-free routing geometry.
 
+use std::collections::HashMap;
+
 use egui::{Pos2, Rect};
 
 use super::interaction_state::InteractionState;
@@ -11,7 +13,7 @@ use super::routing::{
 };
 use super::widget::NodeGraphWidget;
 use super::wire::node_has_any_connection;
-use crate::model::{Connection, NodeId, SocketDirection};
+use crate::model::{Connection, NodeId, SocketDirection, SocketId};
 
 impl NodeGraphWidget {
     pub(crate) fn routing_splice_candidate(&self) -> Option<NodeId> {
@@ -43,6 +45,17 @@ impl GraphWidgetLayout {
         config: &RouteConfig,
         zoom: f32,
     ) {
+        self.rebuild_routes_retaining(connections, config, zoom, &HashMap::new());
+    }
+
+    /// Retained entries are checked, immutable, and complete for each node pair.
+    pub(crate) fn rebuild_routes_retaining(
+        &mut self,
+        connections: &[Connection],
+        config: &RouteConfig,
+        zoom: f32,
+        retained: &HashMap<(SocketId, SocketId), WirePath>,
+    ) {
         self.wire_paths.clear();
         self.wire_failures.clear();
         let mut budget = WorkBudget::new(config.max_work);
@@ -50,6 +63,13 @@ impl GraphWidgetLayout {
         let mut groups = self.connection_groups(connections, config.max_work);
         groups.reverse();
         while let Some(group) = groups.pop() {
+            if group.iter().all(|c| retained.contains_key(&(c.from, c.to))) {
+                for connection in group {
+                    let key = (connection.from, connection.to);
+                    self.wire_paths.insert(key, retained[&key].clone());
+                }
+                continue;
+            }
             if group.len() > 1 {
                 let result =
                     self.routing_geometry(&group, &mut budget)

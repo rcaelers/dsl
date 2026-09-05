@@ -215,8 +215,25 @@ pair/group/member order. The widget retains one transient routing snapshot, keye
 all node rectangles, the ordered connection list and its actual socket positions,
 provisional exclusion, the complete routing configuration, and zoom. Identical inputs
 reuse both paths and failure classifications; pan and screen origin are not routing
-inputs. Any mismatch rebuilds the whole snapshot. This conservative cache does not
-reuse paths across changed obstacle geometry or provide history-aware hysteresis.
+inputs. Outside geometry gestures, any mismatch rebuilds the whole snapshot.
+
+During node/frame dragging or node placement, unchanged node pairs retain checked paths
+after dependency revalidation. Node insertion/removal, connection identity/order changes,
+configuration, zoom, and provisional-exclusion changes reset history. Changed endpoint
+bodies or actual socket positions invalidate the entire node pair. For other changed
+bodies, old and new expanded bounds identify potentially affected paths; exact rectilinear
+checks and conservative cubic subdivision prove clearance against the current obstacles.
+Unchanged obstacles retain their previous proof. Changed non-endpoint obstacles receive
+no endpoint escape exemption. Invalid geometry or inconclusive/exhausted proof rejects reuse.
+
+Retention is atomic across every connection of a node pair, including previously split
+bundles, so old ordered members never mix with independently rerouted members. Failed
+paths are not history candidates. Optional history validation has its own bounded
+`max_history_work` allowance; rejected pairs use the normal shared search/quality budgets.
+Valid prior corridors remain stable during dragging even when shorter corridors open.
+The first layout after the gesture ends performs a full bounded rebuild, including when
+the geometry matches the final drag snapshot. This also applies to cancellation. Cold
+routing is deterministic from inputs; drag routing is deterministic from inputs and history.
 
 Paths share immutable curve, interaction, and bounds data through `Arc`, so cached and
 earlier live layouts remain independent without copying flattened geometry. Zoom changes

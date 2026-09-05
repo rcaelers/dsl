@@ -93,10 +93,10 @@ appearance until the checked router is activated in step 3.
 - [x] Reuse identical routing snapshots using complete geometry/configuration/zoom keys,
   immutable shared path data, and unchanged failure classifications. Test invalidation
   and compare native cache-hit cost with the retained forced-rebuild baseline.
-- [ ] Add valid-history hysteresis and dependency invalidation for incident routes, old/new
+- [x] Add valid-history hysteresis and dependency invalidation for incident routes, old/new
   obstacle extents, layout/socket changes, configuration, and topology generations.
   Revalidate prior paths and schedule a broader quality pass after dragging stops.
-- [ ] Test cold and history-aware determinism, unrelated movement, moving obstacles into
+- [x] Test cold and history-aware determinism, unrelated movement, moving obstacles into
   routes, newly opened corridors, pan/zoom, and bounded-work presentation. Acceptance:
   invalid cached paths are never reported safe; unaffected valid routes remain stable.
 - [ ] Measure 100/500 and 500/2000 node/connection fixtures on native and wasm. Target routing

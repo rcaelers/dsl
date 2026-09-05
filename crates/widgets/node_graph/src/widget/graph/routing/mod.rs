@@ -13,6 +13,7 @@ mod contract;
 mod corridor;
 mod geometry;
 mod grouping;
+mod history;
 mod individual;
 mod individual_quality;
 mod ordered_smoothing;
@@ -33,6 +34,7 @@ pub(crate) use contract::{
 };
 pub(crate) use geometry::{PathSegment, WirePath};
 pub(crate) use grouping::{BundleCandidate, compatible_groups};
+pub(crate) use history::avoids_changed_obstacles;
 pub(crate) use individual::route_with_budget;
 pub(crate) use individual_quality::improve_route;
 pub(crate) use paint::draw_path;

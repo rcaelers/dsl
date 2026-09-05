@@ -25,17 +25,19 @@ pub(crate) fn expanded(
     input
         .nodes
         .iter()
-        .map(|rect| {
-            if !valid_rect(*rect) {
-                return Err(RouteFailure::InvalidGeometry);
-            }
-            let expanded = rect.expand2(Vec2::new(config.clearance_x, config.clearance_y));
-            if !valid_rect(expanded) {
-                return Err(RouteFailure::InvalidGeometry);
-            }
-            Ok(expanded)
-        })
+        .map(|rect| expand_obstacle(*rect, config))
         .collect()
+}
+
+pub(crate) fn expand_obstacle(rect: Rect, config: &RouteConfig) -> Result<Rect, RouteFailure> {
+    if !valid_rect(rect) {
+        return Err(RouteFailure::InvalidGeometry);
+    }
+    let expanded = rect.expand2(Vec2::new(config.clearance_x, config.clearance_y));
+    if !valid_rect(expanded) {
+        return Err(RouteFailure::InvalidGeometry);
+    }
+    Ok(expanded)
 }
 
 fn valid_rect(rect: Rect) -> bool {

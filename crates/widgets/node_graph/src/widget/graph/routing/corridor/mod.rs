@@ -5,5 +5,5 @@ mod obstacle;
 mod search;
 
 pub(crate) use curve::cubic_clear;
-pub(crate) use obstacle::{clear, escape, expanded};
+pub(crate) use obstacle::{clear, escape, expand_obstacle, expanded};
 pub(crate) use search::Channels;

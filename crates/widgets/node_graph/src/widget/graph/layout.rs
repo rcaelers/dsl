@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use egui::{Pos2, Rect};
 
+use super::interaction_state::InteractionState;
 use super::routing::{RouteConfig, RouteFailure, WirePath};
 use super::widget::NodeGraphWidget;
 use crate::model::{FrameId, NodeId, NodeKind, SocketDirection, SocketId};
@@ -183,11 +184,18 @@ impl NodeGraphWidget {
             socket_screen_pos,
             socket_hit_rects,
         };
-        self.routing_cache.borrow_mut().route(
+        let dragging = matches!(
+            self.interaction_state,
+            InteractionState::DraggingNode { .. }
+                | InteractionState::DraggingFrame { .. }
+                | InteractionState::PlacingNodes { .. }
+        );
+        self.routing_cache.borrow_mut().route_interactive(
             &mut layout,
             &self.graph.connections,
             &RouteConfig::default(),
             self.view.zoom,
+            dragging,
         );
         layout
     }
