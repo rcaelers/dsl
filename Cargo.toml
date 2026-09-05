@@ -45,8 +45,8 @@ publish = false
 autobins = false
 autoexamples = false
 
-# The graph-based examples live in graphs/. These standalone Rust examples
-# inspect CCD captures outside the graph pipeline.
+# The graph-based examples live in graphs/. Standalone Rust examples inspect
+# CCD captures and generate explicit application profiling workloads.
 [[example]]
 name = "ccd_viewer"
 path = "examples/ccd_viewer.rs"
@@ -54,6 +54,11 @@ path = "examples/ccd_viewer.rs"
 [[example]]
 name = "ccd_layout_analyzer"
 path = "examples/ccd_layout_analyzer.rs"
+
+[[example]]
+name = "application-frame-fixture"
+path = "examples/application_frame_fixture/main.rs"
+test = true
 
 [[bench]]
 name = "compiler_capture"

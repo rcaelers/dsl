@@ -481,6 +481,64 @@ speedup, or full live-application performance. GPU upload/execution/presentation
 large application graphs, application drag frames, browser rendering, and active-runtime
 composition remain open work in step 6.
 
+### Native application UI scale documents
+
+The explicit `application-frame-fixture` example generates `paired-builtins-fanout-v1`:
+100 nodes/500 wires or 500 nodes/2000 wires, using the existing logic transform and parallel
+decoder records from `graphs/wasm_decoder_demo.json`. It introduces no new node definitions,
+application API, or production routing behavior. Each pair connects the transform's
+single output to ten decoder inputs at the smaller scale and eight at the larger scale.
+Five pairs occupy each row, with pair origins 900 canvas units apart horizontally and 700
+vertically; the decoder is 450 units right of its transform. Real node controls, socket
+counts, and shared-output fan-out differ from the neutral `paired-grid-v1` benchmark.
+
+The generated document contains no capture sources, copied panel layouts, or copied payload
+subscriptions. It explicitly deselects each output using the current viewer-selection document
+contract. The surrounding viewer is empty, with no graph execution or acquisition. The native
+profile uses its fresh default split-panel layout and 100% graph zoom, not the neutral CPU
+fixture's 35% zoom. Most nodes are offscreen; this is stationary default-view coverage, not a
+full-visible-graph or low-zoom application benchmark.
+
+The generator restores the template through the registered editor definitions and checks exact
+wire preservation, node counts, and absence of node validation badges after loading the result.
+Its ordinary bounded tests cover both sizes, deterministic JSON bytes, directed fan-out endpoints,
+positions, the next allocation ID, and complete serialized equality after reloading. Long frame
+measurement remains an explicit command. Output files require a new path and are never overwritten.
+
+Build both executables before measuring; generate each fixture into a fresh temporary directory:
+
+```sh
+cargo build -p logic-analyzer-examples --release --example application-frame-fixture
+cargo build -p logic-analyzer-app-native --release --features developer-tools --bin logic-conduit
+frame_fixture_dir=$(mktemp -d /tmp/node-graph-app-scale.XXXXXX)
+target/release/examples/application-frame-fixture "$frame_fixture_dir/fanout-100.json" --nodes 100
+target/release/examples/application-frame-fixture "$frame_fixture_dir/fanout-500.json" --nodes 500
+node scripts/measure_application_frames.mjs target/release/logic-conduit \
+  "$frame_fixture_dir/fanout-100.json" --warmup 30 --samples 120
+node scripts/measure_application_frames.mjs target/release/logic-conduit \
+  "$frame_fixture_dir/fanout-500.json" --warmup 30 --samples 120
+```
+
+Reference-host observations on 2026-09-05 use the same Metal adapter, 1440 × 900 logical
+viewport, 2 pixels per point, and `AutoVsync` configuration as the small-document baseline.
+Both 120-sample runs complete within the runner's 45-second deadline. No Cargo validation
+runs concurrently and source stays fixed throughout measurement. Post-measurement screenshots
+show the expected node counts and fan-out, with no source-conflict or migration toasts.
+
+| Nodes / connections | Eframe CPU p50 / p95 | UI-start interval p50 / p95 | Maximum UI-start interval |
+| --- | --- | --- | --- |
+| 100 / 500 | 3.34 / 3.58 ms | 16.67 / 16.91 ms | 83.56 ms |
+| 500 / 2000 | 13.39 / 13.85 ms | 16.67 / 16.87 ms | 33.22 ms |
+
+The raw report retains every interval, including host-sensitive outliers; p95 alone does not
+establish consistently smooth presentation. These are neither speedup ratios nor GPU durations.
+The screenshot at the larger size shows more angular routes; the smaller fan-out includes short
+detours. Appearance does not identify fallback reasons or prove routing quality, and this
+application harness does not expose route outcome counts. Route collision/fallback/quality
+acceptance remains separate from these UI timing observations. Raw samples, generator metadata,
+document hashes, and source/binary/visual-check hashes are in
+[`node_graph_native_application_scale_frames.json`](../../benchmarks/performance/node_graph_native_application_scale_frames.json).
+
 ### Native idle-frame sampling
 
 The `idle_profile` example is an explicit profiling command: it runs 1000 stationary

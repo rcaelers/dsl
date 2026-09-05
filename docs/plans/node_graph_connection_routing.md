@@ -105,6 +105,10 @@ appearance until the checked router is activated in step 3.
   and unavailable execution services. Retain stationary bundled-graph CPU/cadence samples,
   renderer metadata, and post-measurement visual checks. GPU duration/presentation, large-graph
   application frames, browser rendering, and active-runtime composition remain outside this baseline.
+- [x] Add reproducible built-in fan-out application documents at 100/500 and 500/2000
+  nodes/connections, checking deterministic serialization and exact editor reloads. Retain
+  stationary native UI CPU/cadence samples and visual checks at default 100% zoom, separately
+  from neutral low-zoom CPU fixtures. Do not infer GPU cost or routing-quality acceptance.
 - [x] Add an opt-in long idle-frame workload for external sampling and retain native stack
   evidence that distinguishes initial response allocation from repeated z-order updates.
 - [x] Cover low-zoom target overlap, floating overlays, socket/toggle order, tab focus, and

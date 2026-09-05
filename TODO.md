@@ -76,7 +76,7 @@ Task IDs start with their ownership category and remain stable when task wording
      Reduce repeated hit-target z-order updates while preserving pointer capture and focus.
      Keep the disjoint reference fixtures free of cold/release fallbacks with the existing work budgets.
      Native/browser CPU baselines, repeated release/idle tails, drag frames, cache-hit measurements,
-     and the isolated native application UI CPU/cadence baseline are in
+     and isolated native application UI CPU/cadence baselines (small documents and built-in fan-out scale) are in
      `docs/aspects/performance.md`.
 - [graph.editor.socket-renaming] Add generic instance-local socket renaming. Node definitions explicitly mark which input and
   output sockets are renameable; sockets without that capability remain definition-owned. Preserve stable schema IDs and

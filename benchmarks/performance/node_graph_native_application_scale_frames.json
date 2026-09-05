@@ -1,0 +1,1858 @@
+{
+  "date": "2026-09-05",
+  "base_revision": "6bf756e6",
+  "change": "Explicit developer example generates deterministic paired built-in transform/decoder fan-out documents. No production widget, application, node-feature, runtime, or routing change.",
+  "profile": "release (optimized + debuginfo); application developer-tools",
+  "hardware": {
+    "cpu": "Apple M1 Ultra",
+    "logical_cpus": 20,
+    "memory_bytes": 68719476736,
+    "os": "macOS 26.6.2 (25G83)",
+    "rustc": "1.100.0-nightly (0ed41eb41 2026-09-04)"
+  },
+  "runner": {
+    "script": "scripts/measure_application_frames.mjs",
+    "node": "26.8.1",
+    "timeout_seconds": 45,
+    "isolated_preferences": true
+  },
+  "source_sha256": {
+    "examples/application_frame_fixture/main.rs": "955ac536e65a4ac9b20c5f3f30d9d8087db8ad657a75d920e584f4e2a49c742a",
+    "crates/app_native/src/frame_profile.rs": "20fc97f5e2aa6959b6e7b41216dd3f4de306c1052e6508befe6f2f0d734918ef",
+    "scripts/measure_application_frames.mjs": "4bea9c91d01679fd47ca88590ae0319316c572397d8d36a46fd02549a3d8d2ee"
+  },
+  "executable_sha256": {
+    "fixture_generator": "d60cb06fa5ed04174cb481fb0d2e32847313582ec09675a66d6db373f83dcdcf",
+    "application": "3d3d313658dbef6964688619e974cf295ac5b94836e6db2374308dab982ea246"
+  },
+  "measurement_context": "Sequential 100-node then 500-node native runs. Source fixed, no concurrent Cargo validation. Actual WGPU/Metal application UI, continuous repaint, fresh default panel layout, 100% graph zoom and initial pan, no capture loaded or viewer outputs selected. Thirty valid previous-frame CPU observations warm the UI, then 120 samples. No interaction or graph execution. Real controls, shapes, socket counts and shared-output fan-out differ from the neutral paired-grid-v1 CPU benchmark, which uses 35% zoom; results cannot be subtracted to isolate GPU cost or used as a before/after optimization comparison. UI-start intervals include host scheduling/pacing and are not presentation latency. Timing reports retain input document counts. Generator checks exact wires and node counts after editor load; tests check deterministic bytes, positions, allocation counters and complete serialized reload equality. No route fallback/collision/smoothing-quality assertions or live execution validation.",
+  "rejected_preliminary_fixture": "Repeating synthetic capture sources produced source-discovery conflicts and legacy viewer migration toasts; those timings are not accepted or pooled. The retained workload has no capture sources and explicitly deselects every output using the current UI document contract.",
+  "fixtures": [
+    {
+      "connections": 500,
+      "fixture": "paired-builtins-fanout-v1",
+      "graph": "/tmp/node-graph-app-scale.7lX69Y/fanout-100.json",
+      "graph_blake3": "4dd99639d9ff81c91b5ff8213c1c1f86c58f79dec2c0dfad816b566ca6633bc8",
+      "nodes": 100,
+      "pair_stride": [
+        900,
+        700
+      ],
+      "pairs_per_row": 5,
+      "scope": "stationary application UI document; existing transform/decoder definitions; shared-output fan-out; explicit deselected viewer outputs; no capture source, routing fallback or execution assertion",
+      "target_offset": [
+        450,
+        0
+      ],
+      "template_blake3": "64fa140766785a47b56a39cc64ae5241ddcfe39b3759def4c5586605f08a88be"
+    },
+    {
+      "connections": 2000,
+      "fixture": "paired-builtins-fanout-v1",
+      "graph": "/tmp/node-graph-app-scale.7lX69Y/fanout-500.json",
+      "graph_blake3": "de0c2037a809c13f2a271dd5a438637eaa2eddb1c56a51746b9db33c14bf1411",
+      "nodes": 500,
+      "pair_stride": [
+        900,
+        700
+      ],
+      "pairs_per_row": 5,
+      "scope": "stationary application UI document; existing transform/decoder definitions; shared-output fan-out; explicit deselected viewer outputs; no capture source, routing fallback or execution assertion",
+      "target_offset": [
+        450,
+        0
+      ],
+      "template_blake3": "64fa140766785a47b56a39cc64ae5241ddcfe39b3759def4c5586605f08a88be"
+    }
+  ],
+  "visual_qa": [
+    {
+      "nodes": 100,
+      "screenshot_sha256": "eeac95ac7127b25ab68e2f712811ae54f11be2c59493b8fea8f5027af4c7245d",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "observation": "Post-measurement screenshot inspected: 100 nodes and 100% zoom in footer, shared-output fan-out visible, blank capture viewer, disabled Run/Start, no source-conflict or migration toasts. Most nodes offscreen. Curved fan-out includes short detours; this is not a route-quality acceptance check."
+    },
+    {
+      "nodes": 500,
+      "screenshot_sha256": "47d4504721d3464081a0048085b85bdd8d06b709257b374d15abe5ff1eb27825",
+      "pixels": [
+        2880,
+        1800
+      ],
+      "observation": "Post-measurement screenshot inspected: 500 nodes and 100% zoom in footer, mostly angular shared-output routes visible, blank capture viewer, disabled Run/Start, no source-conflict or migration toasts. Most nodes offscreen. No fallback classification inferred from appearance."
+    }
+  ],
+  "reports": [
+    {
+      "adapter": {
+        "backend": "Metal",
+        "device_type": "IntegratedGpu",
+        "driver": "",
+        "driver_info": "",
+        "name": "Apple M1 Ultra"
+      },
+      "eframe_cpu": {
+        "max_ms": 3.7946654483675957,
+        "p50_ms": 3.338041715323925,
+        "p95_ms": 3.5849567502737045,
+        "p99_ms": 3.726750612258911,
+        "samples_ms": [
+          2.9676659032702446,
+          2.997082658112049,
+          3.002207726240158,
+          3.0115004628896713,
+          3.0440008267760277,
+          3.0528753995895386,
+          3.0598342418670654,
+          3.065667115151882,
+          3.0672913417220116,
+          3.0985400080680847,
+          3.1180400401353836,
+          3.122667782008648,
+          3.1266240403056145,
+          3.1350823119282722,
+          3.1357482075691223,
+          3.153707832098007,
+          3.1609581783413887,
+          3.1669167801737785,
+          3.1728334724903107,
+          3.1746672466397285,
+          3.1813327223062515,
+          3.1825844198465347,
+          3.1851232051849365,
+          3.203083761036396,
+          3.2047508284449577,
+          3.207123838365078,
+          3.2173320651054382,
+          3.2179178670048714,
+          3.221123479306698,
+          3.228040412068367,
+          3.2283738255500793,
+          3.2397089526057243,
+          3.2434165477752686,
+          3.243541345000267,
+          3.2447082921862602,
+          3.249041736125946,
+          3.260623663663864,
+          3.2650427892804146,
+          3.26541718095541,
+          3.2654982060194016,
+          3.269581124186516,
+          3.274790942668915,
+          3.2803332433104515,
+          3.2889582216739655,
+          3.2899565994739532,
+          3.2916245982050896,
+          3.2965848222374916,
+          3.2969992607831955,
+          3.29708494246006,
+          3.3019576221704483,
+          3.30391526222229,
+          3.3051231876015663,
+          3.306332044303417,
+          3.307582810521126,
+          3.310583531856537,
+          3.326081670820713,
+          3.329499624669552,
+          3.331749700009823,
+          3.3347075805068016,
+          3.338041715323925,
+          3.3420417457818985,
+          3.3422475680708885,
+          3.3510392531752586,
+          3.351828083395958,
+          3.3543771132826805,
+          3.364706411957741,
+          3.367708995938301,
+          3.369915299117565,
+          3.3706240355968475,
+          3.3723311498761177,
+          3.372957929968834,
+          3.384040668606758,
+          3.3939993008971214,
+          3.4030405804514885,
+          3.404581919312477,
+          3.407249227166176,
+          3.413749858736992,
+          3.4240009263157845,
+          3.4244563430547714,
+          3.4252917394042015,
+          3.426250070333481,
+          3.4280866384506226,
+          3.4283334389328957,
+          3.428373485803604,
+          3.4284181892871857,
+          3.435751423239708,
+          3.4412071108818054,
+          3.4450842067599297,
+          3.4509142860770226,
+          3.4524155780673027,
+          3.4559573978185654,
+          3.4589171409606934,
+          3.463498316705227,
+          3.46428994089365,
+          3.4700408577919006,
+          3.4701675176620483,
+          3.476124256849289,
+          3.477540798485279,
+          3.477667458355427,
+          3.4778742119669914,
+          3.48679069429636,
+          3.4932484850287437,
+          3.4936247393488884,
+          3.506331704556942,
+          3.5087084397673607,
+          3.522126004099846,
+          3.5337917506694794,
+          3.5349996760487556,
+          3.551042638719082,
+          3.5575414076447487,
+          3.5715829581022263,
+          3.5758735612034798,
+          3.5763736814260483,
+          3.5849567502737045,
+          3.587164916098118,
+          3.600332885980606,
+          3.6407485604286194,
+          3.66966612637043,
+          3.726750612258911,
+          3.7946654483675957
+        ]
+      },
+      "execution": "unavailable services; input suppressed",
+      "fixture": "native-application-ui-frames-v1",
+      "frames": [
+        {
+          "eframe_cpu_ms": 3.4559573978185654,
+          "observed_frame": 31,
+          "ui_start_interval_ms": 16.625625000000003
+        },
+        {
+          "eframe_cpu_ms": 3.4252917394042015,
+          "observed_frame": 32,
+          "ui_start_interval_ms": 16.444542
+        },
+        {
+          "eframe_cpu_ms": 3.3723311498761177,
+          "observed_frame": 33,
+          "ui_start_interval_ms": 16.372332999999998
+        },
+        {
+          "eframe_cpu_ms": 3.5763736814260483,
+          "observed_frame": 34,
+          "ui_start_interval_ms": 16.745709
+        },
+        {
+          "eframe_cpu_ms": 3.7946654483675957,
+          "observed_frame": 35,
+          "ui_start_interval_ms": 16.664082999999998
+        },
+        {
+          "eframe_cpu_ms": 3.331749700009823,
+          "observed_frame": 36,
+          "ui_start_interval_ms": 16.706417000000002
+        },
+        {
+          "eframe_cpu_ms": 3.367708995938301,
+          "observed_frame": 37,
+          "ui_start_interval_ms": 16.546333
+        },
+        {
+          "eframe_cpu_ms": 3.726750612258911,
+          "observed_frame": 38,
+          "ui_start_interval_ms": 16.609208
+        },
+        {
+          "eframe_cpu_ms": 3.30391526222229,
+          "observed_frame": 39,
+          "ui_start_interval_ms": 16.628209000000002
+        },
+        {
+          "eframe_cpu_ms": 3.46428994089365,
+          "observed_frame": 40,
+          "ui_start_interval_ms": 16.760375
+        },
+        {
+          "eframe_cpu_ms": 3.3422475680708885,
+          "observed_frame": 41,
+          "ui_start_interval_ms": 16.605208
+        },
+        {
+          "eframe_cpu_ms": 3.477540798485279,
+          "observed_frame": 42,
+          "ui_start_interval_ms": 16.610291999999998
+        },
+        {
+          "eframe_cpu_ms": 3.2916245982050896,
+          "observed_frame": 43,
+          "ui_start_interval_ms": 16.634833
+        },
+        {
+          "eframe_cpu_ms": 3.4412071108818054,
+          "observed_frame": 44,
+          "ui_start_interval_ms": 16.669292
+        },
+        {
+          "eframe_cpu_ms": 3.2047508284449577,
+          "observed_frame": 45,
+          "ui_start_interval_ms": 16.981458
+        },
+        {
+          "eframe_cpu_ms": 3.0440008267760277,
+          "observed_frame": 46,
+          "ui_start_interval_ms": 16.675417000000003
+        },
+        {
+          "eframe_cpu_ms": 3.29708494246006,
+          "observed_frame": 47,
+          "ui_start_interval_ms": 16.561958
+        },
+        {
+          "eframe_cpu_ms": 3.0598342418670654,
+          "observed_frame": 48,
+          "ui_start_interval_ms": 16.70975
+        },
+        {
+          "eframe_cpu_ms": 3.3510392531752586,
+          "observed_frame": 49,
+          "ui_start_interval_ms": 16.917958
+        },
+        {
+          "eframe_cpu_ms": 3.4280866384506226,
+          "observed_frame": 50,
+          "ui_start_interval_ms": 83.556375
+        },
+        {
+          "eframe_cpu_ms": 3.351828083395958,
+          "observed_frame": 51,
+          "ui_start_interval_ms": 25.780959
+        },
+        {
+          "eframe_cpu_ms": 3.5337917506694794,
+          "observed_frame": 52,
+          "ui_start_interval_ms": 16.844416000000002
+        },
+        {
+          "eframe_cpu_ms": 3.4284181892871857,
+          "observed_frame": 53,
+          "ui_start_interval_ms": 16.50825
+        },
+        {
+          "eframe_cpu_ms": 3.66966612637043,
+          "observed_frame": 54,
+          "ui_start_interval_ms": 16.936625
+        },
+        {
+          "eframe_cpu_ms": 3.587164916098118,
+          "observed_frame": 55,
+          "ui_start_interval_ms": 16.327458999999998
+        },
+        {
+          "eframe_cpu_ms": 3.269581124186516,
+          "observed_frame": 56,
+          "ui_start_interval_ms": 16.551541
+        },
+        {
+          "eframe_cpu_ms": 3.1825844198465347,
+          "observed_frame": 57,
+          "ui_start_interval_ms": 16.732625000000002
+        },
+        {
+          "eframe_cpu_ms": 3.3347075805068016,
+          "observed_frame": 58,
+          "ui_start_interval_ms": 16.739834
+        },
+        {
+          "eframe_cpu_ms": 3.065667115151882,
+          "observed_frame": 59,
+          "ui_start_interval_ms": 16.592208
+        },
+        {
+          "eframe_cpu_ms": 3.0985400080680847,
+          "observed_frame": 60,
+          "ui_start_interval_ms": 16.842541999999998
+        },
+        {
+          "eframe_cpu_ms": 3.2650427892804146,
+          "observed_frame": 61,
+          "ui_start_interval_ms": 16.595791
+        },
+        {
+          "eframe_cpu_ms": 3.48679069429636,
+          "observed_frame": 62,
+          "ui_start_interval_ms": 16.625792
+        },
+        {
+          "eframe_cpu_ms": 3.1851232051849365,
+          "observed_frame": 63,
+          "ui_start_interval_ms": 16.663332999999998
+        },
+        {
+          "eframe_cpu_ms": 3.5715829581022263,
+          "observed_frame": 64,
+          "ui_start_interval_ms": 16.773792
+        },
+        {
+          "eframe_cpu_ms": 3.5087084397673607,
+          "observed_frame": 65,
+          "ui_start_interval_ms": 16.4695
+        },
+        {
+          "eframe_cpu_ms": 3.4450842067599297,
+          "observed_frame": 66,
+          "ui_start_interval_ms": 16.912542
+        },
+        {
+          "eframe_cpu_ms": 3.4030405804514885,
+          "observed_frame": 67,
+          "ui_start_interval_ms": 16.460333000000002
+        },
+        {
+          "eframe_cpu_ms": 3.4244563430547714,
+          "observed_frame": 68,
+          "ui_start_interval_ms": 16.74925
+        },
+        {
+          "eframe_cpu_ms": 3.1266240403056145,
+          "observed_frame": 69,
+          "ui_start_interval_ms": 16.581292
+        },
+        {
+          "eframe_cpu_ms": 3.274790942668915,
+          "observed_frame": 70,
+          "ui_start_interval_ms": 16.724290999999997
+        },
+        {
+          "eframe_cpu_ms": 3.221123479306698,
+          "observed_frame": 71,
+          "ui_start_interval_ms": 16.6975
+        },
+        {
+          "eframe_cpu_ms": 3.3420417457818985,
+          "observed_frame": 72,
+          "ui_start_interval_ms": 16.651459
+        },
+        {
+          "eframe_cpu_ms": 3.4240009263157845,
+          "observed_frame": 73,
+          "ui_start_interval_ms": 16.572541
+        },
+        {
+          "eframe_cpu_ms": 3.413749858736992,
+          "observed_frame": 74,
+          "ui_start_interval_ms": 16.692
+        },
+        {
+          "eframe_cpu_ms": 3.2434165477752686,
+          "observed_frame": 75,
+          "ui_start_interval_ms": 16.637791999999997
+        },
+        {
+          "eframe_cpu_ms": 3.2899565994739532,
+          "observed_frame": 76,
+          "ui_start_interval_ms": 16.632792000000002
+        },
+        {
+          "eframe_cpu_ms": 3.2889582216739655,
+          "observed_frame": 77,
+          "ui_start_interval_ms": 16.634375
+        },
+        {
+          "eframe_cpu_ms": 3.1180400401353836,
+          "observed_frame": 78,
+          "ui_start_interval_ms": 16.689625
+        },
+        {
+          "eframe_cpu_ms": 3.002207726240158,
+          "observed_frame": 79,
+          "ui_start_interval_ms": 16.709708
+        },
+        {
+          "eframe_cpu_ms": 3.2173320651054382,
+          "observed_frame": 80,
+          "ui_start_interval_ms": 16.808291999999998
+        },
+        {
+          "eframe_cpu_ms": 3.1609581783413887,
+          "observed_frame": 81,
+          "ui_start_interval_ms": 16.583083
+        },
+        {
+          "eframe_cpu_ms": 3.0672913417220116,
+          "observed_frame": 82,
+          "ui_start_interval_ms": 16.673000000000002
+        },
+        {
+          "eframe_cpu_ms": 3.0528753995895386,
+          "observed_frame": 83,
+          "ui_start_interval_ms": 16.58775
+        },
+        {
+          "eframe_cpu_ms": 3.2179178670048714,
+          "observed_frame": 84,
+          "ui_start_interval_ms": 16.674833
+        },
+        {
+          "eframe_cpu_ms": 2.997082658112049,
+          "observed_frame": 85,
+          "ui_start_interval_ms": 16.694667
+        },
+        {
+          "eframe_cpu_ms": 3.1357482075691223,
+          "observed_frame": 86,
+          "ui_start_interval_ms": 16.686166999999998
+        },
+        {
+          "eframe_cpu_ms": 3.384040668606758,
+          "observed_frame": 87,
+          "ui_start_interval_ms": 16.806791
+        },
+        {
+          "eframe_cpu_ms": 3.1669167801737785,
+          "observed_frame": 88,
+          "ui_start_interval_ms": 16.616209
+        },
+        {
+          "eframe_cpu_ms": 3.0115004628896713,
+          "observed_frame": 89,
+          "ui_start_interval_ms": 16.507166
+        },
+        {
+          "eframe_cpu_ms": 3.435751423239708,
+          "observed_frame": 90,
+          "ui_start_interval_ms": 16.865875
+        },
+        {
+          "eframe_cpu_ms": 3.2283738255500793,
+          "observed_frame": 91,
+          "ui_start_interval_ms": 16.284334
+        },
+        {
+          "eframe_cpu_ms": 3.26541718095541,
+          "observed_frame": 92,
+          "ui_start_interval_ms": 16.725083
+        },
+        {
+          "eframe_cpu_ms": 3.207123838365078,
+          "observed_frame": 93,
+          "ui_start_interval_ms": 16.598042
+        },
+        {
+          "eframe_cpu_ms": 3.2654982060194016,
+          "observed_frame": 94,
+          "ui_start_interval_ms": 16.657875
+        },
+        {
+          "eframe_cpu_ms": 3.1728334724903107,
+          "observed_frame": 95,
+          "ui_start_interval_ms": 16.646874999999998
+        },
+        {
+          "eframe_cpu_ms": 3.228040412068367,
+          "observed_frame": 96,
+          "ui_start_interval_ms": 16.712375
+        },
+        {
+          "eframe_cpu_ms": 3.307582810521126,
+          "observed_frame": 97,
+          "ui_start_interval_ms": 16.676333000000003
+        },
+        {
+          "eframe_cpu_ms": 3.243541345000267,
+          "observed_frame": 98,
+          "ui_start_interval_ms": 16.626625
+        },
+        {
+          "eframe_cpu_ms": 3.3019576221704483,
+          "observed_frame": 99,
+          "ui_start_interval_ms": 16.711457999999997
+        },
+        {
+          "eframe_cpu_ms": 3.3051231876015663,
+          "observed_frame": 100,
+          "ui_start_interval_ms": 16.757375
+        },
+        {
+          "eframe_cpu_ms": 3.1350823119282722,
+          "observed_frame": 101,
+          "ui_start_interval_ms": 16.538166999999998
+        },
+        {
+          "eframe_cpu_ms": 3.2397089526057243,
+          "observed_frame": 102,
+          "ui_start_interval_ms": 16.694333
+        },
+        {
+          "eframe_cpu_ms": 3.2447082921862602,
+          "observed_frame": 103,
+          "ui_start_interval_ms": 16.613792
+        },
+        {
+          "eframe_cpu_ms": 3.260623663663864,
+          "observed_frame": 104,
+          "ui_start_interval_ms": 16.727083
+        },
+        {
+          "eframe_cpu_ms": 3.122667782008648,
+          "observed_frame": 105,
+          "ui_start_interval_ms": 16.691709
+        },
+        {
+          "eframe_cpu_ms": 3.1813327223062515,
+          "observed_frame": 106,
+          "ui_start_interval_ms": 16.719250000000002
+        },
+        {
+          "eframe_cpu_ms": 3.326081670820713,
+          "observed_frame": 107,
+          "ui_start_interval_ms": 16.640291
+        },
+        {
+          "eframe_cpu_ms": 3.2965848222374916,
+          "observed_frame": 108,
+          "ui_start_interval_ms": 16.68975
+        },
+        {
+          "eframe_cpu_ms": 3.153707832098007,
+          "observed_frame": 109,
+          "ui_start_interval_ms": 16.708000000000002
+        },
+        {
+          "eframe_cpu_ms": 3.203083761036396,
+          "observed_frame": 110,
+          "ui_start_interval_ms": 16.686916999999998
+        },
+        {
+          "eframe_cpu_ms": 3.1746672466397285,
+          "observed_frame": 111,
+          "ui_start_interval_ms": 16.712167
+        },
+        {
+          "eframe_cpu_ms": 2.9676659032702446,
+          "observed_frame": 112,
+          "ui_start_interval_ms": 16.468583
+        },
+        {
+          "eframe_cpu_ms": 3.2803332433104515,
+          "observed_frame": 113,
+          "ui_start_interval_ms": 16.739417
+        },
+        {
+          "eframe_cpu_ms": 3.249041736125946,
+          "observed_frame": 114,
+          "ui_start_interval_ms": 16.78925
+        },
+        {
+          "eframe_cpu_ms": 3.3939993008971214,
+          "observed_frame": 115,
+          "ui_start_interval_ms": 16.649250000000002
+        },
+        {
+          "eframe_cpu_ms": 3.372957929968834,
+          "observed_frame": 116,
+          "ui_start_interval_ms": 16.682958000000003
+        },
+        {
+          "eframe_cpu_ms": 3.364706411957741,
+          "observed_frame": 117,
+          "ui_start_interval_ms": 16.525833
+        },
+        {
+          "eframe_cpu_ms": 3.3543771132826805,
+          "observed_frame": 118,
+          "ui_start_interval_ms": 16.848
+        },
+        {
+          "eframe_cpu_ms": 3.4524155780673027,
+          "observed_frame": 119,
+          "ui_start_interval_ms": 16.675542
+        },
+        {
+          "eframe_cpu_ms": 3.338041715323925,
+          "observed_frame": 120,
+          "ui_start_interval_ms": 16.676875
+        },
+        {
+          "eframe_cpu_ms": 3.5349996760487556,
+          "observed_frame": 121,
+          "ui_start_interval_ms": 16.649917
+        },
+        {
+          "eframe_cpu_ms": 3.4589171409606934,
+          "observed_frame": 122,
+          "ui_start_interval_ms": 16.732916
+        },
+        {
+          "eframe_cpu_ms": 3.5575414076447487,
+          "observed_frame": 123,
+          "ui_start_interval_ms": 16.546125
+        },
+        {
+          "eframe_cpu_ms": 3.4283334389328957,
+          "observed_frame": 124,
+          "ui_start_interval_ms": 16.67075
+        },
+        {
+          "eframe_cpu_ms": 3.426250070333481,
+          "observed_frame": 125,
+          "ui_start_interval_ms": 16.695334
+        },
+        {
+          "eframe_cpu_ms": 3.4778742119669914,
+          "observed_frame": 126,
+          "ui_start_interval_ms": 16.609083000000002
+        },
+        {
+          "eframe_cpu_ms": 3.2969992607831955,
+          "observed_frame": 127,
+          "ui_start_interval_ms": 16.5975
+        },
+        {
+          "eframe_cpu_ms": 3.407249227166176,
+          "observed_frame": 128,
+          "ui_start_interval_ms": 16.806583
+        },
+        {
+          "eframe_cpu_ms": 3.3706240355968475,
+          "observed_frame": 129,
+          "ui_start_interval_ms": 16.557959
+        },
+        {
+          "eframe_cpu_ms": 3.476124256849289,
+          "observed_frame": 130,
+          "ui_start_interval_ms": 16.771166
+        },
+        {
+          "eframe_cpu_ms": 3.4700408577919006,
+          "observed_frame": 131,
+          "ui_start_interval_ms": 16.668834
+        },
+        {
+          "eframe_cpu_ms": 3.477667458355427,
+          "observed_frame": 132,
+          "ui_start_interval_ms": 16.646500000000003
+        },
+        {
+          "eframe_cpu_ms": 3.506331704556942,
+          "observed_frame": 133,
+          "ui_start_interval_ms": 16.698500000000003
+        },
+        {
+          "eframe_cpu_ms": 3.4701675176620483,
+          "observed_frame": 134,
+          "ui_start_interval_ms": 16.703375
+        },
+        {
+          "eframe_cpu_ms": 3.4509142860770226,
+          "observed_frame": 135,
+          "ui_start_interval_ms": 16.581458
+        },
+        {
+          "eframe_cpu_ms": 3.522126004099846,
+          "observed_frame": 136,
+          "ui_start_interval_ms": 16.698125
+        },
+        {
+          "eframe_cpu_ms": 3.306332044303417,
+          "observed_frame": 137,
+          "ui_start_interval_ms": 16.7595
+        },
+        {
+          "eframe_cpu_ms": 3.4932484850287437,
+          "observed_frame": 138,
+          "ui_start_interval_ms": 16.717125
+        },
+        {
+          "eframe_cpu_ms": 3.463498316705227,
+          "observed_frame": 139,
+          "ui_start_interval_ms": 16.400000000000002
+        },
+        {
+          "eframe_cpu_ms": 3.5758735612034798,
+          "observed_frame": 140,
+          "ui_start_interval_ms": 16.878207999999997
+        },
+        {
+          "eframe_cpu_ms": 3.329499624669552,
+          "observed_frame": 141,
+          "ui_start_interval_ms": 16.650374999999997
+        },
+        {
+          "eframe_cpu_ms": 3.369915299117565,
+          "observed_frame": 142,
+          "ui_start_interval_ms": 16.585167000000002
+        },
+        {
+          "eframe_cpu_ms": 3.6407485604286194,
+          "observed_frame": 143,
+          "ui_start_interval_ms": 16.754917000000003
+        },
+        {
+          "eframe_cpu_ms": 3.5849567502737045,
+          "observed_frame": 144,
+          "ui_start_interval_ms": 16.569625000000002
+        },
+        {
+          "eframe_cpu_ms": 3.551042638719082,
+          "observed_frame": 145,
+          "ui_start_interval_ms": 16.656582999999998
+        },
+        {
+          "eframe_cpu_ms": 3.404581919312477,
+          "observed_frame": 146,
+          "ui_start_interval_ms": 16.934042
+        },
+        {
+          "eframe_cpu_ms": 3.310583531856537,
+          "observed_frame": 147,
+          "ui_start_interval_ms": 16.386166
+        },
+        {
+          "eframe_cpu_ms": 3.428373485803604,
+          "observed_frame": 148,
+          "ui_start_interval_ms": 16.802125
+        },
+        {
+          "eframe_cpu_ms": 3.4936247393488884,
+          "observed_frame": 149,
+          "ui_start_interval_ms": 16.613209
+        },
+        {
+          "eframe_cpu_ms": 3.600332885980606,
+          "observed_frame": 150,
+          "ui_start_interval_ms": 16.773416
+        }
+      ],
+      "graph": "/tmp/node-graph-app-scale.7lX69Y/fanout-100.json",
+      "graph_blake3": "4dd99639d9ff81c91b5ff8213c1c1f86c58f79dec2c0dfad816b566ca6633bc8",
+      "input_connections": 500,
+      "input_nodes": 100,
+      "measurement": "eframe previous-frame CPU time includes UI/render CPU work, excludes vsync waiting; UI-start intervals include pacing/scheduling, not GPU duration or presentation latency",
+      "pixels_per_point": 2,
+      "preferences": "isolated temporary directory; no app save",
+      "sample_count": 120,
+      "screenshot": "/tmp/node-graph-app-scale.7lX69Y/fanout-100.png",
+      "surface_config": "Some(SurfaceConfig { present_mode: AutoVsync, desired_maximum_frame_latency: Some(1) })",
+      "ui_start_interval": {
+        "max_ms": 83.556375,
+        "p50_ms": 16.674833,
+        "p95_ms": 16.912542,
+        "p99_ms": 25.780959,
+        "samples_ms": [
+          16.284334,
+          16.327458999999998,
+          16.372332999999998,
+          16.386166,
+          16.400000000000002,
+          16.444542,
+          16.460333000000002,
+          16.468583,
+          16.4695,
+          16.507166,
+          16.50825,
+          16.525833,
+          16.538166999999998,
+          16.546125,
+          16.546333,
+          16.551541,
+          16.557959,
+          16.561958,
+          16.569625000000002,
+          16.572541,
+          16.581292,
+          16.581458,
+          16.583083,
+          16.585167000000002,
+          16.58775,
+          16.592208,
+          16.595791,
+          16.5975,
+          16.598042,
+          16.605208,
+          16.609083000000002,
+          16.609208,
+          16.610291999999998,
+          16.613209,
+          16.613792,
+          16.616209,
+          16.625625000000003,
+          16.625792,
+          16.626625,
+          16.628209000000002,
+          16.632792000000002,
+          16.634375,
+          16.634833,
+          16.637791999999997,
+          16.640291,
+          16.646500000000003,
+          16.646874999999998,
+          16.649250000000002,
+          16.649917,
+          16.650374999999997,
+          16.651459,
+          16.656582999999998,
+          16.657875,
+          16.663332999999998,
+          16.664082999999998,
+          16.668834,
+          16.669292,
+          16.67075,
+          16.673000000000002,
+          16.674833,
+          16.675417000000003,
+          16.675542,
+          16.676333000000003,
+          16.676875,
+          16.682958000000003,
+          16.686166999999998,
+          16.686916999999998,
+          16.689625,
+          16.68975,
+          16.691709,
+          16.692,
+          16.694333,
+          16.694667,
+          16.695334,
+          16.6975,
+          16.698125,
+          16.698500000000003,
+          16.703375,
+          16.706417000000002,
+          16.708000000000002,
+          16.709708,
+          16.70975,
+          16.711457999999997,
+          16.712167,
+          16.712375,
+          16.717125,
+          16.719250000000002,
+          16.724290999999997,
+          16.725083,
+          16.727083,
+          16.732625000000002,
+          16.732916,
+          16.739417,
+          16.739834,
+          16.745709,
+          16.74925,
+          16.754917000000003,
+          16.757375,
+          16.7595,
+          16.760375,
+          16.771166,
+          16.773416,
+          16.773792,
+          16.78925,
+          16.802125,
+          16.806583,
+          16.806791,
+          16.808291999999998,
+          16.842541999999998,
+          16.844416000000002,
+          16.848,
+          16.865875,
+          16.878207999999997,
+          16.912542,
+          16.917958,
+          16.934042,
+          16.936625,
+          16.981458,
+          25.780959,
+          83.556375
+        ]
+      },
+      "viewport_points": [
+        1440,
+        900
+      ],
+      "warmup": 30
+    },
+    {
+      "adapter": {
+        "backend": "Metal",
+        "device_type": "IntegratedGpu",
+        "driver": "",
+        "driver_info": "",
+        "name": "Apple M1 Ultra"
+      },
+      "eframe_cpu": {
+        "max_ms": 14.187999069690704,
+        "p50_ms": 13.394415378570557,
+        "p95_ms": 13.85266613215208,
+        "p99_ms": 14.114917255938053,
+        "samples_ms": [
+          12.513251043856144,
+          12.516457587480545,
+          12.660582549870014,
+          12.706958688795567,
+          12.72070873528719,
+          12.722165323793888,
+          12.815124355256557,
+          12.831291183829308,
+          12.838833965361118,
+          12.863793410360813,
+          12.883124873042107,
+          12.907248921692371,
+          12.949290685355663,
+          12.960374355316162,
+          12.980164960026741,
+          12.980833649635315,
+          13.002915307879448,
+          13.022040948271751,
+          13.0253741517663,
+          13.031499460339546,
+          13.038084842264652,
+          13.083918020129204,
+          13.113416731357574,
+          13.132456690073013,
+          13.163749128580093,
+          13.170832768082619,
+          13.1735410541296,
+          13.181999325752258,
+          13.186542317271233,
+          13.191708363592625,
+          13.198291882872581,
+          13.205043040215969,
+          13.206332921981812,
+          13.220001012086868,
+          13.220706954598427,
+          13.236748985946178,
+          13.240250758826733,
+          13.24304100126028,
+          13.255082070827484,
+          13.260500505566597,
+          13.26528936624527,
+          13.266208581626415,
+          13.266582041978836,
+          13.275083154439926,
+          13.280458748340607,
+          13.285374268889427,
+          13.303251005709171,
+          13.305330649018288,
+          13.305583037436008,
+          13.312790542840958,
+          13.315792195498943,
+          13.328248634934425,
+          13.329456560313702,
+          13.34233209490776,
+          13.349581509828568,
+          13.350125402212143,
+          13.382833451032639,
+          13.383125886321068,
+          13.385707512497902,
+          13.394415378570557,
+          13.395290821790695,
+          13.39616533368826,
+          13.401375152170658,
+          13.410583138465881,
+          13.412249274551868,
+          13.416498899459839,
+          13.420292176306248,
+          13.423498719930649,
+          13.42545822262764,
+          13.434290885925293,
+          13.435250148177147,
+          13.44000082463026,
+          13.443290255963802,
+          13.450291007757187,
+          13.453708030283451,
+          13.46420869231224,
+          13.46562523394823,
+          13.4686678647995,
+          13.468791730701923,
+          13.474664650857449,
+          13.499041087925434,
+          13.501790352165699,
+          13.513666577637196,
+          13.5171664878726,
+          13.531498610973358,
+          13.531997799873352,
+          13.5412085801363,
+          13.54183442890644,
+          13.550165109336376,
+          13.557166792452335,
+          13.558165170252323,
+          13.55983130633831,
+          13.560667634010315,
+          13.589791022241116,
+          13.595040887594223,
+          13.60674761235714,
+          13.61866481602192,
+          13.630375266075134,
+          13.635040260851383,
+          13.649416156113148,
+          13.658249750733376,
+          13.672457076609135,
+          13.675831258296967,
+          13.686292804777622,
+          13.699083589017391,
+          13.763418421149254,
+          13.76766711473465,
+          13.778749853372574,
+          13.780039735138416,
+          13.790706172585487,
+          13.798915781080723,
+          13.811290264129639,
+          13.838207349181175,
+          13.85266613215208,
+          13.911415822803974,
+          13.929000124335289,
+          13.937124982476234,
+          13.960832729935646,
+          14.114917255938053,
+          14.187999069690704
+        ]
+      },
+      "execution": "unavailable services; input suppressed",
+      "fixture": "native-application-ui-frames-v1",
+      "frames": [
+        {
+          "eframe_cpu_ms": 13.76766711473465,
+          "observed_frame": 31,
+          "ui_start_interval_ms": 16.806458
+        },
+        {
+          "eframe_cpu_ms": 13.658249750733376,
+          "observed_frame": 32,
+          "ui_start_interval_ms": 16.428292
+        },
+        {
+          "eframe_cpu_ms": 13.911415822803974,
+          "observed_frame": 33,
+          "ui_start_interval_ms": 16.587500000000002
+        },
+        {
+          "eframe_cpu_ms": 13.4686678647995,
+          "observed_frame": 34,
+          "ui_start_interval_ms": 17.05225
+        },
+        {
+          "eframe_cpu_ms": 13.630375266075134,
+          "observed_frame": 35,
+          "ui_start_interval_ms": 16.664541
+        },
+        {
+          "eframe_cpu_ms": 13.560667634010315,
+          "observed_frame": 36,
+          "ui_start_interval_ms": 16.549375
+        },
+        {
+          "eframe_cpu_ms": 13.46420869231224,
+          "observed_frame": 37,
+          "ui_start_interval_ms": 16.683375
+        },
+        {
+          "eframe_cpu_ms": 13.0253741517663,
+          "observed_frame": 38,
+          "ui_start_interval_ms": 16.6215
+        },
+        {
+          "eframe_cpu_ms": 13.266582041978836,
+          "observed_frame": 39,
+          "ui_start_interval_ms": 16.770125
+        },
+        {
+          "eframe_cpu_ms": 13.312790542840958,
+          "observed_frame": 40,
+          "ui_start_interval_ms": 16.597209000000003
+        },
+        {
+          "eframe_cpu_ms": 12.949290685355663,
+          "observed_frame": 41,
+          "ui_start_interval_ms": 16.659125
+        },
+        {
+          "eframe_cpu_ms": 13.960832729935646,
+          "observed_frame": 42,
+          "ui_start_interval_ms": 16.777125
+        },
+        {
+          "eframe_cpu_ms": 13.595040887594223,
+          "observed_frame": 43,
+          "ui_start_interval_ms": 16.541625
+        },
+        {
+          "eframe_cpu_ms": 13.181999325752258,
+          "observed_frame": 44,
+          "ui_start_interval_ms": 16.552
+        },
+        {
+          "eframe_cpu_ms": 13.798915781080723,
+          "observed_frame": 45,
+          "ui_start_interval_ms": 16.874875
+        },
+        {
+          "eframe_cpu_ms": 13.329456560313702,
+          "observed_frame": 46,
+          "ui_start_interval_ms": 16.530416
+        },
+        {
+          "eframe_cpu_ms": 13.423498719930649,
+          "observed_frame": 47,
+          "ui_start_interval_ms": 16.697584000000003
+        },
+        {
+          "eframe_cpu_ms": 13.303251005709171,
+          "observed_frame": 48,
+          "ui_start_interval_ms": 16.559125
+        },
+        {
+          "eframe_cpu_ms": 13.1735410541296,
+          "observed_frame": 49,
+          "ui_start_interval_ms": 16.738708000000003
+        },
+        {
+          "eframe_cpu_ms": 13.54183442890644,
+          "observed_frame": 50,
+          "ui_start_interval_ms": 16.614167
+        },
+        {
+          "eframe_cpu_ms": 13.474664650857449,
+          "observed_frame": 51,
+          "ui_start_interval_ms": 16.700708000000002
+        },
+        {
+          "eframe_cpu_ms": 13.275083154439926,
+          "observed_frame": 52,
+          "ui_start_interval_ms": 16.671333
+        },
+        {
+          "eframe_cpu_ms": 13.443290255963802,
+          "observed_frame": 53,
+          "ui_start_interval_ms": 16.632959
+        },
+        {
+          "eframe_cpu_ms": 13.34233209490776,
+          "observed_frame": 54,
+          "ui_start_interval_ms": 16.698583
+        },
+        {
+          "eframe_cpu_ms": 13.453708030283451,
+          "observed_frame": 55,
+          "ui_start_interval_ms": 16.669083
+        },
+        {
+          "eframe_cpu_ms": 13.531498610973358,
+          "observed_frame": 56,
+          "ui_start_interval_ms": 16.679416999999997
+        },
+        {
+          "eframe_cpu_ms": 13.315792195498943,
+          "observed_frame": 57,
+          "ui_start_interval_ms": 16.680917
+        },
+        {
+          "eframe_cpu_ms": 13.349581509828568,
+          "observed_frame": 58,
+          "ui_start_interval_ms": 16.722375
+        },
+        {
+          "eframe_cpu_ms": 12.838833965361118,
+          "observed_frame": 59,
+          "ui_start_interval_ms": 16.624541
+        },
+        {
+          "eframe_cpu_ms": 13.395290821790695,
+          "observed_frame": 60,
+          "ui_start_interval_ms": 16.6075
+        },
+        {
+          "eframe_cpu_ms": 13.60674761235714,
+          "observed_frame": 61,
+          "ui_start_interval_ms": 16.728459
+        },
+        {
+          "eframe_cpu_ms": 13.434290885925293,
+          "observed_frame": 62,
+          "ui_start_interval_ms": 16.651958
+        },
+        {
+          "eframe_cpu_ms": 13.220706954598427,
+          "observed_frame": 63,
+          "ui_start_interval_ms": 16.588292000000003
+        },
+        {
+          "eframe_cpu_ms": 13.420292176306248,
+          "observed_frame": 64,
+          "ui_start_interval_ms": 16.759333
+        },
+        {
+          "eframe_cpu_ms": 13.328248634934425,
+          "observed_frame": 65,
+          "ui_start_interval_ms": 16.687041999999998
+        },
+        {
+          "eframe_cpu_ms": 12.831291183829308,
+          "observed_frame": 66,
+          "ui_start_interval_ms": 16.555041
+        },
+        {
+          "eframe_cpu_ms": 13.416498899459839,
+          "observed_frame": 67,
+          "ui_start_interval_ms": 16.701542
+        },
+        {
+          "eframe_cpu_ms": 13.42545822262764,
+          "observed_frame": 68,
+          "ui_start_interval_ms": 16.667417
+        },
+        {
+          "eframe_cpu_ms": 13.083918020129204,
+          "observed_frame": 69,
+          "ui_start_interval_ms": 16.715041
+        },
+        {
+          "eframe_cpu_ms": 13.280458748340607,
+          "observed_frame": 70,
+          "ui_start_interval_ms": 16.637709
+        },
+        {
+          "eframe_cpu_ms": 13.394415378570557,
+          "observed_frame": 71,
+          "ui_start_interval_ms": 16.706083
+        },
+        {
+          "eframe_cpu_ms": 13.811290264129639,
+          "observed_frame": 72,
+          "ui_start_interval_ms": 16.671708
+        },
+        {
+          "eframe_cpu_ms": 13.55983130633831,
+          "observed_frame": 73,
+          "ui_start_interval_ms": 16.710625
+        },
+        {
+          "eframe_cpu_ms": 13.558165170252323,
+          "observed_frame": 74,
+          "ui_start_interval_ms": 16.661334
+        },
+        {
+          "eframe_cpu_ms": 13.672457076609135,
+          "observed_frame": 75,
+          "ui_start_interval_ms": 16.575958
+        },
+        {
+          "eframe_cpu_ms": 13.550165109336376,
+          "observed_frame": 76,
+          "ui_start_interval_ms": 16.668542000000002
+        },
+        {
+          "eframe_cpu_ms": 13.240250758826733,
+          "observed_frame": 77,
+          "ui_start_interval_ms": 16.680416
+        },
+        {
+          "eframe_cpu_ms": 13.46562523394823,
+          "observed_frame": 78,
+          "ui_start_interval_ms": 16.870917
+        },
+        {
+          "eframe_cpu_ms": 13.929000124335289,
+          "observed_frame": 79,
+          "ui_start_interval_ms": 16.510292
+        },
+        {
+          "eframe_cpu_ms": 13.113416731357574,
+          "observed_frame": 80,
+          "ui_start_interval_ms": 16.667666
+        },
+        {
+          "eframe_cpu_ms": 13.385707512497902,
+          "observed_frame": 81,
+          "ui_start_interval_ms": 16.648875
+        },
+        {
+          "eframe_cpu_ms": 13.031499460339546,
+          "observed_frame": 82,
+          "ui_start_interval_ms": 16.854959
+        },
+        {
+          "eframe_cpu_ms": 13.002915307879448,
+          "observed_frame": 83,
+          "ui_start_interval_ms": 16.432958
+        },
+        {
+          "eframe_cpu_ms": 13.61866481602192,
+          "observed_frame": 84,
+          "ui_start_interval_ms": 16.636083
+        },
+        {
+          "eframe_cpu_ms": 13.435250148177147,
+          "observed_frame": 85,
+          "ui_start_interval_ms": 16.767042
+        },
+        {
+          "eframe_cpu_ms": 13.285374268889427,
+          "observed_frame": 86,
+          "ui_start_interval_ms": 16.726333
+        },
+        {
+          "eframe_cpu_ms": 13.170832768082619,
+          "observed_frame": 87,
+          "ui_start_interval_ms": 16.490458999999998
+        },
+        {
+          "eframe_cpu_ms": 13.44000082463026,
+          "observed_frame": 88,
+          "ui_start_interval_ms": 16.72275
+        },
+        {
+          "eframe_cpu_ms": 13.305583037436008,
+          "observed_frame": 89,
+          "ui_start_interval_ms": 16.7145
+        },
+        {
+          "eframe_cpu_ms": 13.305330649018288,
+          "observed_frame": 90,
+          "ui_start_interval_ms": 16.654041000000003
+        },
+        {
+          "eframe_cpu_ms": 13.513666577637196,
+          "observed_frame": 91,
+          "ui_start_interval_ms": 16.780167
+        },
+        {
+          "eframe_cpu_ms": 13.205043040215969,
+          "observed_frame": 92,
+          "ui_start_interval_ms": 16.563875
+        },
+        {
+          "eframe_cpu_ms": 13.635040260851383,
+          "observed_frame": 93,
+          "ui_start_interval_ms": 16.616333
+        },
+        {
+          "eframe_cpu_ms": 13.26528936624527,
+          "observed_frame": 94,
+          "ui_start_interval_ms": 16.755875
+        },
+        {
+          "eframe_cpu_ms": 13.501790352165699,
+          "observed_frame": 95,
+          "ui_start_interval_ms": 16.629709
+        },
+        {
+          "eframe_cpu_ms": 13.699083589017391,
+          "observed_frame": 96,
+          "ui_start_interval_ms": 16.647291000000003
+        },
+        {
+          "eframe_cpu_ms": 13.468791730701923,
+          "observed_frame": 97,
+          "ui_start_interval_ms": 16.702209
+        },
+        {
+          "eframe_cpu_ms": 13.220001012086868,
+          "observed_frame": 98,
+          "ui_start_interval_ms": 16.703415999999997
+        },
+        {
+          "eframe_cpu_ms": 13.266208581626415,
+          "observed_frame": 99,
+          "ui_start_interval_ms": 16.510167
+        },
+        {
+          "eframe_cpu_ms": 13.410583138465881,
+          "observed_frame": 100,
+          "ui_start_interval_ms": 16.783541999999997
+        },
+        {
+          "eframe_cpu_ms": 13.383125886321068,
+          "observed_frame": 101,
+          "ui_start_interval_ms": 16.577083
+        },
+        {
+          "eframe_cpu_ms": 13.382833451032639,
+          "observed_frame": 102,
+          "ui_start_interval_ms": 16.816667
+        },
+        {
+          "eframe_cpu_ms": 13.5412085801363,
+          "observed_frame": 103,
+          "ui_start_interval_ms": 33.217291
+        },
+        {
+          "eframe_cpu_ms": 13.85266613215208,
+          "observed_frame": 104,
+          "ui_start_interval_ms": 16.60025
+        },
+        {
+          "eframe_cpu_ms": 13.163749128580093,
+          "observed_frame": 105,
+          "ui_start_interval_ms": 16.899417
+        },
+        {
+          "eframe_cpu_ms": 12.863793410360813,
+          "observed_frame": 106,
+          "ui_start_interval_ms": 16.465583
+        },
+        {
+          "eframe_cpu_ms": 13.401375152170658,
+          "observed_frame": 107,
+          "ui_start_interval_ms": 16.707875
+        },
+        {
+          "eframe_cpu_ms": 12.660582549870014,
+          "observed_frame": 108,
+          "ui_start_interval_ms": 16.500375000000002
+        },
+        {
+          "eframe_cpu_ms": 13.778749853372574,
+          "observed_frame": 109,
+          "ui_start_interval_ms": 16.945083999999998
+        },
+        {
+          "eframe_cpu_ms": 13.236748985946178,
+          "observed_frame": 110,
+          "ui_start_interval_ms": 16.844666
+        },
+        {
+          "eframe_cpu_ms": 13.557166792452335,
+          "observed_frame": 111,
+          "ui_start_interval_ms": 16.336375
+        },
+        {
+          "eframe_cpu_ms": 13.022040948271751,
+          "observed_frame": 112,
+          "ui_start_interval_ms": 16.640584
+        },
+        {
+          "eframe_cpu_ms": 13.206332921981812,
+          "observed_frame": 113,
+          "ui_start_interval_ms": 16.742290999999998
+        },
+        {
+          "eframe_cpu_ms": 13.780039735138416,
+          "observed_frame": 114,
+          "ui_start_interval_ms": 16.730792
+        },
+        {
+          "eframe_cpu_ms": 12.722165323793888,
+          "observed_frame": 115,
+          "ui_start_interval_ms": 16.546333
+        },
+        {
+          "eframe_cpu_ms": 13.499041087925434,
+          "observed_frame": 116,
+          "ui_start_interval_ms": 16.714584000000002
+        },
+        {
+          "eframe_cpu_ms": 13.675831258296967,
+          "observed_frame": 117,
+          "ui_start_interval_ms": 16.690707999999997
+        },
+        {
+          "eframe_cpu_ms": 13.450291007757187,
+          "observed_frame": 118,
+          "ui_start_interval_ms": 16.6055
+        },
+        {
+          "eframe_cpu_ms": 13.260500505566597,
+          "observed_frame": 119,
+          "ui_start_interval_ms": 16.53425
+        },
+        {
+          "eframe_cpu_ms": 13.412249274551868,
+          "observed_frame": 120,
+          "ui_start_interval_ms": 16.749416999999998
+        },
+        {
+          "eframe_cpu_ms": 12.907248921692371,
+          "observed_frame": 121,
+          "ui_start_interval_ms": 16.736874999999998
+        },
+        {
+          "eframe_cpu_ms": 13.649416156113148,
+          "observed_frame": 122,
+          "ui_start_interval_ms": 16.709583
+        },
+        {
+          "eframe_cpu_ms": 13.531997799873352,
+          "observed_frame": 123,
+          "ui_start_interval_ms": 16.589458
+        },
+        {
+          "eframe_cpu_ms": 12.980164960026741,
+          "observed_frame": 124,
+          "ui_start_interval_ms": 16.722167
+        },
+        {
+          "eframe_cpu_ms": 13.191708363592625,
+          "observed_frame": 125,
+          "ui_start_interval_ms": 16.610125
+        },
+        {
+          "eframe_cpu_ms": 13.937124982476234,
+          "observed_frame": 126,
+          "ui_start_interval_ms": 16.718291999999998
+        },
+        {
+          "eframe_cpu_ms": 13.5171664878726,
+          "observed_frame": 127,
+          "ui_start_interval_ms": 16.677083
+        },
+        {
+          "eframe_cpu_ms": 14.187999069690704,
+          "observed_frame": 128,
+          "ui_start_interval_ms": 16.707417
+        },
+        {
+          "eframe_cpu_ms": 13.39616533368826,
+          "observed_frame": 129,
+          "ui_start_interval_ms": 16.642083
+        },
+        {
+          "eframe_cpu_ms": 12.513251043856144,
+          "observed_frame": 130,
+          "ui_start_interval_ms": 16.690666999999998
+        },
+        {
+          "eframe_cpu_ms": 12.72070873528719,
+          "observed_frame": 131,
+          "ui_start_interval_ms": 16.651625
+        },
+        {
+          "eframe_cpu_ms": 13.186542317271233,
+          "observed_frame": 132,
+          "ui_start_interval_ms": 16.732332999999997
+        },
+        {
+          "eframe_cpu_ms": 13.038084842264652,
+          "observed_frame": 133,
+          "ui_start_interval_ms": 16.510542
+        },
+        {
+          "eframe_cpu_ms": 13.838207349181175,
+          "observed_frame": 134,
+          "ui_start_interval_ms": 16.693708
+        },
+        {
+          "eframe_cpu_ms": 12.960374355316162,
+          "observed_frame": 135,
+          "ui_start_interval_ms": 16.636625
+        },
+        {
+          "eframe_cpu_ms": 12.516457587480545,
+          "observed_frame": 136,
+          "ui_start_interval_ms": 16.977666999999997
+        },
+        {
+          "eframe_cpu_ms": 13.24304100126028,
+          "observed_frame": 137,
+          "ui_start_interval_ms": 16.368208
+        },
+        {
+          "eframe_cpu_ms": 12.883124873042107,
+          "observed_frame": 138,
+          "ui_start_interval_ms": 16.760458
+        },
+        {
+          "eframe_cpu_ms": 13.686292804777622,
+          "observed_frame": 139,
+          "ui_start_interval_ms": 16.704334000000003
+        },
+        {
+          "eframe_cpu_ms": 13.198291882872581,
+          "observed_frame": 140,
+          "ui_start_interval_ms": 16.621625
+        },
+        {
+          "eframe_cpu_ms": 12.815124355256557,
+          "observed_frame": 141,
+          "ui_start_interval_ms": 16.622958
+        },
+        {
+          "eframe_cpu_ms": 13.350125402212143,
+          "observed_frame": 142,
+          "ui_start_interval_ms": 16.660542
+        },
+        {
+          "eframe_cpu_ms": 13.589791022241116,
+          "observed_frame": 143,
+          "ui_start_interval_ms": 16.895332999999997
+        },
+        {
+          "eframe_cpu_ms": 12.706958688795567,
+          "observed_frame": 144,
+          "ui_start_interval_ms": 16.455208
+        },
+        {
+          "eframe_cpu_ms": 13.132456690073013,
+          "observed_frame": 145,
+          "ui_start_interval_ms": 16.510084000000003
+        },
+        {
+          "eframe_cpu_ms": 13.790706172585487,
+          "observed_frame": 146,
+          "ui_start_interval_ms": 16.777125
+        },
+        {
+          "eframe_cpu_ms": 13.255082070827484,
+          "observed_frame": 147,
+          "ui_start_interval_ms": 16.506791
+        },
+        {
+          "eframe_cpu_ms": 12.980833649635315,
+          "observed_frame": 148,
+          "ui_start_interval_ms": 16.703667
+        },
+        {
+          "eframe_cpu_ms": 13.763418421149254,
+          "observed_frame": 149,
+          "ui_start_interval_ms": 16.642417
+        },
+        {
+          "eframe_cpu_ms": 14.114917255938053,
+          "observed_frame": 150,
+          "ui_start_interval_ms": 16.723166000000003
+        }
+      ],
+      "graph": "/tmp/node-graph-app-scale.7lX69Y/fanout-500.json",
+      "graph_blake3": "de0c2037a809c13f2a271dd5a438637eaa2eddb1c56a51746b9db33c14bf1411",
+      "input_connections": 2000,
+      "input_nodes": 500,
+      "measurement": "eframe previous-frame CPU time includes UI/render CPU work, excludes vsync waiting; UI-start intervals include pacing/scheduling, not GPU duration or presentation latency",
+      "pixels_per_point": 2,
+      "preferences": "isolated temporary directory; no app save",
+      "sample_count": 120,
+      "screenshot": "/tmp/node-graph-app-scale.7lX69Y/fanout-500.png",
+      "surface_config": "Some(SurfaceConfig { present_mode: AutoVsync, desired_maximum_frame_latency: Some(1) })",
+      "ui_start_interval": {
+        "max_ms": 33.217291,
+        "p50_ms": 16.671333,
+        "p95_ms": 16.874875,
+        "p99_ms": 17.05225,
+        "samples_ms": [
+          16.336375,
+          16.368208,
+          16.428292,
+          16.432958,
+          16.455208,
+          16.465583,
+          16.490458999999998,
+          16.500375000000002,
+          16.506791,
+          16.510084000000003,
+          16.510167,
+          16.510292,
+          16.510542,
+          16.530416,
+          16.53425,
+          16.541625,
+          16.546333,
+          16.549375,
+          16.552,
+          16.555041,
+          16.559125,
+          16.563875,
+          16.575958,
+          16.577083,
+          16.587500000000002,
+          16.588292000000003,
+          16.589458,
+          16.597209000000003,
+          16.60025,
+          16.6055,
+          16.6075,
+          16.610125,
+          16.614167,
+          16.616333,
+          16.6215,
+          16.621625,
+          16.622958,
+          16.624541,
+          16.629709,
+          16.632959,
+          16.636083,
+          16.636625,
+          16.637709,
+          16.640584,
+          16.642083,
+          16.642417,
+          16.647291000000003,
+          16.648875,
+          16.651625,
+          16.651958,
+          16.654041000000003,
+          16.659125,
+          16.660542,
+          16.661334,
+          16.664541,
+          16.667417,
+          16.667666,
+          16.668542000000002,
+          16.669083,
+          16.671333,
+          16.671708,
+          16.677083,
+          16.679416999999997,
+          16.680416,
+          16.680917,
+          16.683375,
+          16.687041999999998,
+          16.690666999999998,
+          16.690707999999997,
+          16.693708,
+          16.697584000000003,
+          16.698583,
+          16.700708000000002,
+          16.701542,
+          16.702209,
+          16.703415999999997,
+          16.703667,
+          16.704334000000003,
+          16.706083,
+          16.707417,
+          16.707875,
+          16.709583,
+          16.710625,
+          16.7145,
+          16.714584000000002,
+          16.715041,
+          16.718291999999998,
+          16.722167,
+          16.722375,
+          16.72275,
+          16.723166000000003,
+          16.726333,
+          16.728459,
+          16.730792,
+          16.732332999999997,
+          16.736874999999998,
+          16.738708000000003,
+          16.742290999999998,
+          16.749416999999998,
+          16.755875,
+          16.759333,
+          16.760458,
+          16.767042,
+          16.770125,
+          16.777125,
+          16.777125,
+          16.780167,
+          16.783541999999997,
+          16.806458,
+          16.816667,
+          16.844666,
+          16.854959,
+          16.870917,
+          16.874875,
+          16.895332999999997,
+          16.899417,
+          16.945083999999998,
+          16.977666999999997,
+          17.05225,
+          33.217291
+        ]
+      },
+      "viewport_points": [
+        1440,
+        900
+      ],
+      "warmup": 30
+    }
+  ]
+}
