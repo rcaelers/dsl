@@ -105,6 +105,8 @@ appearance until the checked router is activated in step 3.
 - [x] Eliminate reference-fixture cold/release work-limit fallbacks using a conservative
   bundle-validation broad phase, with full-scan equivalence, exemption, boundary, and budget
   tests. Require complete checked results at both native scale sizes with unchanged budgets.
+- [x] Defer unnecessary connectivity scans for visible socket layout and undecorated socket
+  painting. Retain native frame/layout measurements and visibility/indicator regression tests.
 - [ ] Measure 100/500 and 500/2000 node/connection fixtures on native and wasm. Target routing
   p95 below 8 ms on the smaller fixture. Record misses and follow-up work rather than
   weakening constraints. Retain benchmark evidence in the performance design record.

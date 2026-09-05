@@ -199,6 +199,31 @@ application/GPU measurements remain open acceptance work. The full-scan collisio
 boundary contacts, nonfinite geometry, original endpoint exemptions, envelope containment,
 and exhausted-work behavior have regression coverage.
 
+### Deferred socket connectivity queries
+
+Already-visible socket layout does not need a connection-list scan: connectivity affects
+visibility only when the socket would otherwise be hidden. Indicator painting likewise
+needs connectivity for placement only when that socket has at least one decoration.
+The editor defers both queries until needed, without retaining a connectivity cache or
+changing the visibility truth table, indicator owner order, or connected placement offsets.
+
+Sequential native before/after runs on the reference M1 Ultra host/profile on 2026-09-05
+give the following observations. There is no concurrent cargo validation, but these are
+not randomized paired trials or end-to-end GPU/application measurements. Raw samples are in
+[`node_graph_lazy_socket_queries_native.json`](../../benchmarks/performance/node_graph_lazy_socket_queries_native.json).
+
+| Native fixture | Layout p95 before / after | CPU frame p95 before / after | Fallbacks before / after |
+| --- | --- | --- | --- |
+| 100 nodes / 500 connections | 0.742 / 0.438 ms | 9.302 / 8.756 ms | 0 / 0 |
+| 500 nodes / 2000 connections | 7.802 / 1.996 ms | 61.752 / 45.491 ms | 0 / 0 |
+
+Routing outcome counts, including cubic counts, are unchanged. The fixture has visible
+sockets and no indicators, so it exercises the avoided scans; it does not establish the
+same improvement for heavily hidden or decorated graphs. Visibility truth-table and
+multi-owner indicator placement tests cover hidden/connected sockets, connect/disconnect
+updates, and low/normal/high zoom. Large-frame cost and browser/application measurements
+remain open acceptance work.
+
 ## Reference workloads
 
 All performance claims are measured on two reference captures. A change is not accepted on the

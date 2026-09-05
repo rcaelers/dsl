@@ -339,6 +339,12 @@ keep their initial registration but skip the redundant z-order update. Visibilit
 tested per target, not per node body, so protruding socket hit areas remain interactive
 at viewport edges. Routing continues to include all offscreen obstacle geometry.
 
+Socket layout queries connectivity only when a socket would otherwise be hidden;
+already-visible sockets do not scan the connection list. Hidden connected sockets remain
+laid out. Indicator painting resolves connectivity only when that socket has decorations,
+preserving connected/unconnected placement and owner ordering without storing a cached
+connectivity state.
+
 Interaction highlights:
 
 - **Wire dragging** with live compatibility checking and snap-to-socket; a snap candidate

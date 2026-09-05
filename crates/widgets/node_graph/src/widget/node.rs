@@ -42,8 +42,10 @@ struct NodeLayout {
     section_sep_y: Vec<f32>,
 }
 
-fn socket_is_laid_out(visible: bool, hidden: bool, connected: bool) -> bool {
-    connected || (visible && !hidden)
+fn socket_is_laid_out(visible: bool, hidden: bool, connected: impl FnOnce() -> bool) -> bool {
+    // Visible sockets need no topology query. Hidden sockets still consult the
+    // live graph so a connected socket can never disappear from the layout.
+    (visible && !hidden) || connected()
 }
 
 fn estimated_text_width(text: &str, font_size: f32) -> f32 {
@@ -117,11 +119,13 @@ fn compute_node_layout(
                 socket_is_laid_out(
                     socket.visible && socket.editor_visible,
                     socket.hidden,
-                    graph.is_input_connected(SocketId {
-                        node: node_id,
-                        index: *index,
-                        direction: SocketDirection::Input,
-                    }),
+                    || {
+                        graph.is_input_connected(SocketId {
+                            node: node_id,
+                            index: *index,
+                            direction: SocketDirection::Input,
+                        })
+                    },
                 )
             })
             .count();
@@ -133,11 +137,13 @@ fn compute_node_layout(
                 socket_is_laid_out(
                     socket.visible && socket.editor_visible,
                     socket.hidden,
-                    graph.is_output_connected(SocketId {
-                        node: node_id,
-                        index: *index,
-                        direction: SocketDirection::Output,
-                    }),
+                    || {
+                        graph.is_output_connected(SocketId {
+                            node: node_id,
+                            index: *index,
+                            direction: SocketDirection::Output,
+                        })
+                    },
                 )
             })
             .count();
@@ -157,11 +163,13 @@ fn compute_node_layout(
             if !socket_is_laid_out(
                 socket.visible && socket.editor_visible,
                 socket.hidden,
-                graph.is_input_connected(SocketId {
-                    node: node_id,
-                    index,
-                    direction: SocketDirection::Input,
-                }),
+                || {
+                    graph.is_input_connected(SocketId {
+                        node: node_id,
+                        index,
+                        direction: SocketDirection::Input,
+                    })
+                },
             ) {
                 continue;
             }
@@ -181,11 +189,13 @@ fn compute_node_layout(
             if !socket_is_laid_out(
                 socket.visible && socket.editor_visible,
                 socket.hidden,
-                graph.is_output_connected(SocketId {
-                    node: node_id,
-                    index,
-                    direction: SocketDirection::Output,
-                }),
+                || {
+                    graph.is_output_connected(SocketId {
+                        node: node_id,
+                        index,
+                        direction: SocketDirection::Output,
+                    })
+                },
             ) {
                 continue;
             }
@@ -219,15 +229,13 @@ fn compute_node_layout(
     let mut output_widget_rects = vec![None; node.outputs.len()];
     let mut vis_row = 0usize;
     for (i, s) in node.outputs.iter().enumerate() {
-        if !socket_is_laid_out(
-            s.visible && s.editor_visible,
-            s.hidden,
+        if !socket_is_laid_out(s.visible && s.editor_visible, s.hidden, || {
             graph.is_output_connected(SocketId {
                 node: node_id,
                 index: i,
                 direction: SocketDirection::Output,
-            }),
-        ) {
+            })
+        }) {
             continue;
         }
         let row_y = body_top + vis_row as f32 * SOCKET_ROW_HEIGHT;
@@ -264,15 +272,13 @@ fn compute_node_layout(
     let mut input_widget_rects = vec![None; node.inputs.len()];
     vis_row = 0;
     for (i, s) in node.inputs.iter().enumerate() {
-        if !socket_is_laid_out(
-            s.visible,
-            s.hidden,
+        if !socket_is_laid_out(s.visible, s.hidden, || {
             graph.is_input_connected(SocketId {
                 node: node_id,
                 index: i,
                 direction: SocketDirection::Input,
-            }),
-        ) {
+            })
+        }) {
             continue;
         }
         let row_y = input_start_y + vis_row as f32 * SOCKET_ROW_HEIGHT;
@@ -974,6 +980,16 @@ fn draw_socket_indicators(
     socket_pos: Pos2,
     zoom: f32,
 ) {
+    let mut presentations = indicators
+        .values()
+        .filter_map(|by_socket| by_socket.get(&socket))
+        .flat_map(|by_id| by_id.values())
+        .peekable();
+    // Most sockets have no indicator. Resolve connectivity only if a decoration
+    // actually needs its connected/unconnected placement offset.
+    if presentations.peek().is_none() {
+        return;
+    }
     let connected = match socket.direction {
         SocketDirection::Input => graph.is_input_connected(socket),
         SocketDirection::Output => graph.is_output_connected(socket),
@@ -984,11 +1000,7 @@ fn draw_socket_indicators(
     };
     let gap = 3.0 * zoom;
     let mut offset = SOCKET_RADIUS * zoom + gap;
-    for presentation in indicators
-        .values()
-        .filter_map(|by_socket| by_socket.get(&socket))
-        .flat_map(|by_id| by_id.values())
-    {
+    for presentation in presentations {
         let size = presentation.size(zoom).max(Vec2::ZERO);
         let center = Pos2::new(
             socket_pos.x + direction * (offset + size.x * 0.5),
@@ -1011,18 +1023,128 @@ fn socket_outline_color(color: Color32) -> Color32 {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use egui::{Painter, Pos2, Rect, Vec2};
+
     use super::{
         COLLAPSE_TOGGLE_SIZE, HEADER_RIGHT_PADDING, HEADER_TEXT_GAP, MIN_NODE_WIDTH, NODE_PADDING,
-        STATUS_FONT_SIZE, TITLE_FONT_SIZE, estimated_text_width, node_width_for_header,
-        socket_is_laid_out,
+        STATUS_FONT_SIZE, TITLE_FONT_SIZE, draw_socket_indicators, estimated_text_width,
+        node_width_for_header, socket_is_laid_out,
     };
+    use crate::api::SocketIndicatorPresentation;
+    use crate::model::{Connection, GraphState, NodeId, SocketDirection, SocketId};
+    use crate::widget::graph::SocketIndicatorRegistry;
+
+    #[test]
+    fn visibility_truth_table_only_queries_connections_when_visibility_depends_on_them() {
+        for visible in [false, true] {
+            for hidden in [false, true] {
+                for connected in [false, true] {
+                    let mut queries = 0;
+                    let actual = socket_is_laid_out(visible, hidden, || {
+                        queries += 1;
+                        connected
+                    });
+                    assert_eq!(actual, connected || (visible && !hidden));
+                    assert_eq!(queries, usize::from(!visible || hidden));
+                }
+            }
+        }
+    }
+
+    struct RecordingIndicator {
+        rectangles: Arc<Mutex<Vec<Rect>>>,
+    }
+
+    impl SocketIndicatorPresentation for RecordingIndicator {
+        fn size(&self, zoom: f32) -> Vec2 {
+            Vec2::new(8.0, 6.0) * zoom
+        }
+        fn draw(&self, _: &Painter, rect: Rect, _: f32) {
+            self.rectangles.lock().unwrap().push(rect);
+        }
+    }
+
+    #[test]
+    fn indicator_placement_preserves_all_owners_and_live_connection_offsets() {
+        let input = SocketId {
+            node: NodeId(2),
+            index: 0,
+            direction: SocketDirection::Input,
+        };
+        let output = SocketId {
+            node: NodeId(1),
+            index: 0,
+            direction: SocketDirection::Output,
+        };
+        let mut graph = GraphState::default();
+        let rectangles = Arc::new(Mutex::new(Vec::new()));
+        let mut indicators = SocketIndicatorRegistry::new();
+        for owner in ["a", "b"] {
+            for socket in [input, output] {
+                for id in ["first", "second"] {
+                    indicators
+                        .entry(owner.to_string())
+                        .or_default()
+                        .entry(socket)
+                        .or_default()
+                        .insert(
+                            id.to_string(),
+                            Arc::new(RecordingIndicator {
+                                rectangles: rectangles.clone(),
+                            }),
+                        );
+                }
+            }
+        }
+        let context = egui::Context::default();
+        context.begin_pass(egui::RawInput::default());
+        let painter = context.layer_painter(egui::LayerId::background());
+        let position = Pos2::new(100.0, 100.0);
+        for zoom in [0.5, 1.0, 1.7] {
+            for connected in [false, true, false] {
+                graph.connections.clear();
+                if connected {
+                    graph.connections.push(Connection {
+                        from: output,
+                        to: input,
+                    });
+                }
+                for socket in [input, output] {
+                    rectangles.lock().unwrap().clear();
+                    draw_socket_indicators(&painter, &graph, &indicators, socket, position, zoom);
+                    let actual = rectangles.lock().unwrap();
+                    assert_eq!(actual.len(), 4);
+                    for (index, rect) in actual.iter().enumerate() {
+                        let sign = if socket.direction == SocketDirection::Input {
+                            -1.0
+                        } else {
+                            1.0
+                        };
+                        let expected = Pos2::new(
+                            100.0 + sign * (12.5 + index as f32 * 11.0) * zoom,
+                            100.0 - if connected { 8.0 * zoom } else { 0.0 },
+                        );
+                        assert!(rect.center().distance(expected) < 0.0001);
+                    }
+                }
+            }
+        }
+        rectangles.lock().unwrap().clear();
+        let undecorated = SocketId { index: 1, ..output };
+        draw_socket_indicators(&painter, &graph, &indicators, undecorated, position, 1.0);
+        assert!(rectangles.lock().unwrap().is_empty());
+        let mut result = context.end_pass();
+        result.textures_delta.clear();
+    }
 
     #[test]
     fn connected_sockets_remain_visible_despite_definition_or_user_hiding() {
-        assert!(socket_is_laid_out(false, false, true));
-        assert!(socket_is_laid_out(true, true, true));
-        assert!(!socket_is_laid_out(false, false, false));
-        assert!(!socket_is_laid_out(true, true, false));
+        assert!(socket_is_laid_out(false, false, || true));
+        assert!(socket_is_laid_out(true, true, || true));
+        assert!(!socket_is_laid_out(false, false, || false));
+        assert!(!socket_is_laid_out(true, true, || false));
     }
 
     #[test]
