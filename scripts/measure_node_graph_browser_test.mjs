@@ -18,6 +18,7 @@ test('completion requires both passing tests, not progress or a single test', ()
 
 function reports() {
   const timer = () => ({ samples_ms: Array(20).fill(1) });
+  const frame = () => ({ ui_ms: 1, tessellation_ms: 1, cpu_frame_ms: 2 });
   const fixtures = [[100, 500], [500, 2000]];
   return {
     ROUTING_PERFORMANCE: { reports: fixtures.map(([nodes, connections]) => ({
@@ -28,6 +29,9 @@ function reports() {
     ROUTING_DRAG_PERFORMANCE: { reports: fixtures.map(([nodes, connections]) => ({
       nodes, connections, update: timer(), cold: timer(), layout: timer(),
       release_ms: 1, outcomes: Array(21).fill({}),
+      frames: { fixture: 'paired-grid-pointer-drag-frames-v1',
+        ui: timer(), tessellation: timer(), cpu_frame: timer(), outcomes: Array(21).fill({}),
+        start: frame(), first: frame(), release: frame(), settled: frame() },
     })) },
   };
 }
@@ -43,6 +47,11 @@ test('partial, debug, mismatched, nonfinite and incomplete drag reports are reje
     value => { value.ROUTING_PERFORMANCE.reports[0].ui.samples_ms[0] = NaN; },
     value => { value.ROUTING_DRAG_PERFORMANCE.reports[1].outcomes.pop(); },
     value => { delete value.ROUTING_DRAG_PERFORMANCE.reports[0].release_ms; },
+    value => { delete value.ROUTING_DRAG_PERFORMANCE.reports[0].frames; },
+    value => { value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.cpu_frame.samples_ms.pop(); },
+    value => { value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.outcomes.pop(); },
+    value => { delete value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.release; },
+    value => { value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.settled.ui_ms = NaN; },
   ]) {
     const value = reports();
     mutate(value);

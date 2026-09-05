@@ -69,7 +69,8 @@ loopback port and starts a separate headless Chrome process with a fresh tempora
 it never attaches to an existing browser. DevTools captures console reports and the final
 test summary without virtual-time overrides. `ROUTING_PROGRESS` messages go to stderr,
 outside measured intervals. Successful stdout JSON requires both browser tests to pass and
-both fixtures to retain twenty release samples, including the drag outcomes/release timer.
+both fixtures to retain twenty release samples, including isolated drag routing and the
+pointer-driven UI/tessellation/frame timers, drag outcomes, and start/release/settled phases.
 Debug, partial, or failed executions are not accepted as baselines.
 
 `ROUTING_BROWSER_TIMEOUT_SECONDS` bounds the complete serve/browser execution, defaulting
@@ -120,8 +121,8 @@ measurement with the bounded runner provides the complete
 
 ### Proposed future measurements
 
-Real application/GPU frame timing, full moving-node frame workloads,
-and broader drag scenarios remain required by the connection-routing plan. The CPU-only
+Real application/GPU frame timing and broader drag scenarios remain required by the
+connection-routing plan. The CPU-only
 scale and connected-endpoint fixtures do not replace those acceptance gates.
 
 ### Connected-endpoint drag measurement
@@ -293,8 +294,56 @@ Every recorded warm/cold drag outcome has zero fallbacks; release checks match t
 geometry and failure map. The smaller fixture meets the 8 ms routing-p95 target on both
 targets. The larger CPU frame remains above a 60 Hz budget on both. These single-host
 observations are not randomized paired comparisons, a cross-browser guarantee, or evidence
-of an end-to-end application frame rate. Connected-drag timers isolate routing/layout, not
-the full widget frame. GPU, real application, and full drag-frame measurements remain open.
+of an end-to-end application frame rate. These connected-drag timers isolate routing/layout;
+the pointer-driven measurement below covers the full CPU widget frame. GPU and real
+application measurements remain open.
+
+### Pointer-driven drag CPU frames
+
+The drag report includes a separate `paired-grid-pointer-drag-frames-v1` fixture under
+`frames`. It uses the same neutral nodes, connection counts, zoom 0.35, and 1440 × 900 egui
+viewport. Pan is [150, 100] screen units to keep the source header grip away from auto-pan
+edges. This changes visible geometry relative to the stationary fixture, so their frame
+times are not like-for-like optimization comparisons.
+
+After initial paint, a primary press and a ten-screen-unit move enter node dragging through
+normal input dispatch. Measured pointer movements then alternate the connected source
+between its starting position and twenty canvas units below it. A separate widget and
+routing history prevent the isolated route-update benchmark from priming changed geometry
+before a timed frame. Each timer covers `Context::run_ui`, both widget layout passes,
+input handling, route updates, paint generation, and tessellation. UI and tessellation
+timings are also retained separately. No texture upload, GPU submission, presentation,
+or surrounding application work is included. Synthetic input time advances by 1/60 second;
+the test does not sleep to simulate display cadence.
+
+The report retains the drag-start frame, first movement, twenty subsequent movement
+samples, release frame, and first following idle frame. Post-frame checks run outside the
+timers: pointer movement changes only the selected source, topology and pan stay fixed,
+490/1992 unrelated paths remain shared, and no frame has a routing fallback. Release
+replaces every drag-history path; its geometry matches a forced cold rebuild. The following
+idle frame reuses the release paths. The cold oracle runs after that idle frame so it does
+not prime its allocator. No hardware-dependent timing assertion determines test success.
+
+Native and Chrome release runs on the reference host on 2026-09-05, with unchanged production
+code from `12988b8e` and the extended fixture, give the following observations. Complete
+native/browser reports, host/browser identity, source context, and wasm hash are retained in
+[`node_graph_drag_frames_native_browser.json`](../../benchmarks/performance/node_graph_drag_frames_native_browser.json).
+
+| Target / fixture | Drag UI p95 | Tessellation p95 | Drag CPU frame p95 | Release frame (one sample) | Following idle (one sample) |
+| --- | --- | --- | --- | --- | --- |
+| Native, 100 nodes / 500 connections | 2.125 ms | 0.702 ms | 2.781 ms | 5.336 ms | 6.210 ms |
+| Chrome, 100 nodes / 500 connections | 2.945 ms | 0.865 ms | 3.810 ms | 8.650 ms | 9.880 ms |
+| Native, 500 nodes / 2000 connections | 8.334 ms | 1.374 ms | 9.659 ms | 34.628 ms | 26.924 ms |
+| Chrome, 500 nodes / 2000 connections | 13.145 ms | 2.020 ms | 15.130 ms | 53.400 ms | 50.680 ms |
+
+Component p95 values need not add to frame p95 because their nearest-rank samples can differ.
+The existing drag rendering path skips individual response allocation and z-order raising;
+release restores idle rendering and performs drop handling plus the full routing quality
+rebuild. The following idle frame restores full response allocation. Thus fast moving frames
+do not establish cheap release or idle behavior. The measurements prioritize release/idle
+processing for further profiling; single release/idle samples do not establish their p95.
+Both targets retain zero isolated, moving-frame, and release routing fallbacks. GPU and
+full-application measurements, broader drag layouts, and frame-cost reduction remain open.
 
 ## Reference workloads
 

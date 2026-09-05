@@ -89,8 +89,11 @@ appearance until the checked router is activated in step 3.
   counts in the performance record.
 - [x] Capture a completed browser CPU baseline with a reliably bounded runner. Retain both
   stationary and connected-drag release reports; test timeout cleanup and reject partial runs.
-- [ ] Measure GPU upload/presentation, full drag frames, and real application frame time
-  separately from the CPU-only widget/routing fixtures.
+- [x] Measure pointer-driven full CPU widget frames through drag start, sustained movement,
+  release, and the following idle frame on native/browser. Check route retention, release
+  quality, and unchanged topology; reject missing frame samples in the bounded browser runner.
+- [ ] Measure GPU upload/presentation and real application frame time separately from the
+  CPU-only widget/routing fixtures. Profile remaining release/idle frame costs.
 - [x] Reuse identical routing snapshots using complete geometry/configuration/zoom keys,
   immutable shared path data, and unchanged failure classifications. Test invalidation
   and compare native cache-hit cost with the retained forced-rebuild baseline.

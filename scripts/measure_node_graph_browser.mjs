@@ -37,6 +37,24 @@ export function validateReports(reports) {
           (fixture.outcomes?.length !== 21 || !Number.isFinite(fixture.release_ms) || fixture.release_ms < 0)) {
         throw new Error('Missing drag outcomes or release measurement');
       }
+      if (marker === 'ROUTING_DRAG_PERFORMANCE') {
+        const frames = fixture.frames;
+        if (frames?.fixture !== 'paired-grid-pointer-drag-frames-v1' || frames.outcomes?.length !== 21) {
+          throw new Error('Missing complete pointer-driven frame fixture');
+        }
+        for (const name of ['ui', 'tessellation', 'cpu_frame']) {
+          const samples = frames[name]?.samples_ms;
+          if (samples?.length !== 20 || samples.some(v => !Number.isFinite(v) || v < 0)) {
+            throw new Error(`Expected twenty release samples for drag-frame ${name}`);
+          }
+        }
+        for (const phase of ['start', 'first', 'release', 'settled']) {
+          for (const name of ['ui_ms', 'tessellation_ms', 'cpu_frame_ms']) {
+            const value = frames[phase]?.[name];
+            if (!Number.isFinite(value) || value < 0) throw new Error(`Missing drag-frame ${phase}/${name}`);
+          }
+        }
+      }
     }
   }
 }

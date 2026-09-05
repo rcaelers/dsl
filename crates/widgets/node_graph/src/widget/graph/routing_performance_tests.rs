@@ -2,9 +2,12 @@
 
 use std::collections::BTreeMap;
 use std::hint::black_box;
+use std::sync::Arc;
 
 use egui::{Pos2, Rect, Vec2};
 use web_time::Instant;
+
+use input_bindings::InputBindings;
 
 use super::interaction_state::InteractionState;
 use super::routing::{PathSegment, RouteConfig};
@@ -342,10 +345,228 @@ fn measure_drag() -> serde_json::Value {
         reports.push(
             serde_json::json!({"nodes": node_count, "connections": connection_count,
             "first": first, "update": distribution(updates), "cold": distribution(cold),
-            "layout": distribution(layouts), "release_ms": release_ms, "outcomes": outcomes}),
+            "layout": distribution(layouts), "release_ms": release_ms, "outcomes": outcomes,
+            "frames": measure_drag_frames(node_count, connection_count)}),
         );
     }
     serde_json::json!({"fixture": "paired-grid-connected-drag-v1", "zoom": 0.35, "reports": reports})
+}
+
+struct FrameMeasurement {
+    ui_ms: f64,
+    tessellation_ms: f64,
+    cpu_frame_ms: f64,
+}
+
+impl FrameMeasurement {
+    fn report(&self) -> serde_json::Value {
+        serde_json::json!({"ui_ms": self.ui_ms, "tessellation_ms": self.tessellation_ms,
+            "cpu_frame_ms": self.cpu_frame_ms})
+    }
+}
+
+fn drag_frame(
+    widget: &mut NodeGraphWidget,
+    context: &egui::Context,
+    events: Vec<egui::Event>,
+    frame: usize,
+) -> FrameMeasurement {
+    let start = Instant::now();
+    let mut output = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
+            time: Some(frame as f64 / 60.0),
+            events,
+            ..Default::default()
+        },
+        |ui| {
+            assert_eq!(ui.available_rect_before_wrap().min, Pos2::ZERO);
+            black_box(widget.show(ui));
+        },
+    );
+    let ui_ms = start.elapsed().as_secs_f64() * 1000.0;
+    // Match the stationary CPU harness: no texture upload or GPU submission.
+    output.textures_delta.clear();
+    let tessellation = Instant::now();
+    let meshes = context.tessellate(output.shapes, output.pixels_per_point);
+    assert!(!meshes.is_empty());
+    black_box(meshes);
+    FrameMeasurement {
+        ui_ms,
+        tessellation_ms: tessellation.elapsed().as_secs_f64() * 1000.0,
+        cpu_frame_ms: start.elapsed().as_secs_f64() * 1000.0,
+    }
+}
+
+fn measure_drag_frames(node_count: usize, connection_count: usize) -> serde_json::Value {
+    // Keep this widget/history separate from the isolated routing experiment.
+    // Only pointer events change its node position; no preparatory route build
+    // primes the changed geometry before a measured frame.
+    let mut widget = fixture(node_count, connection_count);
+    widget.set_input_bindings(Arc::new(InputBindings::from_json(r#"{"bindings":[
+        {"context":"node_graph","action":"select_move","label":"Move","input":"pointer","button":"primary","gesture":"drag"},
+        {"context":"node_graph.drag_node","action":"confirm_move","label":"Confirm","input":"pointer","button":"primary","gesture":"release","any_modifiers":true}
+    ]}"#).unwrap()));
+    // Keep the grip away from auto-pan edges; canvas geometry is the same grid.
+    let pan = Vec2::new(150.0, 100.0);
+    widget.view.pan = pan;
+    let moving = widget.graph.connections[0].from.node;
+    let connections = |widget: &NodeGraphWidget| {
+        widget
+            .graph
+            .connections
+            .iter()
+            .map(|c| (c.from, c.to))
+            .collect::<Vec<_>>()
+    };
+    let original_connections = connections(&widget);
+    let original_positions: Vec<_> = widget
+        .graph
+        .nodes
+        .iter()
+        .map(|(&id, node)| (id, node.pos))
+        .collect();
+    let context = egui::Context::default();
+    drag_frame(&mut widget, &context, Vec::new(), 0);
+    let mut layout = widget.build_layout(Pos2::ZERO);
+    let grip = layout.header_screen_rects[&moving].center();
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    drag_frame(
+        &mut widget,
+        &context,
+        vec![egui::Event::PointerMoved(grip), button(grip, true)],
+        1,
+    );
+    let anchor = grip + Vec2::new(0.0, 10.0);
+    let start = drag_frame(
+        &mut widget,
+        &context,
+        vec![egui::Event::PointerMoved(anchor)],
+        2,
+    );
+    assert!(
+        matches!(widget.interaction_state, InteractionState::DraggingNode { node_id, .. } if node_id == moving)
+    );
+    let initial_position = widget.graph.nodes[&moving].pos;
+    let mut previous = layout.wire_paths.clone();
+    let mut first = None;
+    let mut ui_times = Vec::new();
+    let mut tessellation_times = Vec::new();
+    let mut frame_times = Vec::new();
+    let mut outcomes = Vec::new();
+    let samples = if cfg!(debug_assertions) { 2 } else { 21 };
+    let mut pointer = anchor;
+    for sample in 0..samples {
+        let dy = if sample % 2 == 0 { 20.0 } else { 0.0 };
+        pointer = anchor + Vec2::new(0.0, dy * widget.view.zoom);
+        let measured = drag_frame(
+            &mut widget,
+            &context,
+            vec![egui::Event::PointerMoved(pointer)],
+            sample + 3,
+        );
+        assert!(
+            matches!(widget.interaction_state, InteractionState::DraggingNode { node_id, .. } if node_id == moving)
+        );
+        let position = widget.graph.nodes[&moving].pos;
+        assert!((position.y - initial_position.y - dy).abs() < 0.001);
+        assert!((position.x - initial_position.x).abs() < 0.001);
+        assert_eq!(widget.view.pan, pan);
+        assert_eq!(connections(&widget), original_connections);
+        assert_eq!(widget.graph.nodes.len(), node_count);
+        for &(id, original) in &original_positions {
+            if id != moving {
+                assert_eq!(widget.graph.nodes[&id].pos, original);
+            }
+        }
+        // Post-frame checks are outside all timing intervals. The drawn frame
+        // has already updated history; this same-geometry layout is a cache hit.
+        layout = widget.build_layout(Pos2::ZERO);
+        assert_eq!(layout.wire_paths.len(), connection_count);
+        assert!(layout.wire_failures.is_empty());
+        assert!(
+            layout
+                .wire_paths
+                .values()
+                .all(|path| path.bounds().is_finite())
+        );
+        let retained = layout
+            .wire_paths
+            .iter()
+            .filter(|(key, path)| {
+                let shared = previous[key].segments().as_ptr() == path.segments().as_ptr();
+                if key.0.node == moving || key.1.node == moving {
+                    assert!(!shared);
+                }
+                shared
+            })
+            .count();
+        let incident = original_connections
+            .iter()
+            .filter(|(from, to)| from.node == moving || to.node == moving)
+            .count();
+        assert_eq!(retained, connection_count - incident);
+        previous.clone_from(&layout.wire_paths);
+        outcomes.push(serde_json::json!({"sample": sample, "retained_paths": retained, "fallbacks": layout.wire_failures.len()}));
+        if sample == 0 {
+            first = Some(measured.report());
+        } else {
+            ui_times.push(measured.ui_ms);
+            tessellation_times.push(measured.tessellation_ms);
+            frame_times.push(measured.cpu_frame_ms);
+        }
+    }
+    let final_position = widget.graph.nodes[&moving].pos;
+    let release = drag_frame(
+        &mut widget,
+        &context,
+        vec![button(pointer, false)],
+        samples + 3,
+    );
+    assert!(matches!(widget.interaction_state, InteractionState::Idle));
+    assert_eq!(widget.graph.nodes[&moving].pos, final_position);
+    assert_eq!(connections(&widget), original_connections);
+    layout = widget.build_layout(Pos2::ZERO);
+    let released = layout.wire_paths.clone();
+    assert!(layout.wire_failures.is_empty());
+    assert_eq!(released.len(), connection_count);
+    assert!(
+        released
+            .iter()
+            .all(|(key, path)| previous[key].segments().as_ptr() != path.segments().as_ptr()),
+        "release rebuild must replace drag history for every pair"
+    );
+    let settled = drag_frame(&mut widget, &context, Vec::new(), samples + 4);
+    let settled_layout = widget.build_layout(Pos2::ZERO);
+    assert_eq!(settled_layout.wire_paths.len(), connection_count);
+    assert!(settled_layout.wire_failures.is_empty());
+    assert!(
+        settled_layout
+            .wire_paths
+            .iter()
+            .all(|(key, path)| released[key].segments().as_ptr() == path.segments().as_ptr()),
+        "idle frame reuses release routes"
+    );
+    // Run the cold oracle after the entire gesture, not between release and
+    // its following idle frame, so it cannot warm that frame's allocator.
+    layout.rebuild_routes(&widget.graph.connections, widget.view.zoom);
+    assert!(layout.wire_failures.is_empty());
+    for (key, path) in &released {
+        assert_eq!(
+            format!("{:?}", path.segments()),
+            format!("{:?}", layout.wire_paths[key].segments())
+        );
+    }
+    serde_json::json!({"fixture": "paired-grid-pointer-drag-frames-v1", "pan": [pan.x, pan.y],
+        "viewport": [1440, 900], "zoom": widget.view.zoom, "start": start.report(),
+        "first": first, "ui": distribution(ui_times), "tessellation": distribution(tessellation_times),
+        "cpu_frame": distribution(frame_times), "release": release.report(), "settled": settled.report(),
+        "outcomes": outcomes, "release_fallbacks": 0})
 }
 
 #[test]

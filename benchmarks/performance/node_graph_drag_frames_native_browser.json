@@ -1,0 +1,2263 @@
+{
+  "date": "2026-09-05",
+  "base_revision": "12988b8e",
+  "change": "Add a separate pointer-driven full-widget CPU drag-frame fixture to the portable drag report; production widget and routing behavior are unchanged.",
+  "profile": "release (optimized + debuginfo)",
+  "test_wasm_sha256": "780d22bd60eed690b2f83d59fec7bcc758c790ba12efa68c67a954d6239f0a16",
+  "hardware": {
+    "cpu": "Apple M1 Ultra",
+    "logical_cpus": 20,
+    "memory_bytes": 68719476736,
+    "os": "macOS 26.6.2 (25G83)",
+    "rustc": "1.100.0-nightly (0ed41eb41 2026-09-04)"
+  },
+  "runner": {
+    "script": "scripts/measure_node_graph_browser.mjs",
+    "node": "26.8.1",
+    "wasm_bindgen_test_runner": "0.2.127",
+    "timeout_seconds": 45,
+    "isolated_profile": true,
+    "virtual_time": false
+  },
+  "measurement_context": "Native release drag run followed by release wasm compilation and the isolated browser stationary/drag run. Source fixed during each build/run, no concurrent cargo validation. Pointer events enter drag, alternate the connected source by 20 canvas units, release, and run one following idle frame. Twenty subsequent moving frames plus separate start, first movement, release, and settled samples. Validation is outside timed intervals. Input time advances by 1/60 s per frame without wall-clock pacing. Pan [150,100] keeps the grip away from auto-pan edges. This is single-host CPU-only widget processing/tessellation, not randomized paired comparisons, GPU or full application timing.",
+  "native_drag": {
+    "fixture": "paired-grid-connected-drag-v1",
+    "reports": [
+      {
+        "cold": {
+          "max_ms": 1.21775,
+          "p50_ms": 1.143125,
+          "p95_ms": 1.215708,
+          "p99_ms": 1.21775,
+          "samples_ms": [
+            1.127458,
+            1.131,
+            1.134375,
+            1.136833,
+            1.137791,
+            1.138,
+            1.1383750000000001,
+            1.141958,
+            1.142167,
+            1.143125,
+            1.147667,
+            1.154417,
+            1.154458,
+            1.1646670000000001,
+            1.169958,
+            1.181958,
+            1.192958,
+            1.193459,
+            1.215708,
+            1.21775
+          ]
+        },
+        "connections": 500,
+        "first": {
+          "cold_ms": 1.1858330000000001,
+          "layout_ms": 0.895166,
+          "update_ms": 0.392875
+        },
+        "frames": {
+          "cpu_frame": {
+            "max_ms": 3.142916,
+            "p50_ms": 2.5553749999999997,
+            "p95_ms": 2.780833,
+            "p99_ms": 3.142916,
+            "samples_ms": [
+              2.398459,
+              2.505958,
+              2.5205,
+              2.521792,
+              2.526542,
+              2.5274170000000002,
+              2.5440419999999997,
+              2.5492079999999997,
+              2.5525,
+              2.5553749999999997,
+              2.5618339999999997,
+              2.566792,
+              2.569084,
+              2.5709169999999997,
+              2.579541,
+              2.588833,
+              2.609792,
+              2.680584,
+              2.780833,
+              3.142916
+            ]
+          },
+          "first": {
+            "cpu_frame_ms": 2.637125,
+            "tessellation_ms": 0.6024999999999999,
+            "ui_ms": 2.034583
+          },
+          "fixture": "paired-grid-pointer-drag-frames-v1",
+          "outcomes": [
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 0
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 1
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 2
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 3
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 4
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 5
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 6
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 7
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 8
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 9
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 10
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 11
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 12
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 13
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 14
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 15
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 16
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 17
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 18
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 19
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 490,
+              "sample": 20
+            }
+          ],
+          "pan": [
+            150,
+            100
+          ],
+          "release": {
+            "cpu_frame_ms": 5.3364579999999995,
+            "tessellation_ms": 0.599125,
+            "ui_ms": 4.737166
+          },
+          "release_fallbacks": 0,
+          "settled": {
+            "cpu_frame_ms": 6.2096670000000005,
+            "tessellation_ms": 0.583917,
+            "ui_ms": 5.6253329999999995
+          },
+          "start": {
+            "cpu_frame_ms": 3.450625,
+            "tessellation_ms": 0.5820000000000001,
+            "ui_ms": 2.8685
+          },
+          "tessellation": {
+            "max_ms": 0.872167,
+            "p50_ms": 0.5888329999999999,
+            "p95_ms": 0.701584,
+            "p99_ms": 0.872167,
+            "samples_ms": [
+              0.559167,
+              0.566834,
+              0.5794590000000001,
+              0.581541,
+              0.583334,
+              0.584584,
+              0.588125,
+              0.588416,
+              0.5885830000000001,
+              0.5888329999999999,
+              0.589333,
+              0.5917910000000001,
+              0.593875,
+              0.5942919999999999,
+              0.599541,
+              0.621167,
+              0.6557499999999999,
+              0.691542,
+              0.701584,
+              0.872167
+            ]
+          },
+          "ui": {
+            "max_ms": 2.270375,
+            "p50_ms": 1.9585000000000001,
+            "p95_ms": 2.1246250000000004,
+            "p99_ms": 2.270375,
+            "samples_ms": [
+              1.835709,
+              1.839209,
+              1.9264169999999998,
+              1.9388750000000001,
+              1.941875,
+              1.947792,
+              1.9546670000000002,
+              1.95575,
+              1.9573749999999999,
+              1.9585000000000001,
+              1.9620000000000002,
+              1.96625,
+              1.9781669999999998,
+              1.9789999999999999,
+              1.9824170000000003,
+              1.996083,
+              1.9994159999999999,
+              2.015417,
+              2.1246250000000004,
+              2.270375
+            ]
+          },
+          "viewport": [
+            1440,
+            900
+          ],
+          "zoom": 0.3499999940395355
+        },
+        "layout": {
+          "max_ms": 1.0136660000000002,
+          "p50_ms": 0.8530420000000001,
+          "p95_ms": 0.9807500000000001,
+          "p99_ms": 1.0136660000000002,
+          "samples_ms": [
+            0.816959,
+            0.818167,
+            0.8269580000000001,
+            0.828375,
+            0.8394999999999999,
+            0.8400420000000001,
+            0.8418329999999999,
+            0.842625,
+            0.8480840000000001,
+            0.8530420000000001,
+            0.857708,
+            0.859,
+            0.864959,
+            0.872875,
+            0.873167,
+            0.880833,
+            0.8851669999999999,
+            0.903084,
+            0.9807500000000001,
+            1.0136660000000002
+          ]
+        },
+        "nodes": 100,
+        "outcomes": [
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 0,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 1,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 2,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 3,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 4,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 5,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 6,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 7,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 8,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 9,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 10,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 11,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 12,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 13,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 14,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 15,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 16,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 17,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 18,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 19,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 20,
+            "warm_failures": {}
+          }
+        ],
+        "release_ms": 1.2120410000000001,
+        "update": {
+          "max_ms": 0.42424999999999996,
+          "p50_ms": 0.37879199999999996,
+          "p95_ms": 0.397792,
+          "p99_ms": 0.42424999999999996,
+          "samples_ms": [
+            0.362292,
+            0.3685,
+            0.36858399999999997,
+            0.369167,
+            0.37024999999999997,
+            0.372583,
+            0.376916,
+            0.378208,
+            0.378708,
+            0.37879199999999996,
+            0.381792,
+            0.383084,
+            0.383708,
+            0.38575000000000004,
+            0.385917,
+            0.386459,
+            0.394125,
+            0.39725,
+            0.397792,
+            0.42424999999999996
+          ]
+        }
+      },
+      {
+        "cold": {
+          "max_ms": 13.011,
+          "p50_ms": 12.080666,
+          "p95_ms": 12.566584,
+          "p99_ms": 13.011,
+          "samples_ms": [
+            11.920375,
+            11.92625,
+            11.951375,
+            12.029667000000002,
+            12.035583,
+            12.043834,
+            12.046332999999999,
+            12.060540999999999,
+            12.07925,
+            12.080666,
+            12.089666000000001,
+            12.16475,
+            12.191916,
+            12.217958,
+            12.247458,
+            12.341875,
+            12.395583,
+            12.407667,
+            12.566584,
+            13.011
+          ]
+        },
+        "connections": 2000,
+        "first": {
+          "cold_ms": 12.23825,
+          "layout_ms": 3.281375,
+          "update_ms": 1.1203750000000001
+        },
+        "frames": {
+          "cpu_frame": {
+            "max_ms": 9.856708000000001,
+            "p50_ms": 9.432709,
+            "p95_ms": 9.659291,
+            "p99_ms": 9.856708000000001,
+            "samples_ms": [
+              9.230875,
+              9.281875,
+              9.297292,
+              9.297959,
+              9.302334,
+              9.322292,
+              9.339875,
+              9.340124999999999,
+              9.397166,
+              9.432709,
+              9.454166,
+              9.4665,
+              9.472583,
+              9.484917000000001,
+              9.520292,
+              9.533542,
+              9.53725,
+              9.630457999999999,
+              9.659291,
+              9.856708000000001
+            ]
+          },
+          "first": {
+            "cpu_frame_ms": 9.632290999999999,
+            "tessellation_ms": 1.3025,
+            "ui_ms": 8.329625
+          },
+          "fixture": "paired-grid-pointer-drag-frames-v1",
+          "outcomes": [
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 0
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 1
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 2
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 3
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 4
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 5
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 6
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 7
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 8
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 9
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 10
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 11
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 12
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 13
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 14
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 15
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 16
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 17
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 18
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 19
+            },
+            {
+              "fallbacks": 0,
+              "retained_paths": 1992,
+              "sample": 20
+            }
+          ],
+          "pan": [
+            150,
+            100
+          ],
+          "release": {
+            "cpu_frame_ms": 34.628042,
+            "tessellation_ms": 1.272667,
+            "ui_ms": 33.355208
+          },
+          "release_fallbacks": 0,
+          "settled": {
+            "cpu_frame_ms": 26.923833000000002,
+            "tessellation_ms": 1.3179999999999998,
+            "ui_ms": 25.605583000000003
+          },
+          "start": {
+            "cpu_frame_ms": 11.812208,
+            "tessellation_ms": 1.301834,
+            "ui_ms": 10.51
+          },
+          "tessellation": {
+            "max_ms": 1.592708,
+            "p50_ms": 1.295958,
+            "p95_ms": 1.37375,
+            "p99_ms": 1.592708,
+            "samples_ms": [
+              1.2734999999999999,
+              1.286708,
+              1.2885419999999999,
+              1.289833,
+              1.292875,
+              1.2930000000000001,
+              1.293584,
+              1.294375,
+              1.295833,
+              1.295958,
+              1.2965419999999999,
+              1.296958,
+              1.3014999999999999,
+              1.305208,
+              1.311542,
+              1.3155000000000001,
+              1.320583,
+              1.324125,
+              1.37375,
+              1.592708
+            ]
+          },
+          "ui": {
+            "max_ms": 8.335125,
+            "p50_ms": 8.131167,
+            "p95_ms": 8.333667,
+            "p99_ms": 8.335125,
+            "samples_ms": [
+              7.937792000000001,
+              7.988917,
+              8.004334,
+              8.006292,
+              8.010458999999999,
+              8.017,
+              8.04425,
+              8.045333,
+              8.085541,
+              8.131167,
+              8.1465,
+              8.151916,
+              8.1695,
+              8.180625000000001,
+              8.194999999999999,
+              8.221542,
+              8.244958,
+              8.263667,
+              8.333667,
+              8.335125
+            ]
+          },
+          "viewport": [
+            1440,
+            900
+          ],
+          "zoom": 0.3499999940395355
+        },
+        "layout": {
+          "max_ms": 3.9266250000000005,
+          "p50_ms": 3.5125830000000002,
+          "p95_ms": 3.861375,
+          "p99_ms": 3.9266250000000005,
+          "samples_ms": [
+            3.245959,
+            3.301542,
+            3.343708,
+            3.4072500000000003,
+            3.423,
+            3.426625,
+            3.4410830000000003,
+            3.452792,
+            3.488792,
+            3.5125830000000002,
+            3.512708,
+            3.5135829999999997,
+            3.538833,
+            3.545166,
+            3.580708,
+            3.63825,
+            3.639125,
+            3.692416,
+            3.861375,
+            3.9266250000000005
+          ]
+        },
+        "nodes": 500,
+        "outcomes": [
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 0,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 1,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 2,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 3,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 4,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 5,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 6,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 7,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 8,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 9,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 10,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 11,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 12,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 13,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 14,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 15,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 16,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 17,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 18,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 19,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 1992,
+            "sample": 20,
+            "warm_failures": {}
+          }
+        ],
+        "release_ms": 12.352500000000001,
+        "update": {
+          "max_ms": 1.226583,
+          "p50_ms": 1.111333,
+          "p95_ms": 1.1827079999999999,
+          "p99_ms": 1.226583,
+          "samples_ms": [
+            1.063916,
+            1.075084,
+            1.085042,
+            1.09925,
+            1.101,
+            1.1015000000000001,
+            1.102542,
+            1.105625,
+            1.108791,
+            1.111333,
+            1.112708,
+            1.116833,
+            1.121167,
+            1.1371669999999998,
+            1.1592079999999998,
+            1.160583,
+            1.1655,
+            1.1739579999999998,
+            1.1827079999999999,
+            1.226583
+          ]
+        }
+      }
+    ],
+    "zoom": 0.35
+  },
+  "browser": {
+    "browser": {
+      "protocolVersion": "1.3",
+      "product": "Chrome/152.0.7977.83",
+      "revision": "@79460ebecaa5625e57a5fb679a735659e73dc687",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "jsVersion": "15.2.124.21"
+    },
+    "summary": "test result: ok. 2 passed; 0 failed;",
+    "ROUTING_PERFORMANCE": {
+      "fixture": "paired-grid-v1",
+      "reports": [
+        {
+          "cached_routing": {
+            "max_ms": 0.135,
+            "p50_ms": 0.095,
+            "p95_ms": 0.125,
+            "p99_ms": 0.135,
+            "samples_ms": [
+              0.08,
+              0.085,
+              0.085,
+              0.085,
+              0.09000000000000001,
+              0.09000000000000001,
+              0.09000000000000001,
+              0.095,
+              0.095,
+              0.095,
+              0.1,
+              0.1,
+              0.11,
+              0.11,
+              0.115,
+              0.115,
+              0.115,
+              0.12000000000000001,
+              0.125,
+              0.135
+            ]
+          },
+          "connections": 500,
+          "cpu_frame": {
+            "max_ms": 15.010000000000002,
+            "p50_ms": 12.355,
+            "p95_ms": 13.775,
+            "p99_ms": 15.010000000000002,
+            "samples_ms": [
+              11.719999999999999,
+              11.73,
+              11.934999999999999,
+              11.965,
+              12.104999999999999,
+              12.155,
+              12.175,
+              12.315,
+              12.319999999999999,
+              12.355,
+              12.475,
+              12.495,
+              12.51,
+              12.815,
+              12.9,
+              13.075,
+              13.31,
+              13.485000000000001,
+              13.775,
+              15.010000000000002
+            ]
+          },
+          "cubic_segments": 80,
+          "failure_reasons": {},
+          "fallbacks": 0,
+          "first": {
+            "cached_routing_ms": 0.125,
+            "cpu_frame_ms": 45.49,
+            "hover_ms": 0.08359375,
+            "layout_ms": 0.725,
+            "routing_ms": 2.9050000000000002,
+            "tessellation_ms": 4.61,
+            "ui_ms": 40.855000000000004
+          },
+          "hover": {
+            "max_ms": 0.07203125,
+            "p50_ms": 0.0678125,
+            "p95_ms": 0.07171875000000001,
+            "p99_ms": 0.07203125,
+            "samples_ms": [
+              0.0659375,
+              0.06625,
+              0.066875,
+              0.066875,
+              0.066875,
+              0.06734375,
+              0.0675,
+              0.0675,
+              0.06765625,
+              0.0678125,
+              0.068125,
+              0.068125,
+              0.06828125,
+              0.06859375,
+              0.0690625,
+              0.06968750000000001,
+              0.0703125,
+              0.07046875,
+              0.07171875000000001,
+              0.07203125
+            ]
+          },
+          "layout": {
+            "max_ms": 0.57,
+            "p50_ms": 0.48000000000000004,
+            "p95_ms": 0.545,
+            "p99_ms": 0.57,
+            "samples_ms": [
+              0.44,
+              0.455,
+              0.46,
+              0.465,
+              0.465,
+              0.47,
+              0.47,
+              0.47,
+              0.47,
+              0.48000000000000004,
+              0.48000000000000004,
+              0.48000000000000004,
+              0.48000000000000004,
+              0.48500000000000004,
+              0.49,
+              0.49,
+              0.495,
+              0.5199999999999999,
+              0.545,
+              0.57
+            ]
+          },
+          "nodes": 100,
+          "routing": {
+            "max_ms": 2.645,
+            "p50_ms": 2.39,
+            "p95_ms": 2.62,
+            "p99_ms": 2.645,
+            "samples_ms": [
+              2.27,
+              2.27,
+              2.2950000000000004,
+              2.2950000000000004,
+              2.305,
+              2.32,
+              2.3249999999999997,
+              2.33,
+              2.385,
+              2.39,
+              2.395,
+              2.4,
+              2.4099999999999997,
+              2.4250000000000003,
+              2.44,
+              2.44,
+              2.4949999999999997,
+              2.54,
+              2.62,
+              2.645
+            ]
+          },
+          "tessellation": {
+            "max_ms": 1.815,
+            "p50_ms": 1.055,
+            "p95_ms": 1.4749999999999999,
+            "p99_ms": 1.815,
+            "samples_ms": [
+              0.975,
+              1.0050000000000001,
+              1.0050000000000001,
+              1.02,
+              1.03,
+              1.03,
+              1.0399999999999998,
+              1.0399999999999998,
+              1.045,
+              1.055,
+              1.06,
+              1.065,
+              1.065,
+              1.07,
+              1.075,
+              1.155,
+              1.26,
+              1.285,
+              1.4749999999999999,
+              1.815
+            ]
+          },
+          "ui": {
+            "max_ms": 13.195,
+            "p50_ms": 11.315000000000001,
+            "p95_ms": 12.33,
+            "p99_ms": 13.195,
+            "samples_ms": [
+              10.665,
+              10.755,
+              10.89,
+              10.905,
+              11.065,
+              11.125,
+              11.155,
+              11.235,
+              11.31,
+              11.315000000000001,
+              11.43,
+              11.445,
+              11.49,
+              11.75,
+              11.815000000000001,
+              11.84,
+              12.024999999999999,
+              12.295,
+              12.33,
+              13.195
+            ]
+          }
+        },
+        {
+          "cached_routing": {
+            "max_ms": 0.575,
+            "p50_ms": 0.45,
+            "p95_ms": 0.55,
+            "p99_ms": 0.575,
+            "samples_ms": [
+              0.36000000000000004,
+              0.38499999999999995,
+              0.395,
+              0.4,
+              0.40499999999999997,
+              0.41,
+              0.415,
+              0.42000000000000004,
+              0.435,
+              0.45,
+              0.48000000000000004,
+              0.505,
+              0.515,
+              0.525,
+              0.53,
+              0.53,
+              0.55,
+              0.55,
+              0.55,
+              0.575
+            ]
+          },
+          "connections": 2000,
+          "cpu_frame": {
+            "max_ms": 59.245,
+            "p50_ms": 55.235,
+            "p95_ms": 59.2,
+            "p99_ms": 59.245,
+            "samples_ms": [
+              51.755,
+              52.285,
+              52.31,
+              53.025000000000006,
+              53.61,
+              53.99,
+              54.22,
+              54.855000000000004,
+              54.975,
+              55.235,
+              55.27,
+              55.905,
+              56.410000000000004,
+              56.81,
+              57.2,
+              57.265,
+              57.825,
+              58.86,
+              59.2,
+              59.245
+            ]
+          },
+          "cubic_segments": 0,
+          "failure_reasons": {},
+          "fallbacks": 0,
+          "first": {
+            "cached_routing_ms": 0.415,
+            "cpu_frame_ms": 58.59,
+            "hover_ms": 0.2671875,
+            "layout_ms": 2.085,
+            "routing_ms": 17.080000000000002,
+            "tessellation_ms": 2.025,
+            "ui_ms": 56.565
+          },
+          "hover": {
+            "max_ms": 0.28328125,
+            "p50_ms": 0.27203125,
+            "p95_ms": 0.28296875,
+            "p99_ms": 0.28328125,
+            "samples_ms": [
+              0.26125,
+              0.26546875000000003,
+              0.2659375,
+              0.2675,
+              0.26828125,
+              0.2690625,
+              0.26921875,
+              0.2703125,
+              0.2709375,
+              0.27203125,
+              0.2728125,
+              0.27390625,
+              0.2753125,
+              0.2753125,
+              0.2778125,
+              0.27828125,
+              0.27953125,
+              0.2828125,
+              0.28296875,
+              0.28328125
+            ]
+          },
+          "layout": {
+            "max_ms": 2.255,
+            "p50_ms": 2.15,
+            "p95_ms": 2.25,
+            "p99_ms": 2.255,
+            "samples_ms": [
+              1.9300000000000002,
+              2,
+              2.065,
+              2.085,
+              2.115,
+              2.115,
+              2.115,
+              2.125,
+              2.125,
+              2.15,
+              2.155,
+              2.16,
+              2.175,
+              2.185,
+              2.185,
+              2.19,
+              2.195,
+              2.22,
+              2.25,
+              2.255
+            ]
+          },
+          "nodes": 500,
+          "routing": {
+            "max_ms": 17.64,
+            "p50_ms": 17.165,
+            "p95_ms": 17.53,
+            "p99_ms": 17.64,
+            "samples_ms": [
+              16.59,
+              16.69,
+              16.745,
+              16.79,
+              16.889999999999997,
+              16.92,
+              17.055,
+              17.069999999999997,
+              17.125,
+              17.165,
+              17.185,
+              17.23,
+              17.275,
+              17.365,
+              17.375,
+              17.435,
+              17.46,
+              17.48,
+              17.53,
+              17.64
+            ]
+          },
+          "tessellation": {
+            "max_ms": 2.17,
+            "p50_ms": 2.005,
+            "p95_ms": 2.165,
+            "p99_ms": 2.17,
+            "samples_ms": [
+              1.91,
+              1.915,
+              1.9300000000000002,
+              1.9300000000000002,
+              1.98,
+              1.98,
+              1.98,
+              1.99,
+              2.005,
+              2.005,
+              2.0300000000000002,
+              2.0300000000000002,
+              2.045,
+              2.0500000000000003,
+              2.065,
+              2.0799999999999996,
+              2.11,
+              2.14,
+              2.165,
+              2.17
+            ]
+          },
+          "ui": {
+            "max_ms": 57.195,
+            "p50_ms": 53.25,
+            "p95_ms": 57.18,
+            "p99_ms": 57.195,
+            "samples_ms": [
+              49.725,
+              50.115,
+              50.38,
+              51.11,
+              51.68,
+              51.94,
+              52.24,
+              52.714999999999996,
+              52.89,
+              53.25,
+              53.28,
+              53.900000000000006,
+              54.379999999999995,
+              54.760000000000005,
+              55.035000000000004,
+              55.355000000000004,
+              55.715,
+              56.875,
+              57.18,
+              57.195
+            ]
+          }
+        }
+      ],
+      "viewport": [
+        1440,
+        900
+      ],
+      "zoom": 0.35
+    },
+    "ROUTING_DRAG_PERFORMANCE": {
+      "fixture": "paired-grid-connected-drag-v1",
+      "reports": [
+        {
+          "cold": {
+            "max_ms": 2.29,
+            "p50_ms": 2.15,
+            "p95_ms": 2.27,
+            "p99_ms": 2.29,
+            "samples_ms": [
+              2.07,
+              2.09,
+              2.09,
+              2.1,
+              2.105,
+              2.125,
+              2.13,
+              2.1350000000000002,
+              2.15,
+              2.15,
+              2.15,
+              2.155,
+              2.175,
+              2.195,
+              2.2,
+              2.2,
+              2.21,
+              2.245,
+              2.27,
+              2.29
+            ]
+          },
+          "connections": 500,
+          "first": {
+            "cold_ms": 2.11,
+            "layout_ms": 1.36,
+            "update_ms": 0.61
+          },
+          "frames": {
+            "cpu_frame": {
+              "max_ms": 3.8449999999999998,
+              "p50_ms": 3.57,
+              "p95_ms": 3.81,
+              "p99_ms": 3.8449999999999998,
+              "samples_ms": [
+                3.42,
+                3.4499999999999997,
+                3.455,
+                3.46,
+                3.47,
+                3.4749999999999996,
+                3.5,
+                3.5500000000000003,
+                3.565,
+                3.57,
+                3.59,
+                3.61,
+                3.63,
+                3.65,
+                3.695,
+                3.725,
+                3.7950000000000004,
+                3.81,
+                3.81,
+                3.8449999999999998
+              ]
+            },
+            "first": {
+              "cpu_frame_ms": 3.895,
+              "tessellation_ms": 0.8400000000000001,
+              "ui_ms": 3.055
+            },
+            "fixture": "paired-grid-pointer-drag-frames-v1",
+            "outcomes": [
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 0
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 1
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 2
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 3
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 4
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 5
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 6
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 7
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 8
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 9
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 10
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 11
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 12
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 13
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 14
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 15
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 16
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 17
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 18
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 19
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 490,
+                "sample": 20
+              }
+            ],
+            "pan": [
+              150,
+              100
+            ],
+            "release": {
+              "cpu_frame_ms": 8.65,
+              "tessellation_ms": 0.805,
+              "ui_ms": 7.845
+            },
+            "release_fallbacks": 0,
+            "settled": {
+              "cpu_frame_ms": 9.879999999999999,
+              "tessellation_ms": 0.825,
+              "ui_ms": 9.055
+            },
+            "start": {
+              "cpu_frame_ms": 9,
+              "tessellation_ms": 0.82,
+              "ui_ms": 8.18
+            },
+            "tessellation": {
+              "max_ms": 0.875,
+              "p50_ms": 0.815,
+              "p95_ms": 0.865,
+              "p99_ms": 0.875,
+              "samples_ms": [
+                0.78,
+                0.785,
+                0.795,
+                0.795,
+                0.8,
+                0.8,
+                0.805,
+                0.8099999999999999,
+                0.8099999999999999,
+                0.815,
+                0.815,
+                0.82,
+                0.82,
+                0.83,
+                0.85,
+                0.855,
+                0.86,
+                0.86,
+                0.865,
+                0.875
+              ]
+            },
+            "ui": {
+              "max_ms": 2.99,
+              "p50_ms": 2.745,
+              "p95_ms": 2.9450000000000003,
+              "p99_ms": 2.99,
+              "samples_ms": [
+                2.64,
+                2.655,
+                2.655,
+                2.655,
+                2.665,
+                2.675,
+                2.69,
+                2.72,
+                2.725,
+                2.745,
+                2.775,
+                2.7950000000000004,
+                2.81,
+                2.85,
+                2.8649999999999998,
+                2.885,
+                2.935,
+                2.94,
+                2.9450000000000003,
+                2.99
+              ]
+            },
+            "viewport": [
+              1440,
+              900
+            ],
+            "zoom": 0.3499999940395355
+          },
+          "layout": {
+            "max_ms": 1.2,
+            "p50_ms": 1.02,
+            "p95_ms": 1.17,
+            "p99_ms": 1.2,
+            "samples_ms": [
+              0.945,
+              0.945,
+              0.9650000000000001,
+              0.975,
+              0.975,
+              0.975,
+              0.98,
+              0.995,
+              1.0150000000000001,
+              1.02,
+              1.02,
+              1.0250000000000001,
+              1.0399999999999998,
+              1.06,
+              1.08,
+              1.1,
+              1.11,
+              1.13,
+              1.17,
+              1.2
+            ]
+          },
+          "nodes": 100,
+          "outcomes": [
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 0,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 1,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 2,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 3,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 4,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 5,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 6,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 7,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 8,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 9,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 10,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 11,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 12,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 13,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 14,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 15,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 16,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 17,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 18,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 19,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 490,
+              "sample": 20,
+              "warm_failures": {}
+            }
+          ],
+          "release_ms": 2.12,
+          "update": {
+            "max_ms": 0.64,
+            "p50_ms": 0.505,
+            "p95_ms": 0.575,
+            "p99_ms": 0.64,
+            "samples_ms": [
+              0.475,
+              0.48000000000000004,
+              0.48000000000000004,
+              0.49,
+              0.495,
+              0.495,
+              0.495,
+              0.5,
+              0.505,
+              0.505,
+              0.505,
+              0.53,
+              0.535,
+              0.535,
+              0.545,
+              0.555,
+              0.565,
+              0.565,
+              0.575,
+              0.64
+            ]
+          }
+        },
+        {
+          "cold": {
+            "max_ms": 17.545,
+            "p50_ms": 16.725,
+            "p95_ms": 17.42,
+            "p99_ms": 17.545,
+            "samples_ms": [
+              16.34,
+              16.395,
+              16.424999999999997,
+              16.56,
+              16.61,
+              16.625,
+              16.645,
+              16.68,
+              16.69,
+              16.725,
+              16.729999999999997,
+              16.740000000000002,
+              16.755,
+              16.764999999999997,
+              16.979999999999997,
+              17.235,
+              17.24,
+              17.355,
+              17.42,
+              17.545
+            ]
+          },
+          "connections": 2000,
+          "first": {
+            "cold_ms": 16.88,
+            "layout_ms": 3.675,
+            "update_ms": 1.345
+          },
+          "frames": {
+            "cpu_frame": {
+              "max_ms": 15.2,
+              "p50_ms": 14.73,
+              "p95_ms": 15.129999999999999,
+              "p99_ms": 15.2,
+              "samples_ms": [
+                14.325,
+                14.34,
+                14.44,
+                14.59,
+                14.625,
+                14.625,
+                14.63,
+                14.66,
+                14.665,
+                14.73,
+                14.775,
+                14.815,
+                14.885,
+                14.905,
+                14.905,
+                14.99,
+                15.049999999999999,
+                15.07,
+                15.129999999999999,
+                15.2
+              ]
+            },
+            "first": {
+              "cpu_frame_ms": 15.219999999999999,
+              "tessellation_ms": 2.11,
+              "ui_ms": 13.11
+            },
+            "fixture": "paired-grid-pointer-drag-frames-v1",
+            "outcomes": [
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 0
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 1
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 2
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 3
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 4
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 5
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 6
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 7
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 8
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 9
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 10
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 11
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 12
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 13
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 14
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 15
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 16
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 17
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 18
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 19
+              },
+              {
+                "fallbacks": 0,
+                "retained_paths": 1992,
+                "sample": 20
+              }
+            ],
+            "pan": [
+              150,
+              100
+            ],
+            "release": {
+              "cpu_frame_ms": 53.400000000000006,
+              "tessellation_ms": 2.22,
+              "ui_ms": 51.18000000000001
+            },
+            "release_fallbacks": 0,
+            "settled": {
+              "cpu_frame_ms": 50.68,
+              "tessellation_ms": 1.9449999999999998,
+              "ui_ms": 48.735
+            },
+            "start": {
+              "cpu_frame_ms": 20.755,
+              "tessellation_ms": 2.235,
+              "ui_ms": 18.515
+            },
+            "tessellation": {
+              "max_ms": 2.0300000000000002,
+              "p50_ms": 1.935,
+              "p95_ms": 2.02,
+              "p99_ms": 2.0300000000000002,
+              "samples_ms": [
+                1.81,
+                1.825,
+                1.885,
+                1.89,
+                1.895,
+                1.895,
+                1.905,
+                1.9200000000000002,
+                1.935,
+                1.935,
+                1.9449999999999998,
+                1.9449999999999998,
+                1.96,
+                1.965,
+                1.97,
+                1.975,
+                1.98,
+                2.0100000000000002,
+                2.02,
+                2.0300000000000002
+              ]
+            },
+            "ui": {
+              "max_ms": 13.19,
+              "p50_ms": 12.81,
+              "p95_ms": 13.145,
+              "p99_ms": 13.19,
+              "samples_ms": [
+                11.96,
+                12.370000000000001,
+                12.42,
+                12.615,
+                12.685,
+                12.69,
+                12.69,
+                12.72,
+                12.74,
+                12.81,
+                12.815,
+                12.83,
+                12.87,
+                12.885,
+                12.945,
+                12.99,
+                13.045,
+                13.07,
+                13.145,
+                13.19
+              ]
+            },
+            "viewport": [
+              1440,
+              900
+            ],
+            "zoom": 0.3499999940395355
+          },
+          "layout": {
+            "max_ms": 4.31,
+            "p50_ms": 3.7950000000000004,
+            "p95_ms": 4.29,
+            "p99_ms": 4.31,
+            "samples_ms": [
+              3.47,
+              3.5100000000000002,
+              3.59,
+              3.61,
+              3.645,
+              3.675,
+              3.68,
+              3.7,
+              3.73,
+              3.7950000000000004,
+              3.8,
+              3.8,
+              3.8049999999999997,
+              3.915,
+              3.96,
+              4.005,
+              4.095,
+              4.165,
+              4.29,
+              4.31
+            ]
+          },
+          "nodes": 500,
+          "outcomes": [
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 0,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 1,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 2,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 3,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 4,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 5,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 6,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 7,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 8,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 9,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 10,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 11,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 12,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 13,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 14,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 15,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 16,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 17,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 18,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 19,
+              "warm_failures": {}
+            },
+            {
+              "cold_failures": {},
+              "retained_paths": 1992,
+              "sample": 20,
+              "warm_failures": {}
+            }
+          ],
+          "release_ms": 17.485,
+          "update": {
+            "max_ms": 1.535,
+            "p50_ms": 1.32,
+            "p95_ms": 1.51,
+            "p99_ms": 1.535,
+            "samples_ms": [
+              1.25,
+              1.26,
+              1.2750000000000001,
+              1.28,
+              1.28,
+              1.285,
+              1.285,
+              1.295,
+              1.3,
+              1.32,
+              1.34,
+              1.34,
+              1.34,
+              1.355,
+              1.375,
+              1.38,
+              1.38,
+              1.39,
+              1.51,
+              1.535
+            ]
+          }
+        }
+      ],
+      "zoom": 0.35
+    }
+  }
+}
