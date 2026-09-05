@@ -224,6 +224,34 @@ multi-owner indicator placement tests cover hidden/connected sockets, connect/di
 updates, and low/normal/high zoom. Large-frame cost and browser/application measurements
 remain open acceptance work.
 
+### Per-node socket hit-order index
+
+Each layout derives a per-node socket index from the flat hit-target map, preserving the
+relative iteration order used for overlapping targets. Vectors reserve capacity from node
+socket counts. The z-order pass reads only each node's own socket identities and resolves
+their rectangles in the same snapshot. Thus 500 nodes with 10000 socket targets require
+10000 socket visits rather than 5000000 full-map visits during node raising. Initial
+response allocation, clipping, painted node order, routing, and saved graphs are unchanged.
+
+Sequential native measurements on the reference host/profile on 2026-09-05 show the tradeoff:
+building the index adds layout work while eliminating repeated scans in the frame. Full
+samples are in
+[`node_graph_socket_hit_index_native.json`](../../benchmarks/performance/node_graph_socket_hit_index_native.json).
+Source stays fixed through each compile/run and there is no concurrent cargo validation;
+these are observational before/after runs, not randomized paired trials or GPU measurements.
+
+| Native fixture | Layout p95 before / after | CPU frame p95 before / after | Fallbacks before / after |
+| --- | --- | --- | --- |
+| 100 nodes / 500 connections | 0.419 / 0.476 ms | 7.891 / 7.863 ms | 0 / 0 |
+| 500 nodes / 2000 connections | 1.935 / 2.087 ms | 44.956 / 34.749 ms | 0 / 0 |
+
+The smaller frame result is essentially unchanged; the larger benefits from eliminating
+the repeated visits. Routing outcome and cubic counts are unchanged. Tests compare the
+index with the flat-map projection across hiding, collapse, socket growth, connection and
+node changes, and verify the same winner for deliberately overlapping socket targets.
+The larger CPU frame remains above a 60 Hz budget, and browser/application verification
+remains outstanding.
+
 ## Reference workloads
 
 All performance claims are measured on two reference captures. A change is not accepted on the

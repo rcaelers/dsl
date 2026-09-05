@@ -34,6 +34,7 @@ pub(crate) struct GraphWidgetLayout {
     pub collapse_toggle_screen_rects: HashMap<NodeId, Rect>,
     pub socket_screen_pos: HashMap<SocketId, Pos2>,
     pub socket_hit_rects: HashMap<SocketId, Rect>,
+    pub socket_hit_order_by_node: HashMap<NodeId, Vec<SocketId>>,
 }
 
 impl NodeGraphWidget {
@@ -170,6 +171,19 @@ impl NodeGraphWidget {
             }
         }
 
+        // Preserve the flat map's per-node iteration order exactly. Raising hit
+        // targets must not change which overlapping socket wins a pointer hit.
+        let mut socket_hit_order_by_node: HashMap<NodeId, Vec<SocketId>> =
+            HashMap::with_capacity(nodes.len());
+        for &socket in socket_hit_rects.keys() {
+            socket_hit_order_by_node
+                .entry(socket.node)
+                .or_insert_with(|| {
+                    let node = &self.graph.nodes[&socket.node];
+                    Vec::with_capacity(node.inputs.len() + node.outputs.len())
+                })
+                .push(socket);
+        }
         let mut layout = GraphWidgetLayout {
             nodes,
             wire_paths: HashMap::new(),
@@ -183,6 +197,7 @@ impl NodeGraphWidget {
             collapse_toggle_screen_rects,
             socket_screen_pos,
             socket_hit_rects,
+            socket_hit_order_by_node,
         };
         let dragging = matches!(
             self.interaction_state,
@@ -204,6 +219,80 @@ impl NodeGraphWidget {
 mod layout_tests {
     use super::*;
     use crate::runtime::NodeTypeRegistry;
+
+    #[test]
+    fn per_node_socket_index_matches_flat_order_through_layout_and_topology_changes() {
+        let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+        let ids: Vec<_> = (0..3)
+            .map(|i| {
+                widget
+                    .add_node_at("Reroute", Pos2::new(i as f32 * 400.0, 100.0))
+                    .unwrap()
+            })
+            .collect();
+        for id in &ids {
+            let node = widget.graph.nodes.get_mut(id).unwrap();
+            node.kind = NodeKind::Regular;
+            node.inputs = vec![node.inputs[0].clone(); 3];
+            node.outputs = vec![node.outputs[0].clone(); 3];
+            node.inputs[1].hidden = true;
+            node.outputs[2].visible = false;
+        }
+        let from = SocketId {
+            node: ids[0],
+            index: 2,
+            direction: SocketDirection::Output,
+        };
+        let to = SocketId {
+            node: ids[1],
+            index: 1,
+            direction: SocketDirection::Input,
+        };
+        for stage in 0..4 {
+            match stage {
+                1 => widget.graph.add_connection(from, to),
+                2 => {
+                    widget.graph.nodes.get_mut(&ids[0]).unwrap().collapsed = true;
+                    widget.view.zoom = 0.5;
+                    widget.view.pan = egui::Vec2::new(50.0, -40.0);
+                    let node = widget.graph.nodes.get_mut(&ids[1]).unwrap();
+                    node.outputs.push(node.outputs[0].clone());
+                }
+                3 => {
+                    widget.graph.nodes.remove(&ids[2]);
+                }
+                _ => {}
+            }
+            let layout = widget.build_layout(Pos2::new(20.0, 30.0));
+            assert_eq!(
+                layout
+                    .socket_hit_order_by_node
+                    .values()
+                    .map(Vec::len)
+                    .sum::<usize>(),
+                layout.socket_hit_rects.len()
+            );
+            for &id in &ids {
+                let expected: Vec<_> = layout
+                    .socket_hit_rects
+                    .keys()
+                    .copied()
+                    .filter(|socket| socket.node == id)
+                    .collect();
+                let actual = layout
+                    .socket_hit_order_by_node
+                    .get(&id)
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]);
+                assert_eq!(actual, expected);
+            }
+            assert_eq!(layout.socket_hit_rects.contains_key(&from), stage != 0);
+            assert_eq!(layout.socket_hit_rects.contains_key(&to), stage != 0);
+            if stage == 3 {
+                assert!(!layout.socket_hit_order_by_node.contains_key(&ids[2]));
+            }
+        }
+    }
 
     #[test]
     fn a_reroute_point_keeps_its_middle_as_a_drag_handle() {

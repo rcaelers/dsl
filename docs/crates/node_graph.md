@@ -339,6 +339,12 @@ keep their initial registration but skip the redundant z-order update. Visibilit
 tested per target, not per node body, so protruding socket hit areas remain interactive
 at viewport edges. Routing continues to include all offscreen obstacle geometry.
 
+Each layout groups socket hit-target identities by node, copying their relative order from
+the flat hit-rectangle map. Raising a node visits only its own targets, preserving the
+flat-map overlap winner without rescanning every other socket. The index is rebuilt with
+each snapshot, reserves capacity from that node's socket counts, and reads rectangles from
+the same snapshot; it does not cache document or geometry state between frames.
+
 Socket layout queries connectivity only when a socket would otherwise be hidden;
 already-visible sockets do not scan the connection list. Hidden connected sockets remain
 laid out. Indicator painting resolves connectivity only when that socket has decorations,

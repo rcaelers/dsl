@@ -107,6 +107,8 @@ appearance until the checked router is activated in step 3.
   tests. Require complete checked results at both native scale sizes with unchanged budgets.
 - [x] Defer unnecessary connectivity scans for visible socket layout and undecorated socket
   painting. Retain native frame/layout measurements and visibility/indicator regression tests.
+- [x] Index socket hit-target order per node to avoid repeated full-map scans. Preserve
+  overlapping-target winners, cover layout/topology changes, and retain native timing evidence.
 - [ ] Measure 100/500 and 500/2000 node/connection fixtures on native and wasm. Target routing
   p95 below 8 ms on the smaller fixture. Record misses and follow-up work rather than
   weakening constraints. Retain benchmark evidence in the performance design record.

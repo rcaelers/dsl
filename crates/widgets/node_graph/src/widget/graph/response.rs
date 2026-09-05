@@ -96,6 +96,47 @@ mod response_tests {
     use crate::runtime::NodeTypeRegistry;
 
     #[test]
+    fn indexed_raising_preserves_the_flat_order_winner_for_overlapping_sockets() {
+        let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+        let node = widget
+            .add_node_at("Reroute", Pos2::new(100.0, 100.0))
+            .unwrap();
+        let mut layout = widget.build_layout(Pos2::ZERO);
+        let hit = Rect::from_center_size(Pos2::new(112.0, 112.0), Vec2::splat(12.0));
+        for rect in layout.socket_hit_rects.values_mut() {
+            *rect = hit;
+        }
+        let flat: Vec<_> = layout.socket_hit_rects.keys().copied().collect();
+        assert_eq!(flat, layout.socket_hit_order_by_node[&node]);
+        let expected = *flat.last().unwrap();
+        let context = egui::Context::default();
+        let clip = Rect::from_min_size(Pos2::ZERO, Vec2::splat(300.0));
+        let mut hovered = false;
+        for _ in 0..2 {
+            context.begin_pass(egui::RawInput {
+                screen_rect: Some(clip),
+                events: vec![egui::Event::PointerMoved(hit.center())],
+                ..Default::default()
+            });
+            let mut ui = egui::Ui::new(
+                context.clone(),
+                egui::Id::new("indexed-overlap"),
+                egui::UiBuilder::new().max_rect(clip),
+            );
+            let canvas = ui.interact(clip, ui.id().with("canvas"), egui::Sense::click_and_drag());
+            widget.allocate_responses(&mut ui, canvas, &layout, clip);
+            widget.raise_node_hit_targets(&ui, &layout, node);
+            hovered = context
+                .read_response(socket_hit_id(ui.id(), expected))
+                .unwrap()
+                .hovered();
+            let mut output = context.end_pass();
+            output.textures_delta.clear();
+        }
+        assert!(hovered);
+    }
+
+    #[test]
     fn clipped_raise_keeps_registration_and_resumes_when_target_enters_clip() {
         let context = egui::Context::default();
         let clip = Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0));
@@ -317,11 +358,11 @@ impl NodeGraphWidget {
                 egui::Sense::click(),
             );
         }
-        for (&socket_id, &rect) in &layout.socket_hit_rects {
-            if socket_id.node == node_id {
+        if let Some(sockets) = layout.socket_hit_order_by_node.get(&node_id) {
+            for &socket_id in sockets {
                 raise(
                     ui,
-                    rect,
+                    layout.socket_hit_rects[&socket_id],
                     socket_hit_id(ui.id(), socket_id),
                     egui::Sense::click_and_drag(),
                 );
