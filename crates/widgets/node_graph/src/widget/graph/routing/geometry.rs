@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use egui::{Pos2, Rect, Vec2};
 
 /// Exact geometry; disconnected sections remain disconnected during hit testing.
@@ -8,7 +10,12 @@ pub(crate) enum PathSegment {
 }
 
 /// A layout-space path and its interaction approximation, built together once.
+#[derive(Clone)]
 pub(crate) struct WirePath {
+    data: Arc<PathData>,
+}
+
+struct PathData {
     segments: Vec<PathSegment>,
     lines: Vec<[Pos2; 2]>,
     bounds: Rect,
@@ -36,9 +43,11 @@ impl WirePath {
             }
         }
         Self {
-            segments,
-            lines,
-            bounds,
+            data: Arc::new(PathData {
+                segments,
+                lines,
+                bounds,
+            }),
         }
     }
 
@@ -57,16 +66,17 @@ impl WirePath {
     }
 
     pub(crate) fn segments(&self) -> &[PathSegment] {
-        &self.segments
+        &self.data.segments
     }
 
     /// Conservative control-hull bounds, including every path section.
     pub(crate) fn bounds(&self) -> Rect {
-        self.bounds
+        self.data.bounds
     }
 
     pub(crate) fn distance(&self, point: Pos2) -> f32 {
-        self.lines
+        self.data
+            .lines
             .iter()
             .map(|line| distance_to_segment(point, *line))
             .fold(f32::INFINITY, f32::min)
@@ -76,13 +86,14 @@ impl WirePath {
         self.bounds()
             .intersects(Rect::from_two_pos(segment[0], segment[1]))
             && self
+                .data
                 .lines
                 .iter()
                 .any(|line| segments_intersect(*line, segment))
     }
 
     pub(crate) fn intersects_rect(&self, rect: Rect) -> bool {
-        if !self.bounds.intersects(rect) {
+        if !self.data.bounds.intersects(rect) {
             return false;
         }
         let corners = [
@@ -91,7 +102,7 @@ impl WirePath {
             rect.right_bottom(),
             rect.left_bottom(),
         ];
-        self.lines.iter().any(|line| {
+        self.data.lines.iter().any(|line| {
             rect.contains(line[0])
                 || rect.contains(line[1])
                 || (0..4).any(|i| segments_intersect(*line, [corners[i], corners[(i + 1) % 4]]))

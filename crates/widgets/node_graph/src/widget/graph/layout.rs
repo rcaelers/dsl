@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use egui::{Pos2, Rect};
 
-use super::routing::{RouteFailure, WirePath};
+use super::routing::{RouteConfig, RouteFailure, WirePath};
 use super::widget::NodeGraphWidget;
 use crate::model::{FrameId, NodeId, NodeKind, SocketDirection, SocketId};
 use crate::support::{SOCKET_RADIUS, to_screen_rect};
@@ -183,7 +183,12 @@ impl NodeGraphWidget {
             socket_screen_pos,
             socket_hit_rects,
         };
-        layout.rebuild_routes(&self.graph.connections, self.view.zoom);
+        self.routing_cache.borrow_mut().route(
+            &mut layout,
+            &self.graph.connections,
+            &RouteConfig::default(),
+            self.view.zoom,
+        );
         layout
     }
 }

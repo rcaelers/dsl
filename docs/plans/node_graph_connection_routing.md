@@ -90,6 +90,9 @@ appearance until the checked router is activated in step 3.
 - [ ] Capture a completed browser CPU baseline with a reliably bounded runner. Interactive
   execution produced partial progress but no retained full result. Measure GPU
   upload/presentation and real application frame time separately.
+- [x] Reuse identical routing snapshots using complete geometry/configuration/zoom keys,
+  immutable shared path data, and unchanged failure classifications. Test invalidation
+  and compare native cache-hit cost with the retained forced-rebuild baseline.
 - [ ] Add valid-history hysteresis and dependency invalidation for incident routes, old/new
   obstacle extents, layout/socket changes, configuration, and topology generations.
   Revalidate prior paths and schedule a broader quality pass after dragging stops.

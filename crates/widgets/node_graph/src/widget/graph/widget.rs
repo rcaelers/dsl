@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
@@ -10,6 +11,7 @@ use super::interaction_state::InteractionState;
 use super::menu::MenuController;
 use super::panel::PanelState;
 use super::response::GraphResponses;
+use super::routing_cache::RoutingCache;
 use super::routing_presentation::RoutingDebug;
 use super::snapshot_error::GraphSnapshotError;
 use super::{layout, render};
@@ -36,6 +38,7 @@ pub struct NodeGraphWidget {
     pub(crate) registry: NodeTypeRegistry,
     pub(crate) minimap_visible: bool,
     pub(crate) routing_debug: RoutingDebug,
+    pub(crate) routing_cache: RefCell<RoutingCache>,
     pub(crate) top_node: Option<NodeId>,
     pub(crate) menu: MenuController,
     /// Pending copy/paste confirmation ("Copied 3 node(s)"), taken and
@@ -203,6 +206,7 @@ impl NodeGraphWidget {
             registry,
             minimap_visible: true,
             routing_debug: RoutingDebug::default(),
+            routing_cache: RefCell::new(RoutingCache::default()),
             top_node: None,
             menu: MenuController::new(),
             io_status: None,
@@ -605,6 +609,7 @@ impl NodeGraphWidget {
     /// file loading (`restore_node`): sockets validated against current defs,
     /// `on_update` re-run, badges recomputed.
     pub fn set_graph(&mut self, graph: GraphState) {
+        *self.routing_cache.get_mut() = RoutingCache::default();
         let previous_revision = self.graph.semantic_revision();
         self.graph = graph;
         self.graph.reconcile_reroute_outputs();

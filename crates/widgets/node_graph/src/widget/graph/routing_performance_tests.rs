@@ -6,7 +6,7 @@ use std::hint::black_box;
 use egui::{Pos2, Rect, Vec2};
 use web_time::Instant;
 
-use super::routing::PathSegment;
+use super::routing::{PathSegment, RouteConfig};
 use super::widget::NodeGraphWidget;
 use crate::api::{AnySocket, InputDef, NodeDef, OutputDef};
 use crate::model::{SocketDirection, SocketId};
@@ -93,6 +93,7 @@ fn measure(mut progress: impl FnMut(serde_json::Value)) -> serde_json::Value {
         let context = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
         let mut routing = Vec::new();
+        let mut cached_routing = Vec::new();
         let mut hover = Vec::new();
         let mut frame = Vec::new();
         let mut outcome = None;
@@ -138,6 +139,18 @@ fn measure(mut progress: impl FnMut(serde_json::Value)) -> serde_json::Value {
             }
             outcome = Some(counts);
             let start = Instant::now();
+            let reused = widget.routing_cache.borrow_mut().route(
+                &mut layout,
+                &widget.graph.connections,
+                &RouteConfig::default(),
+                widget.view.zoom,
+            );
+            let cached_ms = start.elapsed().as_secs_f64() * 1000.0;
+            assert!(
+                reused,
+                "the stationary fixture must reuse identical routing inputs"
+            );
+            let start = Instant::now();
             for i in 0..32 {
                 black_box(
                     widget.wire_near_point(Pos2::new(220.0 + i as f32 * 23.0, 100.0), &layout),
@@ -167,10 +180,11 @@ fn measure(mut progress: impl FnMut(serde_json::Value)) -> serde_json::Value {
             );
             if sample == 0 {
                 first = Some(
-                    serde_json::json!({"routing_ms": route_ms, "hover_ms": hover_ms, "cpu_frame_ms": frame_ms}),
+                    serde_json::json!({"routing_ms": route_ms, "cached_routing_ms": cached_ms, "hover_ms": hover_ms, "cpu_frame_ms": frame_ms}),
                 );
             } else {
                 routing.push(route_ms);
+                cached_routing.push(cached_ms);
                 hover.push(hover_ms);
                 frame.push(frame_ms);
             }
@@ -181,7 +195,8 @@ fn measure(mut progress: impl FnMut(serde_json::Value)) -> serde_json::Value {
         reports.push(serde_json::json!({
             "nodes": node_count, "connections": connection_count, "fallbacks": failures,
             "cubic_segments": cubics, "failure_reasons": failure_reasons, "first": first,
-            "routing": distribution(routing), "hover": distribution(hover), "cpu_frame": distribution(frame),
+            "routing": distribution(routing), "cached_routing": distribution(cached_routing),
+            "hover": distribution(hover), "cpu_frame": distribution(frame),
         }));
     }
     serde_json::json!({"fixture": "paired-grid-v1", "zoom": 0.35, "viewport": [1440, 900], "reports": reports})

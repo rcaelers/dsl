@@ -210,9 +210,20 @@ All band candidates, collision checks, retries, and individual searches share th
 work budget. The private `routing/corridor` owner provides rectangle validation, port escapes,
 and visibility search to the individual and bundle routers; neither routes through the other.
 
-Each pass shares one routing work budget across connections in stable pair/group/member
-order. Routes and failures live only in that layout snapshot; there is no retained
-route history across topology edits, load, undo, or redo.
+Each checked rebuild shares one routing work budget across connections in stable
+pair/group/member order. The widget retains one transient routing snapshot, keyed by
+all node rectangles, the ordered connection list and its actual socket positions,
+provisional exclusion, the complete routing configuration, and zoom. Identical inputs
+reuse both paths and failure classifications; pan and screen origin are not routing
+inputs. Any mismatch rebuilds the whole snapshot. This conservative cache does not
+reuse paths across changed obstacle geometry or provide history-aware hysteresis.
+
+Paths share immutable curve, interaction, and bounds data through `Arc`, so cached and
+earlier live layouts remain independent without copying flattened geometry. Zoom changes
+rebuild the screen-tolerance approximation and diagnostic fallback geometry. Document
+replacement explicitly discards the snapshot; routes never enter saved graphs or undo
+records. Work-limit fallbacks remain visibly classified on cache hits rather than being
+promoted to checked routes, and are retried after routing inputs change.
 
 The router validates finite geometry and configuration, expands node bodies, and creates
 horizontal escape segments. Only each escape's own expanded body is exempt from its collision

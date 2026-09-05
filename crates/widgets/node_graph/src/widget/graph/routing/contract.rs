@@ -20,7 +20,7 @@ pub(crate) struct RouteInput<'a> {
     pub(crate) target: PortGeometry,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub(crate) struct RouteConfig {
     pub(crate) clearance_x: f32,
     pub(crate) clearance_y: f32,

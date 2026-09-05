@@ -32,10 +32,19 @@ impl NodeGraphWidget {
 }
 
 impl GraphWidgetLayout {
+    #[cfg(test)]
     pub(crate) fn rebuild_routes(&mut self, connections: &[Connection], zoom: f32) {
+        self.rebuild_routes_with_config(connections, &RouteConfig::default(), zoom);
+    }
+
+    pub(crate) fn rebuild_routes_with_config(
+        &mut self,
+        connections: &[Connection],
+        config: &RouteConfig,
+        zoom: f32,
+    ) {
         self.wire_paths.clear();
         self.wire_failures.clear();
-        let config = RouteConfig::default();
         let mut budget = WorkBudget::new(config.max_work);
         let mut smoothing_budget = WorkBudget::new(config.max_smoothing_work);
         let mut groups = self.connection_groups(connections, config.max_work);
@@ -48,7 +57,7 @@ impl GraphWidgetLayout {
                             route_quality_bundle(
                                 &nodes,
                                 &members,
-                                &config,
+                                config,
                                 zoom,
                                 &mut budget,
                                 &mut smoothing_budget,
@@ -70,13 +79,13 @@ impl GraphWidgetLayout {
             }
             let connection = group[0];
             let key = (connection.from, connection.to);
-            match self.route_connection_with_budget(connection, &config, &mut budget) {
+            match self.route_connection_with_budget(connection, config, &mut budget) {
                 Ok(path) => {
                     // Optional quality work never spends the checked-search budget.
                     let path = self.smooth_connection(
                         connection,
                         path,
-                        &config,
+                        config,
                         zoom,
                         &mut smoothing_budget,
                     );

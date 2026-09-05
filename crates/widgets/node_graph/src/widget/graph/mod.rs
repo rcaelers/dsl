@@ -12,6 +12,9 @@ mod response;
 mod routing;
 #[cfg(test)]
 mod routing_activation_tests;
+mod routing_cache;
+#[cfg(test)]
+mod routing_cache_tests;
 mod routing_input;
 #[cfg(test)]
 mod routing_performance_tests;

@@ -17,8 +17,8 @@ are prioritized from.
 
 ## Node-graph routing scale baseline
 
-The portable `routing_performance_tests` fixture measures three CPU-side costs separately:
-`rebuild_routes` on a prepared layout, an average of 32 point-to-wire hover queries, and
+The portable `routing_performance_tests` fixture measures four CPU-side costs separately:
+`rebuild_routes` on a prepared layout, exact-input cache reuse, an average of 32 point-to-wire hover queries, and
 `Context::run_ui` plus editor rendering and egui tessellation. The CPU frame includes the
 editor's layout/routing passes, but excludes texture uploads, GPU submission, presentation,
 and the surrounding application. It is not an end-to-end display-frame measurement.
@@ -30,14 +30,20 @@ source. The smaller fixture connects all ten matching ports per pair, the larger
 A fixture assertion keeps every body and its 60-unit escape envelope disjoint. Zoom is
 0.35 and the logical egui viewport is 1440 × 900, so routing includes offscreen geometry.
 
-Routing snapshots are rebuilt without history. Layout preparation, including its initial
-route build, is outside the isolated routing timer. The first measured sample is recorded
+The isolated routing timer forces a rebuild without history; CPU frames follow production
+snapshot reuse. Layout preparation, including its initial route build, is outside the
+isolated routing timer. The first measured sample is recorded
 separately; subsequent samples use warmed allocator/font/egui state, not a cold process.
 Release runs collect twenty subsequent samples and report nearest-rank p50/p95, maximum,
 and sorted raw samples. Debug tests run a cold/repeated two-sample correctness smoke check.
 Every sample asserts complete finite path presentation, stable routing outcome counts, and
 unchanged topology sizes; there are no hardware-dependent timing assertions. Fallback
 counts and reasons accompany timings so work exhaustion cannot masquerade as throughput.
+The exact-input reuse measurement additionally times a cache hit on the same prepared
+layout, including complete key construction/comparison and copying the path/failure maps
+with shared immutable geometry. It asserts that the stationary fixture actually hits
+the cache. The original native baseline predates snapshot reuse and retains its original
+field set; cache measurements report `cached_routing` separately from forced `routing`.
 
 Reproduce the native measurement with:
 
@@ -75,6 +81,21 @@ fixture does not complete checked routing for every connection within the work b
 its timing is not full-route throughput. CPU frame processing is substantially more
 expensive than isolated routing. Those costs require separate profiling during step 6;
 increasing the work budget alone is not an established remedy.
+
+The exact-input cache comparison uses the same hardware, profile, and fixture. Its raw
+samples are retained in
+[`node_graph_routing_exact_cache.json`](../../benchmarks/performance/node_graph_routing_exact_cache.json).
+Workspace test validation ran concurrently with this capture, so the timings are
+observational evidence, not an isolated regression threshold or a controlled speedup ratio.
+
+| Native fixture | Cache hit p50 / p95 | Forced rebuild p50 / p95 | CPU frame p50 / p95 | Fallbacks |
+| --- | --- | --- | --- | --- |
+| 100 nodes / 500 connections | 0.079 / 0.216 ms | 1.74 / 1.90 ms | 20.79 / 21.76 ms | 0 |
+| 500 nodes / 2000 connections | 0.228 / 0.410 ms | 8.99 / 9.30 ms | 499.33 / 515.18 ms | 1360 (`WorkLimit`) |
+
+Identical-input reuse avoids solver work but retains all failure classifications. It does
+not resolve the larger fixture's checked-route shortfall or CPU frame cost, and these
+stationary measurements do not establish moving-node or browser responsiveness.
 
 Interactive Chrome execution reached both corrected fixtures, but automation stalled
 before a completed test result and full JSON report could be retrieved. Partial progress
