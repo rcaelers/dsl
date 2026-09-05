@@ -113,8 +113,13 @@ appearance until the checked router is activated in step 3.
   evidence that distinguishes initial response allocation from repeated z-order updates.
 - [x] Cover low-zoom target overlap, floating overlays, socket/toggle order, tab focus, and
   pointer capture across geometry changes before changing interaction registration order.
+- [x] Guard Tab/Shift-Tab transitions through clipped targets and capture/release after a
+  target becomes fully clipped. Retain a reproducible native-only partial-move experiment
+  without enabling it in production.
 - [ ] Reduce repeated hit-target z-order updates while preserving overlap order, pointer
   capture, keyboard focus, clipping, and same-frame geometry changes; measure on native/browser.
+  Evaluate the partial-move prototype with randomized native/browser comparisons and broader
+  clipped, transformed, changing-zoom, and drag/release interaction coverage.
 - [x] Reuse identical routing snapshots using complete geometry/configuration/zoom keys,
   immutable shared path data, and unchanged failure classifications. Test invalidation
   and compare native cache-hit cost with the retained forced-rebuild baseline.

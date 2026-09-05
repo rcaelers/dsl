@@ -1,0 +1,450 @@
+diff --git a/crates/widgets/node_graph/src/widget/graph/mod.rs b/crates/widgets/node_graph/src/widget/graph/mod.rs
+index c3cebf8a..6d762ba2 100644
+--- a/crates/widgets/node_graph/src/widget/graph/mod.rs
++++ b/crates/widgets/node_graph/src/widget/graph/mod.rs
+@@ -1,5 +1,6 @@
+ mod action;
+ mod connection_paint;
++mod hit_target_moves;
+ mod input_dispatch;
+ mod interaction;
+ mod interaction_state;
+diff --git a/crates/widgets/node_graph/src/widget/graph/render.rs b/crates/widgets/node_graph/src/widget/graph/render.rs
+index b9f51c54..cbde6eca 100644
+--- a/crates/widgets/node_graph/src/widget/graph/render.rs
++++ b/crates/widgets/node_graph/src/widget/graph/render.rs
+@@ -1,6 +1,7 @@
+ use egui::{Color32, CornerRadius, Painter, Pos2, Rect, RichText, Stroke, Vec2};
+ 
+ use super::connection_paint::{WireEmphasis, draw_connections};
++use super::hit_target_moves::HitTargetMoves;
+ use super::interaction_state::InteractionState;
+ use super::layout::GraphWidgetLayout;
+ use super::minimap;
+@@ -19,6 +20,7 @@ pub(crate) struct GraphRenderContext<'a> {
+     pub origin: Pos2,
+     pub pointer: Option<Pos2>,
+     pub layout: &'a GraphWidgetLayout,
++    pub response_layout: &'a GraphWidgetLayout,
+     pub hovered_socket: Option<SocketId>,
+ }
+ 
+@@ -34,6 +36,7 @@ impl NodeGraphWidget {
+             origin,
+             pointer,
+             layout,
++            response_layout,
+             hovered_socket,
+         } = context;
+         // `painter` is already clipped to `rect`, but the inline node
+@@ -221,6 +224,7 @@ impl NodeGraphWidget {
+         if let InteractionState::DraggingNode { node_id, .. } = self.interaction_state {
+             self.top_node = Some(node_id);
+         }
++        let hit_moves = HitTargetMoves::new(ui, self.view.zoom, response_layout, layout);
+         let mut sorted = self.graph.sorted_node_ids();
+         if let Some(top) = self.top_node {
+             if sorted.contains(&top) {
+@@ -272,7 +276,7 @@ impl NodeGraphWidget {
+             // so its hit targets are lifted over them before its own
+             // controls register themselves on top.
+             if !self.interaction_state.use_fast_rendering() {
+-                self.raise_node_hit_targets(ui, layout, id);
++                self.refresh_node_hit_targets(ui, layout, id, Some(&hit_moves));
+             }
+             if self.view.zoom >= 0.6 {
+                 let changed = if let (Some(widget), Some(node), Some(instance)) = (
+diff --git a/crates/widgets/node_graph/src/widget/graph/response.rs b/crates/widgets/node_graph/src/widget/graph/response.rs
+index c94de8c4..c3bac9e5 100644
+--- a/crates/widgets/node_graph/src/widget/graph/response.rs
++++ b/crates/widgets/node_graph/src/widget/graph/response.rs
+@@ -8,6 +8,7 @@ use std::collections::HashMap;
+ 
+ use egui::{Pos2, Rect};
+ 
++use super::hit_target_moves::HitTargetMoves;
+ use super::layout::GraphWidgetLayout;
+ use super::minimap;
+ use super::widget::NodeGraphWidget;
+@@ -65,13 +66,17 @@ fn minimap_id(base: egui::Id) -> egui::Id {
+ }
+ 
+ fn raise(ui: &egui::Ui, rect: Rect, id: egui::Id, sense: egui::Sense) {
++    refresh(ui, rect, id, sense, true);
++}
++
++fn refresh(ui: &egui::Ui, rect: Rect, id: egui::Id, sense: egui::Sense, move_to_top: bool) {
+     // Offscreen targets retain their initial response registration. They cannot
+     // cover a visible inline control, so moving them in egui's z-order is wasted
+     // work. Test each target, not the node body: socket hit areas protrude beyond it.
+     if !rect.intersects(ui.clip_rect()) {
+         return;
+     }
+-    ui.interact_opt(rect, id, sense, egui::InteractOptions { move_to_top: true });
++    ui.interact_opt(rect, id, sense, egui::InteractOptions { move_to_top });
+ }
+ 
+ impl GraphResponses {
+@@ -105,6 +110,7 @@ mod response_tests {
+     impl OrderFixture {
+         fn new(zoom: f32, overlap: bool) -> Self {
+             let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
++            widget.view.zoom = zoom;
+             widget.minimap_visible = false;
+             let mut layout = widget.build_layout(Pos2::ZERO);
+             for (id, x) in [
+@@ -147,6 +153,16 @@ mod response_tests {
+             events: Vec<Event>,
+             order: &[NodeId],
+             overlay: Option<egui::Id>,
++        ) -> HashMap<egui::Id, egui::Response> {
++            self.frame_with_optimization(events, order, overlay, true)
++        }
++
++        fn frame_with_optimization(
++            &self,
++            events: Vec<Event>,
++            order: &[NodeId],
++            overlay: Option<egui::Id>,
++            optimized: bool,
+         ) -> HashMap<egui::Id, egui::Response> {
+             let clip = Rect::from_min_size(Pos2::ZERO, Vec2::splat(600.0));
+             self.context.begin_pass(egui::RawInput {
+@@ -173,9 +189,13 @@ mod response_tests {
+             }
+             self.widget
+                 .allocate_responses(&mut ui, canvas, &self.layout, clip);
++            let moves = optimized.then(|| {
++                HitTargetMoves::new(&ui, self.widget.view.zoom, &self.layout, &self.layout)
++            });
+             let mut ids = Vec::new();
+             for &node in order {
+-                self.widget.raise_node_hit_targets(&ui, &self.layout, node);
++                self.widget
++                    .refresh_node_hit_targets(&ui, &self.layout, node, moves.as_ref());
+                 ids.extend([
+                     node_body_id(self.base, node),
+                     node_header_id(self.base, node),
+@@ -205,6 +225,38 @@ mod response_tests {
+         }
+     }
+ 
++    #[test]
++    fn low_zoom_elision_matches_full_raising_at_direct_and_near_hits() {
++        for overlap in [false, true] {
++            let mut fixture = OrderFixture::new(0.35, overlap);
++            let order = [NodeId(1), NodeId(2)];
++            for x in (80..240).step_by(12) {
++                for y in (80..230).step_by(12) {
++                    let pointer = Pos2::new(x as f32, y as f32) * 0.35;
++                    let mut winners = Vec::new();
++                    for optimized in [false, true] {
++                        fixture.context = egui::Context::default();
++                        for _ in 0..2 {
++                            let responses = fixture.frame_with_optimization(
++                                vec![Event::PointerMoved(pointer)],
++                                &order,
++                                None,
++                                optimized,
++                            );
++                            winners.push(
++                                responses
++                                    .into_iter()
++                                    .filter_map(|(id, r)| r.hovered().then_some(id))
++                                    .collect::<std::collections::HashSet<_>>(),
++                            );
++                        }
++                    }
++                    assert_eq!(winners[1], winners[3], "{pointer:?}, overlap {overlap}");
++                }
++            }
++        }
++    }
++
+     #[test]
+     fn low_zoom_overlap_and_floating_targets_follow_paint_order() {
+         for zoom in [0.35, 1.0] {
+@@ -558,43 +610,59 @@ impl NodeGraphWidget {
+     /// dragged. Calling this per node in painting order restores the painted
+     /// z-order for interaction too: node, then its own controls, then the
+     /// next node on top of both.
++    #[cfg(test)]
+     pub(crate) fn raise_node_hit_targets(
+         &self,
+         ui: &egui::Ui,
+         layout: &GraphWidgetLayout,
+         node_id: NodeId,
+     ) {
++        self.refresh_node_hit_targets(ui, layout, node_id, None);
++    }
++
++    pub(crate) fn refresh_node_hit_targets(
++        &self,
++        ui: &egui::Ui,
++        layout: &GraphWidgetLayout,
++        node_id: NodeId,
++        moves: Option<&HitTargetMoves>,
++    ) {
++        let base_move = moves.is_none_or(|moves| moves.base_move_to_top(node_id));
+         if let Some(&rect) = layout.node_screen_rects.get(&node_id) {
+-            raise(
++            refresh(
+                 ui,
+                 rect,
+                 node_body_id(ui.id(), node_id),
+                 egui::Sense::click_and_drag(),
++                base_move,
+             );
+         }
+         if let Some(&rect) = layout.header_screen_rects.get(&node_id) {
+-            raise(
++            refresh(
+                 ui,
+                 rect,
+                 node_header_id(ui.id(), node_id),
+                 egui::Sense::click_and_drag(),
++                base_move,
+             );
+         }
+         if let Some(&rect) = layout.collapse_toggle_screen_rects.get(&node_id) {
+-            raise(
++            refresh(
+                 ui,
+                 rect,
+                 collapse_toggle_id(ui.id(), node_id),
+                 egui::Sense::click(),
++                base_move,
+             );
+         }
+         if let Some(sockets) = layout.socket_hit_order_by_node.get(&node_id) {
+             for &socket_id in sockets {
+-                raise(
++                refresh(
+                     ui,
+                     layout.socket_hit_rects[&socket_id],
+                     socket_hit_id(ui.id(), socket_id),
+                     egui::Sense::click_and_drag(),
++                    moves.is_none_or(|moves| moves.socket_move_to_top(socket_id)),
+                 );
+             }
+         }
+diff --git a/crates/widgets/node_graph/src/widget/graph/widget.rs b/crates/widgets/node_graph/src/widget/graph/widget.rs
+index 1c54e661..f3d90a70 100644
+--- a/crates/widgets/node_graph/src/widget/graph/widget.rs
++++ b/crates/widgets/node_graph/src/widget/graph/widget.rs
+@@ -764,6 +764,7 @@ impl NodeGraphWidget {
+         });
+         self.handle_input(ui, &responses, graph_pointer, origin, &layout, content_rect);
+ 
++        let response_layout = layout;
+         let layout = self.build_layout(origin);
+         self.draw_graph(
+             ui,
+@@ -773,6 +774,7 @@ impl NodeGraphWidget {
+                 origin,
+                 pointer,
+                 layout: &layout,
++                response_layout: &response_layout,
+                 hovered_socket,
+             },
+         );
+diff --git a/crates/widgets/node_graph/src/widget/graph/hit_target_moves.rs b/crates/widgets/node_graph/src/widget/graph/hit_target_moves.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/widgets/node_graph/src/widget/graph/hit_target_moves.rs
+@@ -0,0 +1,195 @@
++//! Conservative z-order move elision; registration and focus refresh stay intact.
++
++use std::collections::{HashMap, HashSet};
++
++use egui::Rect;
++
++use super::layout::GraphWidgetLayout;
++use crate::model::{NodeId, SocketId};
++
++pub(crate) struct HitTargetMoves {
++    isolated: HashMap<NodeId, HashSet<SocketId>>,
++}
++
++// Targets arrive in the desired final order. A target only needs moving if
++// an earlier, potentially competing target currently ranks above it. Later
++// targets restore their own order in turn. Separated rectangles cannot share
++// a direct or near hit, so their relative ranks need not match.
++fn moves_for_order(targets: &[(Rect, usize)], radius: f32) -> Vec<bool> {
++    let mut ranks: Vec<_> = targets.iter().map(|(_, rank)| *rank).collect();
++    let mut next = ranks.iter().copied().max().unwrap_or(0) + 1;
++    let mut moves = vec![false; targets.len()];
++    for i in 0..targets.len() {
++        if (0..i).any(|j| {
++            ranks[j] > ranks[i] && targets[j].0.expand(radius * 2.0).intersects(targets[i].0)
++        }) {
++            moves[i] = true;
++            ranks[i] = next;
++            next += 1;
++        }
++    }
++    moves
++}
++
++impl HitTargetMoves {
++    pub(crate) fn new(
++        ui: &egui::Ui,
++        zoom: f32,
++        initial: &GraphWidgetLayout,
++        current: &GraphWidgetLayout,
++    ) -> Self {
++        let mut result = Self {
++            isolated: HashMap::new(),
++        };
++        // Inline controls register between nodes at higher zoom. Transformed
++        // layers and nonfinite/custom hit radii use the ordinary raising path.
++        let radius = ui.ctx().global_style().interaction.interact_radius;
++        if !(0.0..0.6).contains(&zoom)
++            || !radius.is_finite()
++            || radius < 0.0
++            || ui.ctx().layer_transform_to_global(ui.layer_id()).is_some()
++        {
++            return result;
++        }
++        let mut bounds = current.node_screen_rects.clone();
++        for (&id, &rect) in current
++            .header_screen_rects
++            .iter()
++            .chain(&current.collapse_toggle_screen_rects)
++        {
++            bounds
++                .entry(id)
++                .and_modify(|bound| *bound = bound.union(rect))
++                .or_insert(rect);
++        }
++        for (&socket, &rect) in &current.socket_hit_rects {
++            bounds
++                .entry(socket.node)
++                .and_modify(|bound| *bound = bound.union(rect))
++                .or_insert(rect);
++        }
++        if bounds
++            .values()
++            .any(|bound| !bound.is_finite() || bound.is_negative())
++        {
++            return result;
++        }
++        let initial_order: HashMap<_, _> = initial
++            .socket_hit_rects
++            .keys()
++            .enumerate()
++            .map(|(rank, &socket)| (socket, rank + 2))
++            .collect();
++        for (&node, &bound) in &bounds {
++            if !ui.clip_rect().contains_rect(bound.expand(radius * 2.0))
++                || bounds.iter().any(|(&other, &rect)| {
++                    other != node && bound.expand(radius * 2.0).intersects(rect)
++                })
++            {
++                continue;
++            }
++            let (Some(&body), Some(&header), Some(&toggle), Some(sockets)) = (
++                current.node_screen_rects.get(&node),
++                current.header_screen_rects.get(&node),
++                current.collapse_toggle_screen_rects.get(&node),
++                current.socket_hit_order_by_node.get(&node),
++            ) else {
++                continue;
++            };
++            // Geometry/topology changes between input allocation and drawing
++            // always refresh using the original full raising behavior.
++            if initial.node_screen_rects.get(&node) != Some(&body)
++                || initial.header_screen_rects.get(&node) != Some(&header)
++                || initial.collapse_toggle_screen_rects.get(&node) != Some(&toggle)
++                || initial.socket_hit_order_by_node.get(&node).map(Vec::len) != Some(sockets.len())
++                || sockets.iter().any(|socket| {
++                    !initial_order.contains_key(socket)
++                        || initial.socket_hit_rects.get(socket)
++                            != current.socket_hit_rects.get(socket)
++                })
++            {
++                continue;
++            }
++            let mut targets = vec![(body, 0), (header, 1), (toggle, initial_order.len() + 2)];
++            targets.extend(
++                sockets
++                    .iter()
++                    .map(|socket| (current.socket_hit_rects[socket], initial_order[socket])),
++            );
++            let moves = moves_for_order(&targets, radius);
++            debug_assert!(moves[..3].iter().all(|moved| !moved));
++            result.isolated.insert(
++                node,
++                sockets
++                    .iter()
++                    .zip(&moves[3..])
++                    .filter_map(|(&socket, &moved)| (!moved).then_some(socket))
++                    .collect(),
++            );
++        }
++        result
++    }
++
++    pub(crate) fn base_move_to_top(&self, node: NodeId) -> bool {
++        !self.isolated.contains_key(&node)
++    }
++
++    pub(crate) fn socket_move_to_top(&self, socket: SocketId) -> bool {
++        !self
++            .isolated
++            .get(&socket.node)
++            .is_some_and(|skipped| skipped.contains(&socket))
++    }
++}
++
++#[cfg(test)]
++mod hit_target_moves_tests {
++    use egui::{Pos2, Vec2};
++
++    use super::*;
++
++    #[test]
++    fn elision_preserves_every_competing_pair_for_all_small_orders() {
++        fn permutations(values: &mut [usize], index: usize, visit: &mut impl FnMut(&[usize])) {
++            if index == values.len() {
++                visit(values);
++                return;
++            }
++            for i in index..values.len() {
++                values.swap(index, i);
++                permutations(values, index + 1, visit);
++                values.swap(index, i);
++            }
++        }
++        for radius in [0.0, 5.0] {
++            permutations(&mut [0, 1, 2, 3, 4], 0, &mut |ranks| {
++                let targets: Vec<_> = ranks
++                    .iter()
++                    .enumerate()
++                    .map(|(i, &rank)| {
++                        (
++                            Rect::from_min_size(Pos2::new(i as f32 * 12.0, 0.0), Vec2::splat(10.0)),
++                            rank,
++                        )
++                    })
++                    .collect();
++                let moves = moves_for_order(&targets, radius);
++                let mut final_ranks = ranks.to_vec();
++                let mut next = ranks.len();
++                for (i, moved) in moves.into_iter().enumerate() {
++                    if moved {
++                        final_ranks[i] = next;
++                        next += 1;
++                    }
++                }
++                for i in 0..targets.len() {
++                    for j in 0..i {
++                        if targets[j].0.expand(radius * 2.0).intersects(targets[i].0) {
++                            assert!(final_ranks[j] < final_ranks[i]);
++                        }
++                    }
++                }
++            });
++        }
++    }
++}

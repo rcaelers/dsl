@@ -603,6 +603,45 @@ socket list moves remain. The exploratory candidate is not part of the productio
 retains all six reports and their twenty-sample distributions. This is not a browser result,
 randomized paired trial, or GPU/application measurement.
 
+#### Native-only partial-move probe
+
+The locked egui implementation keeps clipped interactive targets interested in keyboard focus.
+Moving their initial registrations into an offscreen-first group therefore changes Tab order,
+even though those targets cannot win a pointer hit. Response regressions cover Tab and Shift-Tab
+between visible and clipped nodes at 35% and 100% zoom, plus continued capture and release when
+a dragged header's geometry becomes fully clipped. These registrations are not disposable.
+
+The experimental
+[`node_graph_hit_move_elision.patch`](../../benchmarks/performance/node_graph_hit_move_elision.patch)
+targets revision `88a21a80` and is not part of the production widget. It keeps every registration,
+ID, sense, and focus refresh in place. Below 60% zoom, with no inline controls, it considers only
+fully clipped-in nodes whose near-hit-expanded bounds do not meet another node's targets.
+Changed geometry/topology between allocation and drawing, transformed layers, and invalid
+interaction radii use full raising. For an eligible node it reconstructs the initial socket
+ranks, walks the desired final target order, and moves a target only when an earlier potentially
+competing target currently ranks above it. Initial and drawing layouts can have different socket
+iteration orders; comparing ranks across both is necessary.
+
+On the reference host across 2026-09-05/06, three release processes per variant use the unchanged
+neutral `paired-grid-v1` fixture. Execution order is baseline, candidate, candidate, candidate,
+baseline, baseline—not randomized paired trials. Source stays fixed during each run and Cargo
+validation does not run concurrently with sampling. The candidate passes the native response
+regressions, a direct/near-hit comparison against full raising, and exhaustive permutations of
+five abstract target ranks. These checks are not full platform/interaction acceptance.
+
+| Nodes / connections | Baseline median of frame medians | Candidate median of frame medians | Baseline frame-p95 range | Candidate frame-p95 range |
+| --- | --- | --- | --- | --- |
+| 100 / 500 | 7.67 ms | 7.22 ms | 8.18–8.48 ms | 7.22–8.47 ms |
+| 500 / 2000 | 34.46 ms | 33.17 ms | 36.41–38.39 ms | 34.24–35.25 ms |
+
+The observations suggest a modest native CPU benefit, about 3.7% for the larger median of
+medians, while the larger frame remains far above a 60 Hz budget. The smaller p95 ranges overlap.
+All six runs retain zero cold-routing fallbacks. Browser behavior/performance, moving and release
+frames, transformed/partially clipped scenes, zoom transitions, and application/GPU timing are
+not established by this probe. The candidate remains outside production pending that broader
+evaluation. Full chronological reports and all warm distributions are retained in
+[`node_graph_hit_move_elision.json`](../../benchmarks/performance/node_graph_hit_move_elision.json).
+
 ## Reference workloads
 
 All performance claims are measured on two reference captures. A change is not accepted on the

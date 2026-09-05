@@ -326,6 +326,87 @@ mod response_tests {
     }
 
     #[test]
+    fn clipped_targets_keep_their_place_in_keyboard_focus_order() {
+        for zoom in [0.35, 1.0] {
+            let mut fixture = OrderFixture::new(zoom, false);
+            // Initial response allocation follows this map's iteration order.
+            // Preserve it: clipping does not remove egui's focus interest, so
+            // partitioning registration into hidden/visible groups changes Tab.
+            let nodes: Vec<_> = fixture.layout.node_screen_rects.keys().copied().collect();
+            let visible = nodes[0];
+            let clipped = nodes[1];
+            for rects in [
+                &mut fixture.layout.node_screen_rects,
+                &mut fixture.layout.header_screen_rects,
+                &mut fixture.layout.collapse_toggle_screen_rects,
+            ] {
+                let rect = rects.get_mut(&clipped).unwrap();
+                *rect = rect.translate(Vec2::new(800.0, 0.0));
+            }
+            for (socket, rect) in &mut fixture.layout.socket_hit_rects {
+                if socket.node == clipped {
+                    *rect = rect.translate(Vec2::new(800.0, 0.0));
+                }
+            }
+            fixture.frame(Vec::new(), &nodes, None);
+            let header = node_header_id(fixture.base, visible);
+            let body = node_body_id(fixture.base, clipped);
+            fixture
+                .context
+                .memory_mut(|memory| memory.request_focus(header));
+            fixture.frame(Vec::new(), &nodes, None);
+            let tab = |modifiers| Event::Key {
+                key: egui::Key::Tab,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            };
+            let responses = fixture.frame(vec![tab(Modifiers::NONE)], &nodes, None);
+            assert!(
+                responses[&body].has_focus(),
+                "Tab must reach the clipped target"
+            );
+            assert!(!responses[&body].interact_rect.is_positive());
+            fixture.frame(vec![tab(Modifiers::SHIFT)], &nodes, None);
+            let responses = fixture.frame(Vec::new(), &nodes, None);
+            assert!(
+                responses[&header].has_focus(),
+                "Shift-Tab must return to the visible header"
+            );
+        }
+    }
+
+    #[test]
+    fn captured_target_stays_live_when_its_geometry_becomes_fully_clipped() {
+        let mut fixture = OrderFixture::new(0.35, false);
+        let node = NodeId(1);
+        let order = [node, NodeId(2)];
+        let header = node_header_id(fixture.base, node);
+        let start = fixture.layout.header_screen_rects[&node].center();
+        let button = |pos, pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        };
+        fixture.frame(vec![Event::PointerMoved(start)], &order, None);
+        let responses = fixture.frame(vec![button(start, true)], &order, None);
+        assert!(responses[&header].is_pointer_button_down_on());
+        let moved = fixture.layout.header_screen_rects[&node].translate(Vec2::new(800.0, 0.0));
+        fixture.layout.header_screen_rects.insert(node, moved);
+        let outside = moved.center();
+        let responses = fixture.frame(vec![Event::PointerMoved(outside)], &order, None);
+        assert_eq!(responses[&header].rect, moved);
+        assert!(!responses[&header].interact_rect.is_positive());
+        assert!(responses[&header].dragged());
+        assert!(responses[&header].is_pointer_button_down_on());
+        let responses = fixture.frame(vec![button(outside, false)], &order, None);
+        assert!(responses[&header].drag_stopped());
+        assert!(!responses[&header].is_pointer_button_down_on());
+    }
+
+    #[test]
     fn indexed_raising_preserves_the_flat_order_winner_for_overlapping_sockets() {
         let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
         let node = widget
