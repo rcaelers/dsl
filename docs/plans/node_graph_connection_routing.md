@@ -97,6 +97,10 @@ appearance until the checked router is activated in step 3.
   quality rebuild; retain native/browser release-frame comparisons and cache/topology tests.
 - [ ] Measure GPU upload/presentation and real application frame time separately from the
   CPU-only widget/routing fixtures. Profile remaining release/idle frame costs.
+- [x] Add an opt-in long idle-frame workload for external sampling and retain native stack
+  evidence that distinguishes initial response allocation from repeated z-order updates.
+- [ ] Reduce repeated hit-target z-order updates while preserving overlap order, pointer
+  capture, keyboard focus, clipping, and same-frame geometry changes; measure on native/browser.
 - [x] Reuse identical routing snapshots using complete geometry/configuration/zoom keys,
   immutable shared path data, and unchanged failure classifications. Test invalidation
   and compare native cache-hit cost with the retained forced-rebuild baseline.

@@ -379,6 +379,57 @@ improvement; idle samples are higher in these runs. All isolated and pointer-dri
 outcomes retain zero fallbacks. Release/idle tail distributions, remaining cold-routing and
 frame costs, broader layouts, and GPU/application timing remain open acceptance work.
 
+### Native idle-frame sampling
+
+The `idle_profile` example is an explicit profiling command: it runs 1000 stationary
+CPU widget/tessellation frames at 500 nodes / 2000 connections, zoom 0.35, and 1440 × 900.
+It constructs paired-grid-v1 through the widget's public API, establishes zoom through input
+events, and clears texture uploads like the other CPU harnesses. It checks nonempty meshes
+and unchanged graph state at completion; route correctness is covered separately by the
+routing tests. The optional positive frame count defaults to 1000. Normal tests and timed
+release reports retain their existing bounded sample counts; the profiling workload is opt-in.
+
+Build and launch it with:
+
+```sh
+cargo build -p node-graph --release --example idle_profile
+target/release/examples/idle_profile 1000
+```
+
+Attach an external sampling profiler to the example executable, not Cargo. On macOS, run
+`sample <example-process-pid> 3 1 -file /path/to/profile.txt` in another terminal. Start sampling
+after fixture construction. The workload itself is portable Rust; the external profiler is
+a host choice and introduces no target-dependent widget source or dependency.
+
+A three-second native sample on the reference M1 Ultra host on 2026-09-05, roughly seven
+seconds after launch, captures 2336 main-thread stacks. Three call sites that resolve to
+`raise_node_hit_targets` account for 1619 of them (69.3%), predominantly in calls to
+`egui::WidgetRects::insert` and list movement. This is a lower bound: smaller raising branches
+are not included. The initial response-allocation pass is distinct from these repeated
+z-order updates and excluded from that sum. Optimized functions are inlined into
+`show_with_panel_data`; `dsymutil` and `atos -inlineFrames` recover their source attribution.
+Source and settings stay fixed through the run; no cargo validation runs concurrently.
+The command completes all 1000 frames successfully. Raw header/call-graph evidence,
+selected inline-symbolication output, and aggregation metadata are in
+[`node_graph_idle_native_sample.txt`](../../benchmarks/performance/node_graph_idle_native_sample.txt)
+and [`node_graph_idle_native_sample.json`](../../benchmarks/performance/node_graph_idle_native_sample.json).
+
+The locked egui 0.36.1 implementation removes a raised widget from its layer vector, appends
+it, and updates the shifted widgets' stored indices. Repeated raises therefore move and
+reindex many unrelated targets even though offscreen targets skip their own raises. This
+profile identifies a native CPU hotspot; 69.3% is neither a predicted speedup nor browser
+attribution, frame p95, or GPU/application time. Production interaction behavior is unchanged.
+
+#### Proposed future interaction-order optimization
+
+Reduce repeated z-order list updates in the response/render owners. Any ordered-registration
+or batched-update approach must preserve painted overlap priority, per-node socket ordering,
+floating-panel/minimap priority, protruding hit areas, pointer capture, keyboard focus, and
+geometry changes within an input frame. Simply dropping registrations or sorting them for
+speed is not a validated replacement. Keep routing geometry and work budgets independent
+of this work; measure native/browser frame distributions after regression coverage proves
+the interaction contract. Dependency-level batching would require a separate API review.
+
 ## Reference workloads
 
 All performance claims are measured on two reference captures. A change is not accepted on the

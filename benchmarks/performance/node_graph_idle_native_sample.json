@@ -1,0 +1,32 @@
+{
+  "date": "2026-09-05",
+  "base_revision": "efea5129",
+  "workload": "idle_profile example: 1000 stationary CPU widget/tessellation frames, 500 nodes / 2000 connections, paired-grid-v1, zoom 0.35, viewport 1440x900",
+  "build_command": "cargo build -p node-graph --release --example idle_profile",
+  "run_command": "target/release/examples/idle_profile 1000",
+  "profile": "release (optimized + debuginfo)",
+  "hardware": {
+    "cpu": "Apple M1 Ultra",
+    "logical_cpus": 20,
+    "memory_bytes": 68719476736,
+    "os": "macOS 26.6.2 (25G83)",
+    "rustc": "1.100.0-nightly (0ed41eb41 2026-09-04)"
+  },
+  "sampler": {
+    "tool": "/usr/bin/sample",
+    "duration_seconds": 3,
+    "interval_milliseconds": 1
+  },
+  "sample_counts": {
+    "main_thread": 2336,
+    "raise_node_hit_targets_inclusive_lower_bound": 1619,
+    "selected_raise_branches": [
+      { "address": "0x1027badf4", "samples": 1316, "source": "response.rs:363" },
+      { "address": "0x1027ba8ec", "samples": 166, "source": "response.rs:338" },
+      { "address": "0x1027baa48", "samples": 137, "source": "response.rs:346" }
+    ]
+  },
+  "measurement_context": "Sampling began about 7 seconds after process launch, during warm stationary frames. No concurrent cargo validation. Native CPU stacks only: not browser attribution, frame p95, GPU/application timing, or a predicted optimization speedup. Selected raising branches are inclusive, disjoint, and a lower bound, not a sum of every raising branch. Inline source attribution is resolved with dsymutil and atos. Raw header, complete call graph, and selected inline symbolication are retained; sample's aggregate recursion summaries and binary image inventory are omitted.",
+  "raw_profile": "node_graph_idle_native_sample.txt",
+  "result": "Explicit profiling command completed all 1000 frames with nonempty meshes, unchanged graph state, and zoom 0.35."
+}
