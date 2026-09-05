@@ -102,6 +102,9 @@ struct Args {
 enum Command {
     /// Execute a graph without opening the graphical interface
     Run(RunArgs),
+    /// Profile rendered frames in an isolated, non-executing application UI
+    #[cfg(feature = "developer-tools")]
+    ProfileFrames(crate::frame_profile::ProfileArgs),
 }
 
 #[derive(ClapArgs)]
@@ -140,8 +143,11 @@ pub(crate) fn run() -> MainResult {
         .init();
 
     let args = Args::parse();
-    if let Some(Command::Run(args)) = args.command {
-        return run_headless(args);
+    match args.command {
+        Some(Command::Run(args)) => return run_headless(args),
+        #[cfg(feature = "developer-tools")]
+        Some(Command::ProfileFrames(args)) => return crate::frame_profile::run(args),
+        None => {}
     }
     run_ui(args.file)
 }
@@ -496,6 +502,32 @@ mod tests {
         assert_eq!(run.graph, std::path::Path::new("pipeline.json"));
         assert!(run.json);
         assert_eq!(run.progress_interval, 0.25);
+    }
+
+    #[cfg(feature = "developer-tools")]
+    #[test]
+    fn frame_profile_requires_a_graph_and_bounded_positive_sample_counts() {
+        assert!(matches!(
+            Args::try_parse_from(["logic-conduit", "profile-frames", "fixture.json"])
+                .unwrap()
+                .command,
+            Some(Command::ProfileFrames(_))
+        ));
+        assert!(Args::try_parse_from(["logic-conduit", "profile-frames"]).is_err());
+        for option in ["--samples", "--warmup"] {
+            for count in ["0", "10001", "-1"] {
+                assert!(
+                    Args::try_parse_from([
+                        "logic-conduit",
+                        "profile-frames",
+                        "fixture.json",
+                        option,
+                        count
+                    ])
+                    .is_err()
+                );
+            }
+        }
     }
 
     #[test]

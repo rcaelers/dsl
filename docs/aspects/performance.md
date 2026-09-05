@@ -415,6 +415,72 @@ by the isolated Chrome runner with its 45-second deadline and no virtual-time bu
 [`node_graph_release_cycles_native_browser.json`](../../benchmarks/performance/node_graph_release_cycles_native_browser.json)
 contains both complete reports, per-cycle samples, hardware/browser metadata, and the wasm hash.
 
+### Native application UI frame observation
+
+The native application's `developer-tools` feature exposes `profile-frames`, an explicit
+stationary UI measurement command. It displays a supplied graph through the existing
+`App::new_with_graph` constructor in an actual WGPU-rendered window. It uses unavailable
+execution/host services, not the normal native service bootstrap: no acquisition, graph
+worker, native catalog, or user artifact repository participates. Graph-provided synthetic
+previews can still appear. Eframe storage uses a fresh temporary directory, application save
+is not delegated, and pointer/keyboard/drop input is suppressed. The input graph is never
+written. This is a controlled application UI baseline, not a live processing baseline.
+
+Build first, then run without concurrent Cargo validation:
+
+```sh
+cargo build -p logic-analyzer-app-native --release --features developer-tools --bin logic-conduit
+node scripts/measure_application_frames.mjs target/release/logic-conduit \
+  graphs/event_controls_demo.json --warmup 30 --samples 120
+```
+
+The Node 22+ runner supports macOS/Linux. `APP_FRAME_TIMEOUT_SECONDS` defaults to 45 seconds
+and bounds the owned process group independently of the UI event loop. Timeout, interruption,
+early close, invalid observations, or incomplete output fails the run; a plausible report
+alone is insufficient without successful process completion. Cleanup targets only the process
+group it starts. Regression tests cover report consistency, unsuccessful exits, and timeout
+cleanup including a descendant: `node --test scripts/measure_application_frames_test.mjs`.
+
+The window is non-resizable at 1440 × 900 logical points; the report records actual dimensions,
+pixels per point, adapter, and surface configuration. Pan, zoom, and panels follow the graph's
+restored document state. Thirty valid CPU observations warm the UI before 120 samples are
+collected; egui multipass UI does not duplicate a rendered-frame observation. Changes to the
+viewport or rendering configuration during sampling invalidate the run. `--screenshot` takes
+a PNG only after all timing samples and requires a new output file, never overwriting one.
+The process closes automatically after sampling and any requested screenshot.
+
+`eframe_cpu` is the framework's previous-frame CPU-side elapsed time, including UI and rendering
+work but excluding its measured vsync wait. It is not GPU execution time. `ui_start_interval`
+measures elapsed wall time between consecutive first UI passes, including pacing and host
+scheduling; it is not a GPU duration or presentation-latency measurement. Chronological
+`frames` records the UI frame at which that previous CPU value is observed. Sorted distributions
+and nearest-rank p50/p95/p99/max are checked against all raw samples by the runner. Input-node
+and connection counts identify the document, not independent post-load route/fallback checks.
+
+The retained native reports use the reference M1 Ultra host with Metal, 2 pixels per point
+(2880 × 1800 pixels), `AutoVsync`, and requested maximum frame latency 1. Both post-measurement
+screenshots show routed nodes at restored 100% zoom, surrounding application panels, and
+disabled Run/Start controls. Some graph content is offscreen in each restored viewport.
+The event-controls document shows its synthetic waveform preview; the controlled-decode
+document shows an empty capture and decoder tables, not a loaded file or executed pipeline.
+Raw observations and source/binary hashes are retained in
+[`node_graph_native_application_ui_frames.json`](../../benchmarks/performance/node_graph_native_application_ui_frames.json).
+
+Final-executable observations on 2026-09-05, in milliseconds:
+
+| Bundled document | Input nodes / connections | Eframe CPU p50 / p95 | UI-start interval p50 / p95 |
+| --- | --- | --- | --- |
+| `event_controls_demo.json` | 6 / 7 | 4.23 / 6.35 | 16.76 / 19.62 |
+| `spi_controlled_decode.json` | 13 / 29 | 3.37 / 4.36 | 16.68 / 18.64 |
+
+These are host-sensitive single-run observations, not stable performance thresholds; earlier
+smoke captures are not pooled with the final-executable samples.
+
+These small stationary documents do not establish large-graph scale acceptance, a routing
+speedup, or full live-application performance. GPU upload/execution/presentation attribution,
+large application graphs, application drag frames, browser rendering, and active-runtime
+composition remain open work in step 6.
+
 ### Native idle-frame sampling
 
 The `idle_profile` example is an explicit profiling command: it runs 1000 stationary

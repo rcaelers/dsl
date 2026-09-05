@@ -101,6 +101,10 @@ appearance until the checked router is activated in step 3.
   quality rebuild; retain native/browser release-frame comparisons and cache/topology tests.
 - [ ] Measure GPU upload/presentation and real application frame time separately from the
   CPU-only widget/routing fixtures. Profile remaining release/idle frame costs.
+- [x] Add an opt-in, bounded native application UI frame observer with isolated preferences
+  and unavailable execution services. Retain stationary bundled-graph CPU/cadence samples,
+  renderer metadata, and post-measurement visual checks. GPU duration/presentation, large-graph
+  application frames, browser rendering, and active-runtime composition remain outside this baseline.
 - [x] Add an opt-in long idle-frame workload for external sampling and retain native stack
   evidence that distinguishes initial response allocation from repeated z-order updates.
 - [x] Cover low-zoom target overlap, floating overlays, socket/toggle order, tab focus, and

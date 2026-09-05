@@ -10,6 +10,8 @@ std::cfg_select! {
         mod native_host;
         mod native_sigrok;
         mod native;
+        #[cfg(feature = "developer-tools")]
+        mod frame_profile;
         mod sigrok_catalog;
         mod u3pro16_host;
 
