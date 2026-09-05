@@ -102,6 +102,9 @@ appearance until the checked router is activated in step 3.
 - [x] Measure native connected-endpoint drag updates, retained paths, evolving fallbacks,
   and release rebuilds. Split CPU frame timing into widget processing and tessellation;
   retain the measured offscreen hit-target z-order optimization and edge-interaction tests.
+- [x] Eliminate reference-fixture cold/release work-limit fallbacks using a conservative
+  bundle-validation broad phase, with full-scan equivalence, exemption, boundary, and budget
+  tests. Require complete checked results at both native scale sizes with unchanged budgets.
 - [ ] Measure 100/500 and 500/2000 node/connection fixtures on native and wasm. Target routing
   p95 below 8 ms on the smaller fixture. Record misses and follow-up work rather than
   weakening constraints. Retain benchmark evidence in the performance design record.

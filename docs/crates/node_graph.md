@@ -210,6 +210,14 @@ All band candidates, collision checks, retries, and individual searches share th
 work budget. The private `routing/corridor` owner provides rectangle validation, port escapes,
 and visibility search to the individual and bundle routers; neither routes through the other.
 
+Before exact segment validation, a rectilinear bundle builds one closed envelope containing
+all its lanes, fan-outs, and endpoint escapes. A budgeted broad-phase scan retains every
+expanded obstacle touching that envelope, with original obstacle indexes for exemptions.
+Exact segment checks use that subset and reject any segment outside the envelope. This
+eliminates repeated scans of irrelevant bodies without changing closed-boundary collision
+rules, endpoint exemptions, candidate ordering, or lane-separation proof. Obstacle expansion,
+escape validation, and corridor search still consider the complete input geometry.
+
 Each checked rebuild shares one routing work budget across connections in stable
 pair/group/member order. The widget retains one transient routing snapshot, keyed by
 all node rectangles, the ordered connection list and its actual socket positions,

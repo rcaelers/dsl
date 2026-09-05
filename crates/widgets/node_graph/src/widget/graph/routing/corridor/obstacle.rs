@@ -90,17 +90,176 @@ pub(crate) fn clear(
     exempt: Option<usize>,
     budget: &mut WorkBudget,
 ) -> Result<bool, RouteFailure> {
+    clear_indexed(
+        segment,
+        obstacles.iter().copied().enumerate(),
+        exempt,
+        budget,
+    )
+}
+
+/// A conservative broad phase for repeated segment checks inside one known envelope.
+/// Original indexes are retained so endpoint exemptions never change identity.
+pub(crate) struct ObstacleSubset {
+    bounds: Rect,
+    obstacles: Vec<(usize, Rect)>,
+}
+
+impl ObstacleSubset {
+    pub(crate) fn new(
+        obstacles: &[Rect],
+        bounds: Rect,
+        budget: &mut WorkBudget,
+    ) -> Result<Self, RouteFailure> {
+        if !bounds.is_finite() || bounds.is_negative() {
+            return Err(RouteFailure::InvalidGeometry);
+        }
+        budget.spend(obstacles.len())?;
+        let mut selected = Vec::new();
+        for (index, &obstacle) in obstacles.iter().enumerate() {
+            if !valid_rect(obstacle) {
+                return Err(RouteFailure::InvalidGeometry);
+            }
+            if obstacle.intersects(bounds) {
+                selected.push((index, obstacle));
+            }
+        }
+        Ok(Self {
+            bounds,
+            obstacles: selected,
+        })
+    }
+
+    pub(crate) fn clear(
+        &self,
+        segment: [Pos2; 2],
+        exempt: Option<usize>,
+        budget: &mut WorkBudget,
+    ) -> Result<bool, RouteFailure> {
+        if !segment.iter().all(|p| p.is_finite())
+            || !self
+                .bounds
+                .contains_rect(Rect::from_two_pos(segment[0], segment[1]))
+        {
+            return Err(RouteFailure::InvalidGeometry);
+        }
+        clear_indexed(segment, self.obstacles.iter().copied(), exempt, budget)
+    }
+}
+
+fn clear_indexed(
+    segment: [Pos2; 2],
+    obstacles: impl Iterator<Item = (usize, Rect)>,
+    exempt: Option<usize>,
+    budget: &mut WorkBudget,
+) -> Result<bool, RouteFailure> {
     if !segment.iter().all(|point| point.is_finite())
         || (segment[0].x != segment[1].x && segment[0].y != segment[1].y)
     {
         return Err(RouteFailure::InvalidGeometry);
     }
     let bounds = Rect::from_two_pos(segment[0], segment[1]);
-    for (index, obstacle) in obstacles.iter().enumerate() {
+    for (index, obstacle) in obstacles {
         budget.spend(1)?;
-        if Some(index) != exempt && bounds.intersects(*obstacle) {
+        if Some(index) != exempt && bounds.intersects(obstacle) {
             return Ok(false);
         }
     }
     Ok(true)
+}
+
+#[cfg(test)]
+mod subset_tests {
+    use super::*;
+
+    fn rect(x: f32, y: f32) -> Rect {
+        Rect::from_min_size(Pos2::new(x, y), Vec2::splat(10.0))
+    }
+
+    #[test]
+    fn subset_matches_full_checks_including_contact_and_original_exemption_indexes() {
+        let obstacles = [
+            rect(1000.0, 1000.0),
+            rect(20.0, 20.0),
+            rect(-1000.0, -1000.0),
+            rect(70.0, 60.0),
+        ];
+        let bounds = Rect::from_min_max(Pos2::ZERO, Pos2::new(100.0, 100.0));
+        let subset = ObstacleSubset::new(&obstacles, bounds, &mut WorkBudget::new(100)).unwrap();
+        for coordinate in [0.0, 19.0, 20.0, 25.0, 30.0, 31.0, 60.0, 70.0, 80.0, 100.0] {
+            for segment in [
+                [Pos2::new(0.0, coordinate), Pos2::new(100.0, coordinate)],
+                [Pos2::new(coordinate, 0.0), Pos2::new(coordinate, 100.0)],
+                [Pos2::new(coordinate, coordinate); 2],
+            ] {
+                for exempt in [None, Some(0), Some(1), Some(2), Some(3)] {
+                    assert_eq!(
+                        subset.clear(segment, exempt, &mut WorkBudget::new(100)),
+                        clear(segment, &obstacles, exempt, &mut WorkBudget::new(100))
+                    );
+                }
+            }
+        }
+        assert!(
+            !subset
+                .clear(
+                    [Pos2::new(0.0, 20.0), Pos2::new(100.0, 20.0)],
+                    None,
+                    &mut WorkBudget::new(100)
+                )
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn subset_rejects_out_of_envelope_invalid_and_unbudgeted_checks() {
+        let bounds = rect(0.0, 0.0);
+        let obstacles = [rect(50.0, 50.0)];
+        assert!(matches!(
+            ObstacleSubset::new(&obstacles, bounds, &mut WorkBudget::new(0)),
+            Err(RouteFailure::WorkLimit)
+        ));
+        let subset = ObstacleSubset::new(&obstacles, bounds, &mut WorkBudget::new(1)).unwrap();
+        for segment in [
+            [Pos2::ZERO, Pos2::new(11.0, 0.0)],
+            [Pos2::ZERO, Pos2::new(1.0, 1.0)],
+            [Pos2::ZERO, Pos2::new(f32::NAN, 0.0)],
+        ] {
+            assert_eq!(
+                subset.clear(segment, None, &mut WorkBudget::new(100)),
+                Err(RouteFailure::InvalidGeometry)
+            );
+        }
+        let invalid = Rect::from_min_max(Pos2::new(f32::NAN, 50.0), Pos2::new(60.0, 60.0));
+        assert!(matches!(
+            ObstacleSubset::new(&[invalid], bounds, &mut WorkBudget::new(100)),
+            Err(RouteFailure::InvalidGeometry)
+        ));
+        let subset =
+            ObstacleSubset::new(&[rect(5.0, 5.0)], bounds, &mut WorkBudget::new(1)).unwrap();
+        assert_eq!(
+            subset.clear(
+                [Pos2::ZERO, Pos2::new(10.0, 0.0)],
+                None,
+                &mut WorkBudget::new(0)
+            ),
+            Err(RouteFailure::WorkLimit)
+        );
+    }
+
+    #[test]
+    fn repeated_checks_spend_work_only_on_possible_colliders() {
+        let obstacles: Vec<_> = (0..500).map(|i| rect(i as f32 * 100.0, 50.0)).collect();
+        let bounds = Rect::from_min_max(Pos2::ZERO, Pos2::new(50.0, 100.0));
+        let mut budget = WorkBudget::new(600);
+        let subset = ObstacleSubset::new(&obstacles, bounds, &mut budget).unwrap();
+        for _ in 0..100 {
+            assert!(
+                subset
+                    .clear([Pos2::ZERO, Pos2::new(50.0, 0.0)], None, &mut budget)
+                    .unwrap()
+            );
+        }
+        assert!(budget.spend(1).is_err());
+    }
 }

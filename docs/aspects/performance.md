@@ -171,6 +171,34 @@ The larger frame remains too expensive for smooth interaction. Further profiling
 browser/application measurements remain necessary; this optimization does not change
 routing work budgets or reinterpret failures as checked paths.
 
+### Complete cold routing with a bundle-validation broad phase
+
+Exact bundle validation selects expanded obstacles intersecting a closed envelope around
+all candidate lanes, fan-outs, and endpoint escapes. It scans every input obstacle once,
+retains original exemption indexes, and rejects queries outside that envelope. Every
+potential collider still receives the same exact closed-rectangle segment test. The
+selection scan and subsequent checks spend the existing work allowance; no budget is raised.
+
+On the reference M1 Ultra host/profile, the 2026-09-05 capture with this change completes
+both scale fixtures with zero fallbacks, including cold routes, each connected-endpoint
+move, and the final release rebuild. The tests require this result without hardware timing
+assertions. Raw distributions and per-move outcomes are in
+[`node_graph_bundle_broad_phase_native.json`](../../benchmarks/performance/node_graph_bundle_broad_phase_native.json).
+
+| Native fixture | Cold route p50 / p95 | Drag route p95 | Release rebuild | CPU frame p95 | Fallbacks |
+| --- | --- | --- | --- | --- | --- |
+| 100 nodes / 500 connections | 1.182 / 1.266 ms | 0.421 ms | 1.275 ms | 9.531 ms | 0 |
+| 500 nodes / 2000 connections | 12.487 / 12.818 ms | 1.386 ms | 12.951 ms | 62.514 ms | 0 |
+
+The larger cold pass takes longer than the earlier roughly 9 ms work-limited measurement,
+but completes all 2000 checked routes instead of abandoning 1360 of them. This is a
+completeness improvement, not a like-for-like latency regression or a claim of faster
+full-route throughput against that incomplete baseline. The smaller fixture remains below
+the 8 ms routing-p95 target. Large-frame cost, broader layouts, browser execution, and
+application/GPU measurements remain open acceptance work. The full-scan collision oracle,
+boundary contacts, nonfinite geometry, original endpoint exemptions, envelope containment,
+and exhausted-work behavior have regression coverage.
+
 ## Reference workloads
 
 All performance claims are measured on two reference captures. A change is not accepted on the

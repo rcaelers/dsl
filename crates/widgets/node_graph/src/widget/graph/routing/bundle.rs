@@ -5,7 +5,7 @@ use egui::{Pos2, Rect};
 
 use super::bundle_corridor::route_lanes;
 use super::contract::{PortGeometry, PortSide, RouteConfig, RouteFailure, RouteInput, WorkBudget};
-use super::corridor::{clear, escape, expanded};
+use super::corridor::{ObstacleSubset, escape, expanded};
 use super::geometry::{PathSegment, WirePath};
 
 pub(crate) struct BundleMember {
@@ -243,7 +243,8 @@ impl BundleGeometry<'_> {
             self.target_x,
             -config.lane_spacing,
         );
-        let mut paths = Vec::with_capacity(self.members.len());
+        let mut candidate_points = Vec::with_capacity(self.members.len());
+        let mut bounds = Rect::NOTHING;
         for (i, (member, interior)) in self.members.iter().zip(interiors).enumerate() {
             let mut points = vec![
                 member.source.position,
@@ -258,6 +259,21 @@ impl BundleGeometry<'_> {
                 self.targets[i],
                 member.target.position,
             ]);
+            budget.spend(points.len())?;
+            for &point in &points {
+                if !point.is_finite() {
+                    return Err(RouteFailure::InvalidGeometry);
+                }
+                bounds.extend_with(point);
+            }
+            candidate_points.push(points);
+        }
+        // All lanes and their endpoint escapes lie in this closed envelope.
+        // Scan the complete obstacle set once, retaining original exemption IDs;
+        // exact segment checks still decide every potentially intersecting body.
+        let obstacles = ObstacleSubset::new(self.obstacles, bounds, budget)?;
+        let mut paths = Vec::with_capacity(self.members.len());
+        for (member, points) in self.members.iter().zip(candidate_points) {
             let mut segments = Vec::new();
             for (index, pair) in points.windows(2).enumerate() {
                 let exempt = if index == 0 {
@@ -267,9 +283,7 @@ impl BundleGeometry<'_> {
                 } else {
                     None
                 };
-                if pair[0].x > pair[1].x
-                    || !clear([pair[0], pair[1]], self.obstacles, exempt, budget)?
-                {
+                if pair[0].x > pair[1].x || !obstacles.clear([pair[0], pair[1]], exempt, budget)? {
                     return Err(RouteFailure::NoCorridor);
                 }
                 if pair[0] != pair[1] {

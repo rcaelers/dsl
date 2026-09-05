@@ -121,6 +121,10 @@ fn measure(mut progress: impl FnMut(serde_json::Value)) -> serde_json::Value {
                 serde_json::json!({"nodes": node_count, "sample": sample, "phase": "routed", "routing_ms": route_ms}),
             );
             assert_eq!(layout.wire_paths.len(), connection_count);
+            assert!(
+                layout.wire_failures.is_empty(),
+                "the disjoint scale fixture must complete checked cold routing within the default work budget"
+            );
             failure_reasons.clear();
             for reason in layout.wire_failures.values() {
                 *failure_reasons
@@ -295,6 +299,10 @@ fn measure_drag() -> serde_json::Value {
             layout.rebuild_routes(&widget.graph.connections, zoom);
             let cold_ms = start.elapsed().as_secs_f64() * 1000.0;
             assert_eq!(layout.wire_paths.len(), connection_count);
+            assert!(
+                layout.wire_failures.is_empty(),
+                "connected-endpoint moves must retain complete cold/release routing"
+            );
             assert!(layout.wire_paths.values().all(|p| p.bounds().is_finite()));
             let mut cold_failures = BTreeMap::new();
             for reason in layout.wire_failures.values() {

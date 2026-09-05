@@ -123,6 +123,32 @@ fn shared_band_has_spaced_lanes_and_nonintersecting_fans() {
 }
 
 #[test]
+fn remote_obstacles_do_not_change_clear_bundle_geometry_and_all_bodies_remain_checked() {
+    let (mut nodes, members) = scene(false);
+    let baseline = route(&nodes, &members).unwrap();
+    for i in 0..500 {
+        nodes.push(rect(250.0, 1000.0 + 150.0 * i as f32, 50.0, 80.0));
+    }
+    let paths = route(&nodes, &members).unwrap();
+    for (expected, actual) in baseline.iter().zip(&paths) {
+        assert_eq!(
+            format!("{:?}", expected.segments()),
+            format!("{:?}", actual.segments())
+        );
+    }
+    check_obstacles(&nodes, &members, &paths);
+    // A newly relevant body cannot be lost among filtered remote rectangles.
+    nodes.push(rect(250.0, -5.0, 50.0, 130.0));
+    let detour = route(&nodes, &members).unwrap();
+    assert_ne!(
+        format!("{:?}", paths[0].segments()),
+        format!("{:?}", detour[0].segments())
+    );
+    check_obstacles(&nodes, &members, &detour);
+    check_lanes(&detour);
+}
+
+#[test]
 fn shared_output_overlaps_only_its_horizontal_fan_prefix() {
     let (nodes, members) = scene(true);
     let paths = route(&nodes, &members).unwrap();
