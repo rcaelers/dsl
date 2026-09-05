@@ -744,7 +744,8 @@ impl NodeGraphWidget {
         let content_rect =
             egui::Rect::from_min_max(rect.min, Pos2::new(tab_bar_rect.left(), rect.max.y));
         let layout = self.build_layout(origin);
-        let responses = if self.interaction_state.use_fast_rendering() {
+        let allocated_node_targets = !self.interaction_state.use_fast_rendering();
+        let responses = if !allocated_node_targets {
             GraphResponses::canvas_only(response)
         } else {
             self.allocate_responses(ui, response, &layout, content_rect)
@@ -764,6 +765,7 @@ impl NodeGraphWidget {
         });
         self.handle_input(ui, &responses, graph_pointer, origin, &layout, content_rect);
 
+        let response_layout = layout;
         let layout = self.build_layout(origin);
         self.draw_graph(
             ui,
@@ -773,6 +775,9 @@ impl NodeGraphWidget {
                 origin,
                 pointer,
                 layout: &layout,
+                response_layout: (allocated_node_targets
+                    && responses.minimap.is_some() == self.minimap_visible)
+                    .then_some(&response_layout),
                 hovered_socket,
             },
         );

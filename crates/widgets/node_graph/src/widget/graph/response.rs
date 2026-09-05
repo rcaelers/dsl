@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use egui::{Pos2, Rect};
 
+use super::hit_target_moves::HitTargetMoves;
 use super::layout::GraphWidgetLayout;
 use super::minimap;
 use super::widget::NodeGraphWidget;
@@ -65,13 +66,17 @@ fn minimap_id(base: egui::Id) -> egui::Id {
 }
 
 fn raise(ui: &egui::Ui, rect: Rect, id: egui::Id, sense: egui::Sense) {
+    refresh(ui, rect, id, sense, true);
+}
+
+fn refresh(ui: &egui::Ui, rect: Rect, id: egui::Id, sense: egui::Sense, move_to_top: bool) {
     // Offscreen targets retain their initial response registration. They cannot
     // cover a visible inline control, so moving them in egui's z-order is wasted
     // work. Test each target, not the node body: socket hit areas protrude beyond it.
     if !rect.intersects(ui.clip_rect()) {
         return;
     }
-    ui.interact_opt(rect, id, sense, egui::InteractOptions { move_to_top: true });
+    ui.interact_opt(rect, id, sense, egui::InteractOptions { move_to_top });
 }
 
 impl GraphResponses {
@@ -105,6 +110,7 @@ mod response_tests {
     impl OrderFixture {
         fn new(zoom: f32, overlap: bool) -> Self {
             let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+            widget.view.zoom = zoom;
             widget.minimap_visible = false;
             let mut layout = widget.build_layout(Pos2::ZERO);
             for (id, x) in [
@@ -148,6 +154,16 @@ mod response_tests {
             order: &[NodeId],
             overlay: Option<egui::Id>,
         ) -> HashMap<egui::Id, egui::Response> {
+            self.frame_with_optimization(events, order, overlay, true)
+        }
+
+        fn frame_with_optimization(
+            &self,
+            events: Vec<Event>,
+            order: &[NodeId],
+            overlay: Option<egui::Id>,
+            optimized: bool,
+        ) -> HashMap<egui::Id, egui::Response> {
             let clip = Rect::from_min_size(Pos2::ZERO, Vec2::splat(600.0));
             self.context.begin_pass(egui::RawInput {
                 screen_rect: Some(clip),
@@ -173,9 +189,13 @@ mod response_tests {
             }
             self.widget
                 .allocate_responses(&mut ui, canvas, &self.layout, clip);
+            let moves = optimized.then(|| {
+                HitTargetMoves::new(&ui, self.widget.view.zoom, &self.layout, &self.layout)
+            });
             let mut ids = Vec::new();
             for &node in order {
-                self.widget.raise_node_hit_targets(&ui, &self.layout, node);
+                self.widget
+                    .refresh_node_hit_targets(&ui, &self.layout, node, moves.as_ref());
                 ids.extend([
                     node_body_id(self.base, node),
                     node_header_id(self.base, node),
@@ -202,6 +222,154 @@ mod response_tests {
             let mut output = self.context.end_pass();
             output.textures_delta.clear();
             responses
+        }
+    }
+
+    #[test]
+    fn low_zoom_elision_requires_isolated_unchanged_unclipped_targets() {
+        let fixture = OrderFixture::new(0.35, false);
+        let node = NodeId(1);
+        let clip = Rect::from_min_size(Pos2::ZERO, Vec2::splat(600.0));
+        fixture.context.begin_pass(egui::RawInput {
+            screen_rect: Some(clip),
+            ..Default::default()
+        });
+        let mut ui = egui::Ui::new(
+            fixture.context.clone(),
+            fixture.base,
+            egui::UiBuilder::new().max_rect(clip),
+        );
+        let plan = |ui: &egui::Ui, zoom, current: &GraphWidgetLayout| {
+            HitTargetMoves::new(ui, zoom, &fixture.layout, current)
+        };
+        let eligible = plan(&ui, 0.35, &fixture.layout);
+        assert!(!eligible.base_move_to_top(node));
+        assert!(
+            fixture.layout.socket_hit_order_by_node[&node]
+                .iter()
+                .any(|&socket| !eligible.socket_move_to_top(socket))
+        );
+        for zoom in [0.6, 1.0, -1.0, f32::NAN] {
+            assert!(plan(&ui, zoom, &fixture.layout).base_move_to_top(node));
+        }
+        ui.set_clip_rect(fixture.layout.node_screen_rects[&node]);
+        assert!(plan(&ui, 0.35, &fixture.layout).base_move_to_top(node));
+        ui.set_clip_rect(clip);
+        fixture.context.set_transform_layer(
+            ui.layer_id(),
+            egui::emath::TSTransform::from_translation(Vec2::new(1.0, 0.0)),
+        );
+        assert!(plan(&ui, 0.35, &fixture.layout).base_move_to_top(node));
+        fixture
+            .context
+            .set_transform_layer(ui.layer_id(), egui::emath::TSTransform::IDENTITY);
+        for radius in [-1.0, f32::NAN, f32::INFINITY] {
+            fixture
+                .context
+                .global_style_mut(|style| style.interaction.interact_radius = radius);
+            assert!(plan(&ui, 0.35, &fixture.layout).base_move_to_top(node));
+        }
+        fixture
+            .context
+            .global_style_mut(|style| style.interaction.interact_radius = 5.0);
+        assert!(!plan(&ui, 0.35, &fixture.layout).base_move_to_top(node));
+        for change in 0..8 {
+            let mut current = fixture.widget.build_layout(Pos2::ZERO);
+            current.node_screen_rects = fixture.layout.node_screen_rects.clone();
+            current.header_screen_rects = fixture.layout.header_screen_rects.clone();
+            current.collapse_toggle_screen_rects =
+                fixture.layout.collapse_toggle_screen_rects.clone();
+            current.socket_hit_rects = fixture.layout.socket_hit_rects.clone();
+            current.socket_hit_order_by_node = fixture.layout.socket_hit_order_by_node.clone();
+            let socket = current.socket_hit_order_by_node[&node][0];
+            match change {
+                0 => current.node_screen_rects.get_mut(&node).unwrap().max.x += 1.0,
+                1 => current.header_screen_rects.get_mut(&node).unwrap().max.x += 1.0,
+                2 => {
+                    current
+                        .collapse_toggle_screen_rects
+                        .get_mut(&node)
+                        .unwrap()
+                        .max
+                        .x += 1.0
+                }
+                3 => current.socket_hit_rects.get_mut(&socket).unwrap().max.x += 1.0,
+                4 => {
+                    current.socket_hit_rects.remove(&socket);
+                    current
+                        .socket_hit_order_by_node
+                        .get_mut(&node)
+                        .unwrap()
+                        .remove(0);
+                }
+                5 => {
+                    current
+                        .node_screen_rects
+                        .insert(NodeId(2), current.node_screen_rects[&node]);
+                }
+                6 => {
+                    // A deleted node's old targets remain registered this pass.
+                    current.node_screen_rects.remove(&NodeId(2));
+                    current.header_screen_rects.remove(&NodeId(2));
+                    current.collapse_toggle_screen_rects.remove(&NodeId(2));
+                    current
+                        .socket_hit_rects
+                        .retain(|socket, _| socket.node != NodeId(2));
+                    current.socket_hit_order_by_node.remove(&NodeId(2));
+                }
+                _ => {
+                    // Equal counts do not imply identical targets: replace a
+                    // socket on the other node, leaving this node unchanged.
+                    let removed = current.socket_hit_order_by_node[&NodeId(2)][0];
+                    let added = SocketId {
+                        index: 1,
+                        ..removed
+                    };
+                    let rect = current.socket_hit_rects.remove(&removed).unwrap();
+                    current.socket_hit_rects.insert(added, rect);
+                    current
+                        .socket_hit_order_by_node
+                        .get_mut(&NodeId(2))
+                        .unwrap()[0] = added;
+                }
+            }
+            assert!(
+                plan(&ui, 0.35, &current).base_move_to_top(node),
+                "change {change}"
+            );
+        }
+        fixture.context.end_pass().textures_delta.clear();
+    }
+
+    #[test]
+    fn low_zoom_elision_matches_full_raising_at_direct_and_near_hits() {
+        for overlap in [false, true] {
+            let mut fixture = OrderFixture::new(0.35, overlap);
+            let order = [NodeId(1), NodeId(2)];
+            for x in (80..240).step_by(12) {
+                for y in (80..230).step_by(12) {
+                    let pointer = Pos2::new(x as f32, y as f32) * 0.35;
+                    let mut winners = Vec::new();
+                    for optimized in [false, true] {
+                        fixture.context = egui::Context::default();
+                        for _ in 0..2 {
+                            let responses = fixture.frame_with_optimization(
+                                vec![Event::PointerMoved(pointer)],
+                                &order,
+                                None,
+                                optimized,
+                            );
+                            winners.push(
+                                responses
+                                    .into_iter()
+                                    .filter_map(|(id, r)| r.hovered().then_some(id))
+                                    .collect::<std::collections::HashSet<_>>(),
+                            );
+                        }
+                    }
+                    assert_eq!(winners[1], winners[3], "{pointer:?}, overlap {overlap}");
+                }
+            }
         }
     }
 
@@ -301,6 +469,29 @@ mod response_tests {
             responses[&header].has_focus(),
             "raising must not surrender keyboard focus"
         );
+
+        // Crossing the inline-control zoom threshold switches between elided
+        // and full raising without changing target identity or focus order.
+        for zoom in [1.0, 0.35] {
+            let scale = zoom / fixture.widget.view.zoom;
+            for rect in fixture
+                .layout
+                .node_screen_rects
+                .values_mut()
+                .chain(fixture.layout.header_screen_rects.values_mut())
+                .chain(fixture.layout.collapse_toggle_screen_rects.values_mut())
+                .chain(fixture.layout.socket_hit_rects.values_mut())
+            {
+                *rect = Rect::from_min_max(rect.min * scale, rect.max * scale);
+            }
+            fixture.widget.view.zoom = zoom;
+            let responses = fixture.frame(Vec::new(), &order, None);
+            assert!(responses[&header].has_focus(), "zoom {zoom}");
+            assert_eq!(
+                responses[&header].rect,
+                fixture.layout.header_screen_rects[&NodeId(1)]
+            );
+        }
 
         let start = fixture.layout.header_screen_rects[&NodeId(1)].center();
         fixture.frame(vec![Event::PointerMoved(start)], &order, None);
@@ -565,7 +756,7 @@ impl NodeGraphWidget {
             };
             // Embedded controls are drawn later in the frame, so they sit on
             // top of this region and still receive their own clicks/drags.
-            // `raise_node_hit_targets` re-registers these while drawing so
+            // `refresh_node_hit_targets` re-registers these while drawing so
             // that only the *own* node's controls end up above them.
             let body = ui.interact(
                 body_rect,
@@ -639,43 +830,59 @@ impl NodeGraphWidget {
     /// dragged. Calling this per node in painting order restores the painted
     /// z-order for interaction too: node, then its own controls, then the
     /// next node on top of both.
+    #[cfg(test)]
     pub(crate) fn raise_node_hit_targets(
         &self,
         ui: &egui::Ui,
         layout: &GraphWidgetLayout,
         node_id: NodeId,
     ) {
+        self.refresh_node_hit_targets(ui, layout, node_id, None);
+    }
+
+    pub(crate) fn refresh_node_hit_targets(
+        &self,
+        ui: &egui::Ui,
+        layout: &GraphWidgetLayout,
+        node_id: NodeId,
+        moves: Option<&HitTargetMoves>,
+    ) {
+        let base_move = moves.is_none_or(|moves| moves.base_move_to_top(node_id));
         if let Some(&rect) = layout.node_screen_rects.get(&node_id) {
-            raise(
+            refresh(
                 ui,
                 rect,
                 node_body_id(ui.id(), node_id),
                 egui::Sense::click_and_drag(),
+                base_move,
             );
         }
         if let Some(&rect) = layout.header_screen_rects.get(&node_id) {
-            raise(
+            refresh(
                 ui,
                 rect,
                 node_header_id(ui.id(), node_id),
                 egui::Sense::click_and_drag(),
+                base_move,
             );
         }
         if let Some(&rect) = layout.collapse_toggle_screen_rects.get(&node_id) {
-            raise(
+            refresh(
                 ui,
                 rect,
                 collapse_toggle_id(ui.id(), node_id),
                 egui::Sense::click(),
+                base_move,
             );
         }
         if let Some(sockets) = layout.socket_hit_order_by_node.get(&node_id) {
             for &socket_id in sockets {
-                raise(
+                refresh(
                     ui,
                     layout.socket_hit_rects[&socket_id],
                     socket_hit_id(ui.id(), socket_id),
                     egui::Sense::click_and_drag(),
+                    moves.is_none_or(|moves| moves.socket_move_to_top(socket_id)),
                 );
             }
         }

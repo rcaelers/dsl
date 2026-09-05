@@ -1,6 +1,7 @@
 use egui::{Color32, CornerRadius, Painter, Pos2, Rect, RichText, Stroke, Vec2};
 
 use super::connection_paint::{WireEmphasis, draw_connections};
+use super::hit_target_moves::HitTargetMoves;
 use super::interaction_state::InteractionState;
 use super::layout::GraphWidgetLayout;
 use super::minimap;
@@ -19,6 +20,7 @@ pub(crate) struct GraphRenderContext<'a> {
     pub origin: Pos2,
     pub pointer: Option<Pos2>,
     pub layout: &'a GraphWidgetLayout,
+    pub response_layout: Option<&'a GraphWidgetLayout>,
     pub hovered_socket: Option<SocketId>,
 }
 
@@ -34,6 +36,7 @@ impl NodeGraphWidget {
             origin,
             pointer,
             layout,
+            response_layout,
             hovered_socket,
         } = context;
         // `painter` is already clipped to `rect`, but the inline node
@@ -221,6 +224,11 @@ impl NodeGraphWidget {
         if let InteractionState::DraggingNode { node_id, .. } = self.interaction_state {
             self.top_node = Some(node_id);
         }
+        // Fast dragging skips initial node registrations. On its release frame
+        // these targets are new insertions, so there are no repeated moves to elide.
+        let hit_moves = response_layout
+            .filter(|_| !self.interaction_state.use_fast_rendering())
+            .map(|initial| HitTargetMoves::new(ui, self.view.zoom, initial, layout));
         let mut sorted = self.graph.sorted_node_ids();
         if let Some(top) = self.top_node {
             if sorted.contains(&top) {
@@ -272,7 +280,7 @@ impl NodeGraphWidget {
             // so its hit targets are lifted over them before its own
             // controls register themselves on top.
             if !self.interaction_state.use_fast_rendering() {
-                self.raise_node_hit_targets(ui, layout, id);
+                self.refresh_node_hit_targets(ui, layout, id, hit_moves.as_ref());
             }
             if self.view.zoom >= 0.6 {
                 let changed = if let (Some(widget), Some(node), Some(instance)) = (

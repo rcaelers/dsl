@@ -580,67 +580,73 @@ reindex many unrelated targets even though offscreen targets skip their own rais
 profile identifies a native CPU hotspot; 69.3% is neither a predicted speedup nor browser
 attribution, frame p95, or GPU/application time. Production interaction behavior is unchanged.
 
-#### Proposed future interaction-order optimization
+### Partial hit-target move elision
 
-Reduce repeated z-order list updates in the response/render owners. Any ordered-registration
-or batched-update approach must preserve painted overlap priority, per-node socket ordering,
-floating-panel/minimap priority, protruding hit areas, pointer capture, keyboard focus, and
-geometry changes within an input frame. Simply dropping registrations or sorting them for
-speed is not a validated replacement. Keep routing geometry and work budgets independent
-of this work; measure native/browser frame distributions after regression coverage proves
-the interaction contract. Dependency-level batching would require a separate API review.
+The response/render owners refresh every initially registered target with its original ID,
+sense, and focus-call order. Below 60% zoom, when inline controls are absent, redundant list
+moves are omitted only for fully clipped-in nodes whose target bounds, expanded by twice the
+global near-hit radius, do not intersect another node's targets. Clipped or overlapping nodes,
+transformed layers, invalid radii, and geometry/topology changes between allocation and drawing
+use full raising. Any change in the overall target identities or minimap visibility also
+disables elision: deleted targets can remain registered for the rest of the input frame.
+Routing geometry and work budgets are independent of this optimization.
 
-A native-only probe of non-moving body/header/toggle updates on fully visible, independent
-low-zoom nodes does not establish a repeatable median CPU-frame improvement. It retains all
-registration calls and socket raises, checks unchanged input/painted geometry, and computes
-near-hit-expanded bounds before omitting base-target list moves. Three sequential runs per
-variant give 500-node CPU-frame medians of 32.20–33.73 ms for the baseline and 33.04–35.14 ms
-for the candidate; the medians of those medians are 32.93 and 33.24 ms respectively. Per-run
-p95 ranges overlap (36.59–40.56 versus 35.37–37.58 ms). Both variants retain zero fallbacks.
-These observations do not justify enabling that fast path: eligibility checks add work while
-socket list moves remain. The exploratory candidate is not part of the production widget.
-[`node_graph_base_target_order_experiment.json`](../../benchmarks/performance/node_graph_base_target_order_experiment.json)
-retains all six reports and their twenty-sample distributions. This is not a browser result,
-randomized paired trial, or GPU/application measurement.
+For an eligible node, the move plan reconstructs initial socket ranks from the allocation
+layout and walks the desired body/header/toggle/socket order. A target moves only when an
+earlier potentially competing target currently ranks above it. Separated targets cannot share
+a direct or near hit, so their relative ranks need not match. Initial and drawing socket-map
+orders can differ; their ranks are compared explicitly. Fast dragging skips plan construction.
+A release frame with canvas-only initial allocation also skips planning: its node targets are
+new insertions, not repeated moves.
 
-#### Native-only partial-move probe
+Native regressions check direct and near hits against full raising, all permutations of five
+abstract ranks, overlapping sockets and toggles, floating overlays, clipped-target Tab/Shift-Tab
+order, capture through geometry changes, and focus across the inline-control zoom threshold.
+Eligibility checks assert that moves are actually omitted for safe targets and that clipping,
+transforms, invalid zoom/radius, changed geometry, changed topology, and overlapping bounds
+fall back. Initial registrations remain intact because clipped interactive targets still
+participate in keyboard focus.
 
-The locked egui implementation keeps clipped interactive targets interested in keyboard focus.
-Moving their initial registrations into an offscreen-first group therefore changes Tab order,
-even though those targets cannot win a pointer hit. Response regressions cover Tab and Shift-Tab
-between visible and clipped nodes at 35% and 100% zoom, plus continued capture and release when
-a dragged header's geometry becomes fully clipped. These registrations are not disposable.
+On the reference M1 Ultra host on 2026-09-06, three pairs per platform compare the unchanged
+neutral 35%-zoom fixtures against full raising. Baseline/candidate order is randomized within
+each pair before execution. Each run uses an immutable copied release executable or wasm
+artifact; browser runs launch fresh isolated Chrome 152 profiles. Cargo validation does not
+run concurrently with measurements. Each process retains twenty warm stationary frames and
+twenty pointer-driven release/idle cycles per size, plus moving frames and first-frame costs.
 
-The experimental
-[`node_graph_hit_move_elision.patch`](../../benchmarks/performance/node_graph_hit_move_elision.patch)
-targets revision `88a21a80` and is not part of the production widget. It keeps every registration,
-ID, sense, and focus refresh in place. Below 60% zoom, with no inline controls, it considers only
-fully clipped-in nodes whose near-hit-expanded bounds do not meet another node's targets.
-Changed geometry/topology between allocation and drawing, transformed layers, and invalid
-interaction radii use full raising. For an eligible node it reconstructs the initial socket
-ranks, walks the desired final target order, and moves a target only when an earlier potentially
-competing target currently ranks above it. Initial and drawing layouts can have different socket
-iteration orders; comparing ranks across both is necessary.
+The table reports medians of three per-run medians or p95s, not pooled percentiles or confidence
+intervals. All runs preserve the existing topology, cache/rebuild, cold-oracle, and zero-fallback
+assertions.
 
-On the reference host across 2026-09-05/06, three release processes per variant use the unchanged
-neutral `paired-grid-v1` fixture. Execution order is baseline, candidate, candidate, candidate,
-baseline, baseline—not randomized paired trials. Source stays fixed during each run and Cargo
-validation does not run concurrently with sampling. The candidate passes the native response
-regressions, a direct/near-hit comparison against full raising, and exhaustive permutations of
-five abstract target ranks. These checks are not full platform/interaction acceptance.
+| Platform | Nodes / connections | Stationary frame median, baseline → elision | Post-release idle p95, baseline → elision |
+| --- | --- | --- | --- |
+| Native | 100 / 500 | 7.86 → 7.34 ms | 7.31 → 5.88 ms |
+| Native | 500 / 2000 | 36.05 → 32.95 ms | 32.60 → 32.53 ms |
+| Chrome | 100 / 500 | 12.51 → 11.42 ms | 10.51 → 9.05 ms |
+| Chrome | 500 / 2000 | 59.40 → 51.17 ms | 50.21 → 43.88 ms |
 
-| Nodes / connections | Baseline median of frame medians | Candidate median of frame medians | Baseline frame-p95 range | Candidate frame-p95 range |
-| --- | --- | --- | --- | --- |
-| 100 / 500 | 7.67 ms | 7.22 ms | 8.18–8.48 ms | 7.22–8.47 ms |
-| 500 / 2000 | 34.46 ms | 33.17 ms | 36.41–38.39 ms | 34.24–35.25 ms |
+The large stationary median improves by about 8.6% native and 13.9% browser in these trials.
+Moving and release frames do not establish a consistent speedup. Native large release-frame
+p95 ranges are 22.89–23.48 ms baseline and 23.08–32.02 ms with elision; browser ranges are
+32.66–33.14 and 32.32–33.05 ms. Native large idle-p95 ranges also overlap substantially
+(32.40–35.99 versus 30.16–38.96 ms), without a meaningful median improvement. The slow native
+candidate run remains in the report; native upper tails therefore still warrant profiling.
+Large stationary frames remain above a 60 Hz budget. These CPU widget/tessellation fixtures
+do not measure GPU upload, execution, presentation, full application composition, or active
+runtime load.
 
-The observations suggest a modest native CPU benefit, about 3.7% for the larger median of
-medians, while the larger frame remains far above a 60 Hz budget. The smaller p95 ranges overlap.
-All six runs retain zero cold-routing fallbacks. Browser behavior/performance, moving and release
-frames, transformed/partially clipped scenes, zoom transitions, and application/GPU timing are
-not established by this probe. The candidate remains outside production pending that broader
-evaluation. Full chronological reports and all warm distributions are retained in
-[`node_graph_hit_move_elision.json`](../../benchmarks/performance/node_graph_hit_move_elision.json).
+Full distributions, binary hashes, chronological pair order, and browser metadata are in
+[`node_graph_hit_move_elision_paired_native.json`](../../benchmarks/performance/node_graph_hit_move_elision_paired_native.json)
+and [`node_graph_hit_move_elision_browser.json`](../../benchmarks/performance/node_graph_hit_move_elision_browser.json).
+The browser artifact keeps preliminary variants separate from the final paired summary.
+
+#### Proposed future interaction-order work
+
+Dependency-level ordered registration or batched updates may reduce the remaining list-move
+cost, but require a separate API review. Any such approach must preserve painted overlap
+priority, socket order, floating overlays, protruding hit areas, capture, focus, and same-frame
+geometry changes. GPU/application profiling and remaining release/idle CPU costs are tracked
+in `TODO.md`.
 
 ## Reference workloads
 

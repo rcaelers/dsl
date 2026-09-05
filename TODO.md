@@ -73,9 +73,8 @@ Task IDs start with their ownership category and remain stable when task wording
   [implementation plan](docs/plans/node_graph_connection_routing.md). One numbered step per branch:
   6. [ ] Complete GPU and full application-frame performance evidence, and address
      remaining cold routing and release/idle frame cost without weakening route constraints.
-     Reduce repeated hit-target z-order updates while preserving pointer capture and focus.
-     Evaluate the native-only partial-move probe with browser, drag/release, and broader
-     interaction checks before enabling it; clipped targets retain their original Tab order.
+     Profile the remaining release-frame upper tail and application/GPU costs after conservative
+     hit-target move elision; preserve overlap order, pointer capture, and clipped-target Tab order.
      Keep the disjoint reference fixtures free of cold/release fallbacks with the existing work budgets.
      Native/browser CPU baselines, repeated release/idle tails, drag frames, cache-hit measurements,
      and isolated native application UI CPU/cadence baselines (small documents and built-in fan-out scale) are in

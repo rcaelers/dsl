@@ -346,6 +346,15 @@ keep their initial registration but skip the redundant z-order update. Visibilit
 tested per target, not per node body, so protruding socket hit areas remain interactive
 at viewport edges. Routing continues to include all offscreen obstacle geometry.
 
+Below 60% zoom, fully visible isolated nodes with unchanged input/drawing target geometry
+retain all registrations and focus refreshes but omit redundant z-order list moves. The
+move plan preserves the desired relative order of every pair of targets that can share a
+direct or near hit, using actual initial socket ranks and drawing order. Overlapping or
+clipped bounds, transformed layers, invalid interaction radii, and changes to target geometry,
+target identities, or minimap visibility use full raising. Planning is skipped during fast
+rendering and on release frames whose
+initial allocation contains only the canvas; those node targets are new insertions.
+
 Each layout groups socket hit-target identities by node, copying their relative order from
 the flat hit-rectangle map. Raising a node visits only its own targets, preserving the
 flat-map overlap winner without rescanning every other socket. The index is rebuilt with

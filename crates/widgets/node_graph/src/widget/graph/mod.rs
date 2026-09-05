@@ -1,5 +1,6 @@
 mod action;
 mod connection_paint;
+mod hit_target_moves;
 mod input_dispatch;
 mod interaction;
 mod interaction_state;
