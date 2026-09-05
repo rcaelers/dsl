@@ -99,6 +99,8 @@ appearance until the checked router is activated in step 3.
   CPU-only widget/routing fixtures. Profile remaining release/idle frame costs.
 - [x] Add an opt-in long idle-frame workload for external sampling and retain native stack
   evidence that distinguishes initial response allocation from repeated z-order updates.
+- [x] Cover low-zoom target overlap, floating overlays, socket/toggle order, tab focus, and
+  pointer capture across geometry changes before changing interaction registration order.
 - [ ] Reduce repeated hit-target z-order updates while preserving overlap order, pointer
   capture, keyboard focus, clipping, and same-frame geometry changes; measure on native/browser.
 - [x] Reuse identical routing snapshots using complete geometry/configuration/zoom keys,

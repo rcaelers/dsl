@@ -89,11 +89,241 @@ impl GraphResponses {
 
 #[cfg(test)]
 mod response_tests {
-    use egui::Vec2;
+    use egui::{Event, Modifiers, PointerButton, Vec2};
 
     use super::*;
     use crate::model::SocketDirection;
     use crate::runtime::NodeTypeRegistry;
+
+    struct OrderFixture {
+        widget: NodeGraphWidget,
+        layout: GraphWidgetLayout,
+        context: egui::Context,
+        base: egui::Id,
+    }
+
+    impl OrderFixture {
+        fn new(zoom: f32, overlap: bool) -> Self {
+            let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+            widget.minimap_visible = false;
+            let mut layout = widget.build_layout(Pos2::ZERO);
+            for (id, x) in [
+                (NodeId(1), 100.0),
+                (NodeId(2), if overlap { 100.0 } else { 350.0 }),
+            ] {
+                let rect = |min: Pos2, size: Vec2| Rect::from_min_size(min * zoom, size * zoom);
+                let body = rect(Pos2::new(x, 100.0), Vec2::new(120.0, 100.0));
+                let header = rect(Pos2::new(x, 100.0), Vec2::new(120.0, 24.0));
+                let toggle = rect(Pos2::new(x + 100.0, 104.0), Vec2::splat(12.0));
+                layout.node_screen_rects.insert(id, body);
+                layout.header_screen_rects.insert(id, header);
+                layout.collapse_toggle_screen_rects.insert(id, toggle);
+                let sockets: Vec<_> = [SocketDirection::Input, SocketDirection::Output]
+                    .into_iter()
+                    .map(|direction| SocketId {
+                        node: id,
+                        index: 0,
+                        direction,
+                    })
+                    .collect();
+                for &socket in &sockets {
+                    layout
+                        .socket_hit_rects
+                        .insert(socket, rect(Pos2::new(x - 6.0, 142.0), Vec2::splat(12.0)));
+                }
+                // Deliberately explicit, independent of initial map iteration.
+                layout.socket_hit_order_by_node.insert(id, sockets);
+            }
+            Self {
+                widget,
+                layout,
+                context: egui::Context::default(),
+                base: egui::Id::new("order-regression"),
+            }
+        }
+
+        fn frame(
+            &self,
+            events: Vec<Event>,
+            order: &[NodeId],
+            overlay: Option<egui::Id>,
+        ) -> HashMap<egui::Id, egui::Response> {
+            let clip = Rect::from_min_size(Pos2::ZERO, Vec2::splat(600.0));
+            self.context.begin_pass(egui::RawInput {
+                screen_rect: Some(clip),
+                events,
+                ..Default::default()
+            });
+            let mut ui = egui::Ui::new(
+                self.context.clone(),
+                self.base,
+                egui::UiBuilder::new().max_rect(clip),
+            );
+            let canvas = ui.interact(
+                clip,
+                self.base.with("canvas"),
+                egui::Sense::click_and_drag(),
+            );
+            let overlay_rect = self.layout.header_screen_rects[&NodeId(1)];
+            // A minimap is initially registered before painting, then raised;
+            // a floating panel is registered after all node targets.
+            let mini = minimap_id(self.base);
+            if overlay == Some(mini) {
+                ui.interact(overlay_rect, mini, egui::Sense::click_and_drag());
+            }
+            self.widget
+                .allocate_responses(&mut ui, canvas, &self.layout, clip);
+            let mut ids = Vec::new();
+            for &node in order {
+                self.widget.raise_node_hit_targets(&ui, &self.layout, node);
+                ids.extend([
+                    node_body_id(self.base, node),
+                    node_header_id(self.base, node),
+                    collapse_toggle_id(self.base, node),
+                ]);
+                ids.extend(
+                    self.layout.socket_hit_order_by_node[&node]
+                        .iter()
+                        .map(|&socket| socket_hit_id(self.base, socket)),
+                );
+            }
+            if let Some(id) = overlay {
+                if id == mini {
+                    self.widget.raise_minimap_hit_target(&ui, overlay_rect);
+                } else {
+                    ui.interact(overlay_rect, id, egui::Sense::click_and_drag());
+                }
+                ids.push(id);
+            }
+            let responses = ids
+                .into_iter()
+                .map(|id| (id, self.context.read_response(id).unwrap()))
+                .collect();
+            let mut output = self.context.end_pass();
+            output.textures_delta.clear();
+            responses
+        }
+    }
+
+    #[test]
+    fn low_zoom_overlap_and_floating_targets_follow_paint_order() {
+        for zoom in [0.35, 1.0] {
+            for order in [[NodeId(1), NodeId(2)], [NodeId(2), NodeId(1)]] {
+                let fixture = OrderFixture::new(zoom, true);
+                for overlay in [
+                    None,
+                    Some(minimap_id(fixture.base)),
+                    Some(fixture.base.with("panel")),
+                ] {
+                    let pointer = Pos2::new(150.0, 112.0) * zoom;
+                    fixture.frame(vec![Event::PointerMoved(pointer)], &order, overlay);
+                    let responses =
+                        fixture.frame(vec![Event::PointerMoved(pointer)], &order, overlay);
+                    let expected =
+                        overlay.unwrap_or_else(|| node_header_id(fixture.base, order[1]));
+                    assert!(
+                        responses[&expected].hovered(),
+                        "zoom {zoom}, order {order:?}, overlay {overlay:?}"
+                    );
+                    for (id, response) in responses {
+                        if id != expected {
+                            assert!(!response.hovered(), "covered target {id:?}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn socket_raise_order_overrides_initial_toggle_and_socket_order() {
+        let mut fixture = OrderFixture::new(0.35, false);
+        let node = NodeId(1);
+        let rect = fixture.layout.collapse_toggle_screen_rects[&node];
+        for &socket in &fixture.layout.socket_hit_order_by_node[&node] {
+            fixture.layout.socket_hit_rects.insert(socket, rect);
+        }
+        for _ in 0..2 {
+            fixture
+                .layout
+                .socket_hit_order_by_node
+                .get_mut(&node)
+                .unwrap()
+                .reverse();
+            let expected = socket_hit_id(
+                fixture.base,
+                *fixture.layout.socket_hit_order_by_node[&node]
+                    .last()
+                    .unwrap(),
+            );
+            fixture.frame(vec![Event::PointerMoved(rect.center())], &[node], None);
+            let responses = fixture.frame(vec![Event::PointerMoved(rect.center())], &[node], None);
+            assert!(responses[&expected].hovered());
+            assert!(!responses[&collapse_toggle_id(fixture.base, node)].hovered());
+            assert_eq!(
+                responses
+                    .values()
+                    .filter(|response| response.hovered())
+                    .count(),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn target_refresh_preserves_tab_focus_and_pointer_capture_after_geometry_changes() {
+        let mut fixture = OrderFixture::new(0.35, false);
+        let order = [NodeId(1), NodeId(2)];
+        fixture.frame(Vec::new(), &order, None);
+        let body = node_body_id(fixture.base, NodeId(1));
+        let header = node_header_id(fixture.base, NodeId(1));
+        fixture
+            .context
+            .memory_mut(|memory| memory.request_focus(body));
+        fixture.frame(Vec::new(), &order, None);
+        let responses = fixture.frame(
+            vec![Event::Key {
+                key: egui::Key::Tab,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            }],
+            &order,
+            None,
+        );
+        assert!(
+            responses[&header].has_focus(),
+            "body and header retain their initial focus-registration order"
+        );
+        let responses = fixture.frame(Vec::new(), &order, None);
+        assert!(
+            responses[&header].has_focus(),
+            "raising must not surrender keyboard focus"
+        );
+
+        let start = fixture.layout.header_screen_rects[&NodeId(1)].center();
+        fixture.frame(vec![Event::PointerMoved(start)], &order, None);
+        let button = |pos, pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        };
+        let responses = fixture.frame(vec![button(start, true)], &order, None);
+        assert!(responses[&header].is_pointer_button_down_on());
+        let outside = Pos2::new(700.0, 700.0);
+        // Input can change geometry between passes while pointer capture stays
+        // with the stable target id, even when the pointer leaves the graph.
+        let moved = fixture.layout.header_screen_rects[&NodeId(1)].translate(Vec2::new(30.0, 30.0));
+        fixture.layout.header_screen_rects.insert(NodeId(1), moved);
+        let responses = fixture.frame(vec![Event::PointerMoved(outside)], &order, None);
+        assert_eq!(responses[&header].rect, moved);
+        assert!(responses[&header].dragged());
+        assert!(!responses[&node_header_id(fixture.base, NodeId(2))].dragged());
+        let responses = fixture.frame(vec![button(outside, false)], &order, None);
+        assert!(responses[&header].drag_stopped());
+    }
 
     #[test]
     fn indexed_raising_preserves_the_flat_order_winner_for_overlapping_sockets() {

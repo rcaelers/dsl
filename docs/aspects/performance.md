@@ -430,6 +430,19 @@ speed is not a validated replacement. Keep routing geometry and work budgets ind
 of this work; measure native/browser frame distributions after regression coverage proves
 the interaction contract. Dependency-level batching would require a separate API review.
 
+A native-only probe of non-moving body/header/toggle updates on fully visible, independent
+low-zoom nodes does not establish a repeatable median CPU-frame improvement. It retains all
+registration calls and socket raises, checks unchanged input/painted geometry, and computes
+near-hit-expanded bounds before omitting base-target list moves. Three sequential runs per
+variant give 500-node CPU-frame medians of 32.20–33.73 ms for the baseline and 33.04–35.14 ms
+for the candidate; the medians of those medians are 32.93 and 33.24 ms respectively. Per-run
+p95 ranges overlap (36.59–40.56 versus 35.37–37.58 ms). Both variants retain zero fallbacks.
+These observations do not justify enabling that fast path: eligibility checks add work while
+socket list moves remain. The exploratory candidate is not part of the production widget.
+[`node_graph_base_target_order_experiment.json`](../../benchmarks/performance/node_graph_base_target_order_experiment.json)
+retains all six reports and their twenty-sample distributions. This is not a browser result,
+randomized paired trial, or GPU/application measurement.
+
 ## Reference workloads
 
 All performance claims are measured on two reference captures. A change is not accepted on the
