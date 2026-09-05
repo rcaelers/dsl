@@ -15,6 +15,78 @@ again without new evidence; the absence of a record is not evidence that an idea
 Actionable work belongs in [`TODO.md`](../../TODO.md). This document holds the evidence those items
 are prioritized from.
 
+## Node-graph routing scale baseline
+
+The portable `routing_performance_tests` fixture measures three CPU-side costs separately:
+`rebuild_routes` on a prepared layout, an average of 32 point-to-wire hover queries, and
+`Context::run_ui` plus editor rendering and egui tessellation. The CPU frame includes the
+editor's layout/routing passes, but excludes texture uploads, GPU submission, presentation,
+and the surrounding application. It is not an end-to-end display-frame measurement.
+
+`paired-grid-v1` has 100 nodes/500 connections or 500 nodes/2000 connections. Each neutral
+node has ten inputs and ten outputs. Disjoint source/target pairs occupy five columns,
+900 units apart horizontally and 700 vertically; each target is 450 units right of its
+source. The smaller fixture connects all ten matching ports per pair, the larger eight.
+A fixture assertion keeps every body and its 60-unit escape envelope disjoint. Zoom is
+0.35 and the logical egui viewport is 1440 × 900, so routing includes offscreen geometry.
+
+Routing snapshots are rebuilt without history. Layout preparation, including its initial
+route build, is outside the isolated routing timer. The first measured sample is recorded
+separately; subsequent samples use warmed allocator/font/egui state, not a cold process.
+Release runs collect twenty subsequent samples and report nearest-rank p50/p95, maximum,
+and sorted raw samples. Debug tests run a cold/repeated two-sample correctness smoke check.
+Every sample asserts complete finite path presentation, stable routing outcome counts, and
+unchanged topology sizes; there are no hardware-dependent timing assertions. Fallback
+counts and reasons accompany timings so work exhaustion cannot masquerade as throughput.
+
+Reproduce the native measurement with:
+
+```sh
+cargo test -p node-graph --release routing_scale_native -- --nocapture
+```
+
+The browser uses the same fixture and measurement body:
+
+```sh
+NO_HEADLESS=1 CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
+  cargo test -p node-graph --release --target wasm32-unknown-unknown --lib \
+  routing_scale_browser -- --nocapture
+```
+
+Open the runner's localhost URL and retain the `ROUTING_PERFORMANCE` console JSON.
+`ROUTING_PROGRESS` messages identify each construction, routing, and frame sample outside
+the measured intervals. The runner must match the lockfile's wasm-bindgen version (0.2.127
+for this baseline). Browser execution is interactive, with no GPU-backed canvas in this
+harness; a long synchronous test can keep the page unresponsive until it finishes.
+
+The native reference was measured on 2026-09-05 using the routing implementation at
+`8da42b1d`, an Apple M1 Ultra (20 logical CPUs, 64 GiB), macOS 26.6.2 (25G83), Rust
+1.100.0-nightly (0ed41eb41, 2026-09-04), and the release profile with debug information.
+Raw native measurements are retained in
+[`node_graph_routing_native_baseline.json`](../../benchmarks/performance/node_graph_routing_native_baseline.json).
+
+| Native fixture | Routing p50 / p95 | Hover p50 / p95 | CPU frame p50 / p95 | Fallbacks |
+| --- | --- | --- | --- | --- |
+| 100 nodes / 500 connections | 1.69 / 1.76 ms | 0.045 / 0.053 ms | 24.61 / 25.50 ms | 0 |
+| 500 nodes / 2000 connections | 9.03 / 9.41 ms | 0.198 / 0.242 ms | 524.87 / 535.00 ms | 1360 (`WorkLimit`) |
+
+The smaller native fixture meets the 8 ms routing-p95 target without fallbacks. The larger
+fixture does not complete checked routing for every connection within the work budget;
+its timing is not full-route throughput. CPU frame processing is substantially more
+expensive than isolated routing. Those costs require separate profiling during step 6;
+increasing the work budget alone is not an established remedy.
+
+Interactive Chrome execution reached both corrected fixtures, but automation stalled
+before a completed test result and full JSON report could be retrieved. Partial progress
+logs are not retained as a browser baseline or a browser correctness pass. Repeating the
+browser measurement with a reliably bounded runner remains open.
+
+### Proposed future measurements
+
+Real application/GPU frame timing, moving-node workloads, post-drag quality passes, and
+history-aware comparison remain required by the connection-routing plan. The CPU-only
+scale harness does not replace those acceptance gates.
+
 ## Reference workloads
 
 All performance claims are measured on two reference captures. A change is not accepted on the

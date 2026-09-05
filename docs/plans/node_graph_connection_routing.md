@@ -84,8 +84,12 @@ appearance until the checked router is activated in step 3.
 
 ## 6. Stability, incremental updates, and performance
 
-- [ ] Establish cold native/browser benchmarks before optimization, including interaction
-  cost and complete frame time. Record hardware, fixtures, and timing distributions.
+- [x] Add portable scale fixtures and record the native CPU-only baseline for routing,
+  hover and editor tessellation, including hardware, timing distributions and fallback
+  counts in the performance record.
+- [ ] Capture a completed browser CPU baseline with a reliably bounded runner. Interactive
+  execution produced partial progress but no retained full result. Measure GPU
+  upload/presentation and real application frame time separately.
 - [ ] Add valid-history hysteresis and dependency invalidation for incident routes, old/new
   obstacle extents, layout/socket changes, configuration, and topology generations.
   Revalidate prior paths and schedule a broader quality pass after dragging stops.
