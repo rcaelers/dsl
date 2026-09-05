@@ -14,7 +14,7 @@ use super::routing::{PathSegment, RouteConfig};
 use super::routing_cache::RoutingCache;
 use super::widget::NodeGraphWidget;
 use crate::api::{AnySocket, InputDef, NodeDef, OutputDef};
-use crate::model::{SocketDirection, SocketId};
+use crate::model::{NodeId, SocketDirection, SocketId};
 use crate::runtime::NodeTypeRegistry;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -562,11 +562,155 @@ fn measure_drag_frames(node_count: usize, connection_count: usize) -> serde_json
             format!("{:?}", layout.wire_paths[key].segments())
         );
     }
+    let cycles = measure_release_cycles(&mut widget, &context, moving, samples + 5);
     serde_json::json!({"fixture": "paired-grid-pointer-drag-frames-v1", "pan": [pan.x, pan.y],
         "viewport": [1440, 900], "zoom": widget.view.zoom, "start": start.report(),
         "first": first, "ui": distribution(ui_times), "tessellation": distribution(tessellation_times),
         "cpu_frame": distribution(frame_times), "release": release.report(), "settled": settled.report(),
-        "outcomes": outcomes, "release_fallbacks": 0})
+        "outcomes": outcomes, "release_fallbacks": 0, "cycles": cycles})
+}
+
+fn frame_distribution(frames: &[FrameMeasurement]) -> serde_json::Value {
+    serde_json::json!({
+        "ui": distribution(frames.iter().map(|frame| frame.ui_ms).collect()),
+        "tessellation": distribution(frames.iter().map(|frame| frame.tessellation_ms).collect()),
+        "cpu_frame": distribution(frames.iter().map(|frame| frame.cpu_frame_ms).collect()),
+    })
+}
+
+/// Warm, alternating pointer gestures measure release and its immediately
+/// following idle frame repeatedly. The original long gesture above remains
+/// separately reported; these samples are not pooled with its single frames.
+fn measure_release_cycles(
+    widget: &mut NodeGraphWidget,
+    context: &egui::Context,
+    moving: NodeId,
+    first_frame: usize,
+) -> serde_json::Value {
+    let topology = |widget: &NodeGraphWidget| {
+        widget
+            .graph
+            .connections
+            .iter()
+            .map(|connection| (connection.from, connection.to))
+            .collect::<Vec<_>>()
+    };
+    let original_topology = topology(widget);
+    let original_positions: Vec<_> = widget
+        .graph
+        .nodes
+        .iter()
+        .map(|(&id, node)| (id, node.pos))
+        .collect();
+    let pan = widget.view.pan;
+    let mut releases = Vec::new();
+    let mut settled_frames = Vec::new();
+    let mut outcomes = Vec::new();
+    let cycles = if cfg!(debug_assertions) { 2 } else { 20 };
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    for sample in 0..cycles {
+        let frame = first_frame + sample * 6;
+        let grip = widget.build_layout(Pos2::ZERO).header_screen_rects[&moving].center();
+        // Establish hover, press, then cross the drag threshold. None of these
+        // preparation frames is included in the release/idle distributions.
+        drag_frame(
+            widget,
+            context,
+            vec![egui::Event::PointerMoved(grip)],
+            frame,
+        );
+        drag_frame(widget, context, vec![button(grip, true)], frame + 1);
+        let anchor = grip + Vec2::new(0.0, 10.0);
+        drag_frame(
+            widget,
+            context,
+            vec![egui::Event::PointerMoved(anchor)],
+            frame + 2,
+        );
+        assert!(
+            matches!(widget.interaction_state, InteractionState::DraggingNode { node_id, .. } if node_id == moving)
+        );
+        let initial = widget.graph.nodes[&moving].pos;
+        let dy = if sample % 2 == 0 { 20.0 } else { -20.0 };
+        let pointer = anchor + Vec2::new(0.0, dy * widget.view.zoom);
+        drag_frame(
+            widget,
+            context,
+            vec![egui::Event::PointerMoved(pointer)],
+            frame + 3,
+        );
+        let final_position = widget.graph.nodes[&moving].pos;
+        assert!((final_position.y - initial.y - dy).abs() < 0.001);
+        assert!((final_position.x - initial.x).abs() < 0.001);
+        let dragged = widget.build_layout(Pos2::ZERO).wire_paths;
+        let release = drag_frame(widget, context, vec![button(pointer, false)], frame + 4);
+        assert!(matches!(widget.interaction_state, InteractionState::Idle));
+        assert_eq!(widget.graph.nodes[&moving].pos, final_position);
+        let mut released = widget.build_layout(Pos2::ZERO);
+        assert_eq!(released.wire_paths.len(), original_topology.len());
+        assert!(released.wire_failures.is_empty());
+        let rebuilt = released
+            .wire_paths
+            .iter()
+            .filter(|(key, path)| dragged[key].segments().as_ptr() != path.segments().as_ptr())
+            .count();
+        assert_eq!(
+            rebuilt,
+            original_topology.len(),
+            "each release replaces all drag history"
+        );
+        let settled = drag_frame(widget, context, Vec::new(), frame + 5);
+        let idle = widget.build_layout(Pos2::ZERO);
+        assert!(matches!(widget.interaction_state, InteractionState::Idle));
+        assert_eq!(widget.graph.nodes[&moving].pos, final_position);
+        assert_eq!(idle.wire_paths.len(), original_topology.len());
+        assert!(idle.wire_failures.is_empty());
+        let reused = idle
+            .wire_paths
+            .iter()
+            .filter(|(key, path)| {
+                released.wire_paths[key].segments().as_ptr() == path.segments().as_ptr()
+            })
+            .count();
+        assert_eq!(
+            reused,
+            original_topology.len(),
+            "each idle frame reuses release routes"
+        );
+        // Validate against the cold oracle only after both measured frames.
+        // This cannot prime the changed route or the immediately following idle frame.
+        released.rebuild_routes(&widget.graph.connections, widget.view.zoom);
+        assert!(released.wire_failures.is_empty());
+        for (key, path) in &idle.wire_paths {
+            assert_eq!(
+                format!("{:?}", path.segments()),
+                format!("{:?}", released.wire_paths[key].segments())
+            );
+        }
+        assert_eq!(widget.view.pan, pan);
+        assert_eq!(topology(widget), original_topology);
+        assert_eq!(widget.graph.nodes.len(), original_positions.len());
+        for &(id, position) in &original_positions {
+            if id != moving {
+                assert_eq!(widget.graph.nodes[&id].pos, position);
+            }
+        }
+        outcomes.push(
+            serde_json::json!({"sample": sample, "rebuilt_paths": rebuilt,
+            "reused_paths": reused, "release_fallbacks": 0, "settled_fallbacks": 0,
+            "dy_canvas": dy, "release": release.report(), "settled": settled.report()}),
+        );
+        releases.push(release);
+        settled_frames.push(settled);
+    }
+    serde_json::json!({"fixture": "paired-grid-pointer-release-cycles-v1",
+        "release": frame_distribution(&releases), "settled": frame_distribution(&settled_frames),
+        "outcomes": outcomes})
 }
 
 #[test]

@@ -71,6 +71,8 @@ test summary without virtual-time overrides. `ROUTING_PROGRESS` messages go to s
 outside measured intervals. Successful stdout JSON requires both browser tests to pass and
 both fixtures to retain twenty release samples, including isolated drag routing and the
 pointer-driven UI/tessellation/frame timers, drag outcomes, and start/release/settled phases.
+Twenty repeated release/idle cycles must also have complete route outcomes and chronological
+frame timings that agree exactly with their sorted distributions.
 Debug, partial, or failed executions are not accepted as baselines.
 
 `ROUTING_BROWSER_TIMEOUT_SECONDS` bounds the complete serve/browser execution, defaulting
@@ -376,8 +378,42 @@ through every build/run and there is no concurrent cargo validation. Complete re
 Release and following-idle entries are one sample per fixture/run, not p95 or randomized
 paired measurements. They show a lower observed release cost without establishing an idle
 improvement; idle samples are higher in these runs. All isolated and pointer-driven drag
-outcomes retain zero fallbacks. Release/idle tail distributions, remaining cold-routing and
-frame costs, broader layouts, and GPU/application timing remain open acceptance work.
+outcomes retain zero fallbacks. Remaining cold-routing and frame costs, broader layouts, and
+GPU/application timing remain open acceptance work.
+
+### Repeated release and idle frames
+
+`paired-grid-pointer-release-cycles-v1` appends twenty warm alternating gestures to each
+pointer-driven release-build fixture (two in debug tests). The same widget/context stays warm
+after the separately reported long gesture. Each cycle establishes hover, presses the header,
+crosses the drag threshold, and moves the connected node by +20 or −20 canvas-y units before
+measuring release and its immediately following idle frame. Preparation frames are excluded.
+The viewport is 1440 × 900, zoom is 0.35, and pan is [150, 100].
+
+Every cycle checks complete release rebuilding, idle path-identity reuse, unchanged topology,
+fixed other-node positions, no auto-pan, and zero fallbacks. Cached layout checks occur outside
+the timers; the cold-route oracle runs only after both measured frames. `cycles.outcomes`
+retains chronological frame timings and movement direction, while the distributions retain
+sorted samples. The browser runner rejects incomplete cycles, invalid outcomes, nonfinite
+timings, and distributions that disagree with their raw frames. Existing long-gesture single
+release/idle measurements remain separate and are not pooled into these distributions.
+
+Reference-host measurements on 2026-09-05, in CPU widget-plus-tessellation milliseconds:
+
+| Host | Nodes / connections | Release p50 / p95 | Following idle p50 / p95 |
+| --- | --- | --- | --- |
+| Native | 100 / 500 | 3.58 / 4.40 | 6.19 / 6.54 |
+| Chrome | 100 / 500 | 6.39 / 6.58 | 10.99 / 11.30 |
+| Native | 500 / 2000 | 22.02 / 22.81 | 30.69 / 33.23 |
+| Chrome | 500 / 2000 | 33.28 / 34.36 | 52.73 / 54.31 |
+
+All cycles retain zero fallbacks. These are nearest-rank percentiles from twenty observations
+per phase, not population-tail guarantees or a before/after speedup claim. Texture uploads,
+GPU submission/presentation, and full application frames are excluded. Source stays fixed and
+no Cargo validation runs concurrently with either measurement. Native execution is followed
+by the isolated Chrome runner with its 45-second deadline and no virtual-time budget.
+[`node_graph_release_cycles_native_browser.json`](../../benchmarks/performance/node_graph_release_cycles_native_browser.json)
+contains both complete reports, per-cycle samples, hardware/browser metadata, and the wasm hash.
 
 ### Native idle-frame sampling
 

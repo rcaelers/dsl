@@ -17,7 +17,7 @@ test('completion requires both passing tests, not progress or a single test', ()
 });
 
 function reports() {
-  const timer = () => ({ samples_ms: Array(20).fill(1) });
+  const timer = (value = 1) => ({ samples_ms: Array(20).fill(value) });
   const frame = () => ({ ui_ms: 1, tessellation_ms: 1, cpu_frame_ms: 2 });
   const fixtures = [[100, 500], [500, 2000]];
   return {
@@ -31,7 +31,13 @@ function reports() {
       release_ms: 1, outcomes: Array(21).fill({}),
       frames: { fixture: 'paired-grid-pointer-drag-frames-v1',
         ui: timer(), tessellation: timer(), cpu_frame: timer(), outcomes: Array(21).fill({}),
-        start: frame(), first: frame(), release: frame(), settled: frame() },
+        start: frame(), first: frame(), release: frame(), settled: frame(),
+        cycles: { fixture: 'paired-grid-pointer-release-cycles-v1',
+          release: { ui: timer(), tessellation: timer(), cpu_frame: timer(2) },
+          settled: { ui: timer(), tessellation: timer(), cpu_frame: timer(2) },
+          outcomes: Array.from({ length: 20 }, (_, sample) => ({ sample, rebuilt_paths: connections,
+            reused_paths: connections, release_fallbacks: 0, settled_fallbacks: 0,
+            dy_canvas: sample % 2 === 0 ? 20 : -20, release: frame(), settled: frame() })) } },
     })) },
   };
 }
@@ -52,6 +58,19 @@ test('partial, debug, mismatched, nonfinite and incomplete drag reports are reje
     value => { value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.outcomes.pop(); },
     value => { delete value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.release; },
     value => { value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.settled.ui_ms = NaN; },
+    value => { delete value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.cycles; },
+    value => { value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.cycles.outcomes.pop(); },
+    value => { value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.cycles.outcomes[0].sample = 1; },
+    value => { value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.cycles.outcomes[0].rebuilt_paths = 499; },
+    value => { value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.cycles.outcomes[0].reused_paths = 499; },
+    value => { value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.cycles.outcomes[0].release_fallbacks = 1; },
+    value => { value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.cycles.outcomes[0].settled_fallbacks = 1; },
+    value => { value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.cycles.release.ui.samples_ms.pop(); },
+    value => { value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.cycles.settled.cpu_frame.samples_ms[0] = -1; },
+    value => { value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.cycles.outcomes[0].dy_canvas = 0; },
+    value => { delete value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.cycles.outcomes[0].release; },
+    value => { value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.cycles.outcomes[0].settled.ui_ms = NaN; },
+    value => { value.ROUTING_DRAG_PERFORMANCE.reports[0].frames.cycles.release.ui.samples_ms[0] = 5; },
   ]) {
     const value = reports();
     mutate(value);

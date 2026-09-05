@@ -92,6 +92,10 @@ appearance until the checked router is activated in step 3.
 - [x] Measure pointer-driven full CPU widget frames through drag start, sustained movement,
   release, and the following idle frame on native/browser. Check route retention, release
   quality, and unchanged topology; reject missing frame samples in the bounded browser runner.
+- [x] Measure twenty warm release/idle cycles per fixture on native/browser, retaining
+  chronological frames and empirical tail distributions separately from the long gesture.
+  Check every release rebuild and idle reuse against topology and cold-route invariants;
+  reject missing outcomes or distributions inconsistent with the raw frames.
 - [x] Reject connected-node splicing before preparing drop-specific routing for drag/placement
   confirmation. Preserve final-position geometry for eligible drops and the ordinary release
   quality rebuild; retain native/browser release-frame comparisons and cache/topology tests.

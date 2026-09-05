@@ -54,6 +54,39 @@ export function validateReports(reports) {
             if (!Number.isFinite(value) || value < 0) throw new Error(`Missing drag-frame ${phase}/${name}`);
           }
         }
+        const cycles = frames.cycles;
+        if (cycles?.fixture !== 'paired-grid-pointer-release-cycles-v1' || cycles.outcomes?.length !== 20) {
+          throw new Error('Missing complete release/idle cycle fixture');
+        }
+        for (const phase of ['release', 'settled']) {
+          for (const name of ['ui', 'tessellation', 'cpu_frame']) {
+            const samples = cycles[phase]?.[name]?.samples_ms;
+            if (samples?.length !== 20 || samples.some(v => !Number.isFinite(v) || v < 0)) {
+              throw new Error(`Expected twenty cycle samples for ${phase}/${name}`);
+            }
+          }
+        }
+        for (const [sample, outcome] of cycles.outcomes.entries()) {
+          if (outcome?.sample !== sample || outcome.rebuilt_paths !== connections ||
+              outcome.reused_paths !== connections || outcome.release_fallbacks !== 0 ||
+              outcome.settled_fallbacks !== 0 || outcome.dy_canvas !== (sample % 2 === 0 ? 20 : -20)) {
+            throw new Error('Invalid release/idle cycle outcome');
+          }
+          for (const phase of ['release', 'settled']) {
+            for (const name of ['ui_ms', 'tessellation_ms', 'cpu_frame_ms']) {
+              const value = outcome[phase]?.[name];
+              if (!Number.isFinite(value) || value < 0) throw new Error(`Missing cycle ${sample}/${phase}/${name}`);
+            }
+          }
+        }
+        for (const phase of ['release', 'settled']) {
+          for (const name of ['ui', 'tessellation', 'cpu_frame']) {
+            const expected = cycles.outcomes.map(outcome => outcome[phase][`${name}_ms`]).sort((a, b) => a - b);
+            if (cycles[phase][name].samples_ms.some((value, index) => value !== expected[index])) {
+              throw new Error(`Cycle distribution disagrees with raw frames: ${phase}/${name}`);
+            }
+          }
+        }
       }
     }
   }
