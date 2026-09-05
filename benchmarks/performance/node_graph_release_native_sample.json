@@ -1,0 +1,67 @@
+{
+  "date": "2026-09-06",
+  "base_revision": "e1e314a8",
+  "workload": "idle_profile 200 release: paired-grid-release-profile-v1; 500 nodes / 2000 connections; six input/render frames per alternating pointer gesture; 35% zoom; 1440x900 CPU viewport; canvas grid translated by (150,100)/0.35 to keep the grip away from auto-pan edges",
+  "build_command": "cargo build -p node-graph --release --example idle_profile",
+  "run_command": "target/release/examples/idle_profile 200 release",
+  "executable_sha256": "8238c27040194a3225c4be02e23d0abb2efaed8f096050d58438d1dbff7a021a",
+  "profile": "release (optimized + debuginfo), dsymutil symbol bundle",
+  "hardware": {
+    "cpu": "Apple M1 Ultra",
+    "logical_cpus": 20,
+    "memory_bytes": 68719476736,
+    "os": "macOS 26.6.2 (25G83)",
+    "rustc": "1.100.0-nightly (0ed41eb41 2026-09-04)"
+  },
+  "sampler": {
+    "tool": "/usr/bin/sample",
+    "duration_seconds": 5,
+    "interval_milliseconds": 1,
+    "start": "after workload readiness marker; three public input setup frames already complete",
+    "watchdog_seconds": 45
+  },
+  "sample_counts": {
+    "main_thread": 3453,
+    "prepare_release": 2094,
+    "release_frame": 617,
+    "settled_frame": 740,
+    "unclassified_main_thread": 2
+  },
+  "selected_inclusive_branches": [
+    {
+      "phase": "release_frame",
+      "samples": 347,
+      "phase_samples": 617,
+      "address": "0x1009041d0",
+      "raw_line": 2782,
+      "owner": "RoutingCache::route_interactive",
+      "source": "routing_cache.rs:109",
+      "note": "Single inclusive route-rebuild branch, lower bound, not all routing calls."
+    },
+    {
+      "phase": "release_frame",
+      "samples": 109,
+      "phase_samples": 617,
+      "address": "0x100919a88",
+      "raw_line": 2786,
+      "owner": "slice<f32>::sort_by within route_bundle",
+      "source": "bundle.rs:85",
+      "note": "Subset of the 347 rebuild samples, not additive. The stable-sort descendant stack identifies candidate-band sorting; the caller return address resolves to the subsequent dedup."
+    },
+    {
+      "phase": "settled_frame",
+      "samples": 340,
+      "phase_samples": 740,
+      "address": "0x1008c1b28",
+      "raw_line": 2190,
+      "owner": "refresh_node_hit_targets socket refresh",
+      "source": "response.rs:880",
+      "note": "Single inclusive branch, lower bound; 336 descendants enter WidgetRects::insert through create_widget. Includes repeated list movement and index maintenance."
+    }
+  ],
+  "measurement_context": "Source and executable fixed during sampling; no concurrent Cargo work. Only the launched profiling process is sampled. No production instrumentation, private editor API, timing assertions, GPU work, browser, application composition, or capture/runtime services. Stack proportions describe sampled phase CPU work, not p95/p99 latency, a speedup estimate, or attribution of the previous timing outlier. The translated sampling grid is not pooled with paired-grid-v1 timing reports. Private route/cold-oracle assertions remain in normal routing regressions; this public-API sampler does not claim a fallback count.",
+  "result": "Completed all 200 release/idle cycles. Every cycle checks drag activation, exact alternating displacement without drag-start drift, release and idle state, stable final position; final document comparison permits only selection and the moved node position, and requires zoom 35%. Nonempty tessellated meshes are checked every frame.",
+  "raw_profile": "node_graph_release_native_sample.txt",
+  "raw_retention": "Header and complete call graph plus selected atos inline attribution. Recursive aggregate tables and unrelated binary image inventory omitted.",
+  "next_experiment": "Evaluate candidate-band ordering cost without changing candidate order, route fingerprints, or work budgets. Any replacement requires equivalence tests and native/browser timing comparison; idle target batching remains separate API-review work."
+}

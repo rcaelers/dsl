@@ -580,6 +580,52 @@ reindex many unrelated targets even though offscreen targets skip their own rais
 profile identifies a native CPU hotspot; 69.3% is neither a predicted speedup nor browser
 attribution, frame p95, or GPU/application time. Production interaction behavior is unchanged.
 
+### Native release-cycle sampling
+
+The explicit command `idle_profile 200 release` runs 200 alternating pointer-driven gestures
+through the widget's public API. Each cycle contains four preparation frames, the release
+frame, and its following idle frame. Non-inlined `prepare_release`, `release_frame`, and
+`settled_frame` wrappers keep those phases distinguishable in optimized stack samples without
+adding hooks to production rendering. The original `idle_profile [count]` idle mode remains
+the default. Argument and two-cycle interaction tests run with
+`cargo test -p node-graph --example idle_profile`.
+
+This sampling fixture uses 500 nodes / 2000 connections, 35% zoom, and a 1440 × 900 CPU
+viewport. Its canvas grid is translated by `(150, 100) / 0.35`, keeping the header grip away
+from auto-pan without exposing a private view setter. It is a separate sampling workload,
+not a replacement or pooled timing sample for `paired-grid-v1`. Every cycle checks drag
+activation, exact displacement, release/idle state, and stable final position. Final document
+comparison permits only selection and the moved node's position; other graph state and zoom
+remain unchanged. Every frame requires nonempty meshes. Private route identity and cold-oracle
+checks remain in the ordinary routing regressions, outside this public-API profiling command.
+
+Build the optimized example, run it, and attach `sample <its-pid> 5 1 -file <output.txt>` after
+the readiness message. On the reference M1 Ultra host on 2026-09-06, a five-second sample
+captures 3453 main-thread stacks: 2094 in preparation, 617 in release, 740 in following idle,
+and two unclassified. The command completes all 200 cycles under a 45-second watchdog. Cargo
+validation does not run concurrently; `dsymutil` and `atos -inlineFrames` provide attribution.
+
+| Sampled phase | Selected inclusive branch | Samples / phase | Interpretation |
+| --- | --- | --- | --- |
+| Release | Routing-cache rebuild | 347 / 617 (56.2%) | Lower bound from one rebuild branch |
+| Release | Candidate-band float sorting | 109 / 617 (17.7%) | Subset of the rebuild branch, not additive |
+| Following idle | Socket hit-target refresh | 340 / 740 (45.9%) | Lower bound; predominantly egui list moves and index maintenance |
+
+The sorting stack is inside `route_bundle`, where candidate bands are ordered by distance
+from the ideal band and then by their numeric coordinate before deduplication. The idle stack
+still reaches `WidgetRects::insert` through repeated hit-target refreshes. These observations
+identify CPU optimization candidates; they do not explain the previous native timing outlier,
+measure tail latency, predict a speedup, or include browser/GPU/full-application work.
+Raw call-graph evidence, selected inline attribution, executable identity, and methodology are
+in [`node_graph_release_native_sample.txt`](../../benchmarks/performance/node_graph_release_native_sample.txt)
+and [`node_graph_release_native_sample.json`](../../benchmarks/performance/node_graph_release_native_sample.json).
+
+#### Proposed future release-cost work
+
+Evaluate candidate-band ordering cost while preserving the exact order, deduplicated values,
+route fingerprints, and work budgets. Any alternative needs equivalence tests and paired
+native/browser release-frame measurements; stack proportions alone do not justify a change.
+
 ### Partial hit-target move elision
 
 The response/render owners refresh every initially registered target with its original ID,
