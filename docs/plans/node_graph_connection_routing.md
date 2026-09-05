@@ -124,7 +124,7 @@ appearance until the checked router is activated in step 3.
   infer a release-frame speedup or a 60 Hz large-graph budget from stationary improvements.
 - [x] Add opt-in pointer release-cycle sampling with separate preparation/release/idle
   stack boundaries, public-API document checks, and retained native call-graph evidence.
-- [ ] Evaluate candidate-band ordering cost identified in release stacks with exact-order
+- [x] Evaluate candidate-band ordering cost identified in release stacks with exact-order
   equivalence and paired native/browser frame measurements; keep work budgets unchanged.
 - [x] Reuse identical routing snapshots using complete geometry/configuration/zoom keys,
   immutable shared path data, and unchanged failure classifications. Test invalidation

@@ -184,8 +184,13 @@ also leaves remaining candidates as singletons. Candidate membership alone does 
 shared corridor: the bundle router checks capacity and final geometry before accepting a group.
 
 The bundle router searches horizontal lane bands near the endpoint midpoint and above/below
-expanded obstacle boundaries. Interior lanes have a fixed minimum spacing of eight layout
-units. Staggered rectilinear endpoint fans transition from actual socket spacing to interior
+expanded obstacle boundaries. Finite band coordinates are sorted numerically and deduplicated
+before proximity ordering, avoiding repeated distance comparisons for aligned obstacle rows.
+Proximity uses `f64` distance and a total coordinate tie-breaker; in-place unstable sorting
+preserves the exact candidate order and the negative-zero representative. Candidate generation
+is charged before deduplication, so repeated coordinates do not reduce the work-budget charge.
+Interior lanes have a fixed minimum spacing of eight layout units. Staggered rectilinear
+endpoint fans transition from actual socket spacing to interior
 spacing. The complete lane band and both connecting fan envelopes must avoid every expanded
 body. Final segments receive the same analytic collision checks as individual routes; only
 the outward port escapes have their own-node exemptions. Pairwise analytic checks reject

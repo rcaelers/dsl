@@ -20,6 +20,22 @@ pub(crate) fn endpoint_fan_width(count: usize, spacing: f32) -> f32 {
     (count + 1) as f32 * spacing
 }
 
+fn order_bands(bands: &mut Vec<f32>, ideal: f32) {
+    // Aligned obstacles repeat coordinates. Remove those before the more
+    // expensive distance comparisons. Both orders break distance ties by
+    // coordinate, so dedup keeps the same signed-zero representative (-0).
+    // Generation work is charged before this helper, even for duplicates.
+    bands.sort_unstable_by(f32::total_cmp);
+    bands.dedup();
+    // The coordinate tie-breaker makes equal keys bit-identical values;
+    // stability cannot affect the remaining candidate order.
+    bands.sort_unstable_by(|a, b| {
+        ((*a as f64 - ideal as f64).abs())
+            .total_cmp(&(*b as f64 - ideal as f64).abs())
+            .then(a.total_cmp(b))
+    });
+}
+
 pub(crate) fn route_bundle(
     nodes: &[Rect],
     members: &[BundleMember],
@@ -82,12 +98,7 @@ pub(crate) fn route_bundle(
         bands.push((obstacle.max.y + config.safety).next_up());
     }
     bands.retain(|y| y.is_finite() && (y + height).is_finite());
-    bands.sort_by(|a, b| {
-        ((*a as f64 - ideal as f64).abs())
-            .total_cmp(&(*b as f64 - ideal as f64).abs())
-            .then(a.total_cmp(b))
-    });
-    bands.dedup();
+    order_bands(&mut bands, ideal);
     let geometry = BundleGeometry {
         members,
         sources: &sources,
@@ -154,12 +165,7 @@ pub(crate) fn route_bundle(
     bands.retain(|y| y.is_finite() && (y + height).is_finite());
     let mut target_bands = bands.clone();
     for (bands, ideal) in [(&mut bands, source_top), (&mut target_bands, target_top)] {
-        bands.sort_by(|a, b| {
-            ((*a as f64 - ideal as f64).abs())
-                .total_cmp(&(*b as f64 - ideal as f64).abs())
-                .then(a.total_cmp(b))
-        });
-        bands.dedup();
+        order_bands(bands, ideal);
     }
     for source_top in bands {
         if !geometry.fan_clear(true, source_top, left, height, budget)? {
@@ -362,4 +368,99 @@ fn separated(
         }
     }
     Ok(true)
+}
+
+#[cfg(test)]
+mod band_order_tests {
+    use super::order_bands;
+
+    fn check_against_stable_sort(input: &[f32], ideal: f32) {
+        // Preserve the original comparator and deduplication as an independent
+        // oracle. Compare bits so signed-zero representatives cannot change.
+        let mut expected = input.to_vec();
+        expected.sort_by(|a, b| {
+            ((*a as f64 - ideal as f64).abs())
+                .total_cmp(&(*b as f64 - ideal as f64).abs())
+                .then(a.total_cmp(b))
+        });
+        expected.dedup();
+        let mut actual = input.to_vec();
+        order_bands(&mut actual, ideal);
+        assert_eq!(
+            actual
+                .iter()
+                .map(|value| value.to_bits())
+                .collect::<Vec<_>>(),
+            expected
+                .iter()
+                .map(|value| value.to_bits())
+                .collect::<Vec<_>>(),
+            "ideal {ideal:?}, {} input bands",
+            input.len()
+        );
+    }
+
+    #[test]
+    fn candidate_order_matches_stable_sort_at_float_boundaries_and_distance_ties() {
+        let cases = [
+            vec![],
+            vec![1.0],
+            vec![0.0, -0.0, 0.0, -0.0],
+            vec![30.0, 10.0, 20.0, -10.0, 20.0, -30.0, -20.0],
+            vec![
+                f32::MAX,
+                -f32::MAX,
+                f32::MIN_POSITIVE,
+                -f32::MIN_POSITIVE,
+                f32::from_bits(1),
+                -f32::from_bits(1),
+                0.0,
+                -0.0,
+            ],
+        ];
+        for ideal in [
+            0.0,
+            -0.0,
+            20.0,
+            -20.0,
+            f32::MAX,
+            -f32::MAX,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NAN,
+        ] {
+            for input in &cases {
+                check_against_stable_sort(input, ideal);
+            }
+        }
+    }
+
+    #[test]
+    fn candidate_order_matches_stable_sort_for_large_duplicate_and_shuffled_inputs() {
+        let mut values = Vec::new();
+        let mut seed = 0x173a_90d5_u32;
+        for i in 0..2048 {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            let value = f32::from_bits(seed);
+            if value.is_finite() {
+                values.extend([value, value]);
+            }
+            // Repeated obstacle rows exercise many equal bands and tied distances.
+            values.push((i % 50) as f32 * 700.0);
+        }
+        for ideal in [-f32::MAX, -350.0, 0.0, 350.0, 17500.0, f32::MAX] {
+            let mut values = values.clone();
+            check_against_stable_sort(&values, ideal);
+            values.reverse();
+            check_against_stable_sort(&values, ideal);
+            values.sort_by(f32::total_cmp);
+            check_against_stable_sort(&values, ideal);
+            values.dedup();
+            check_against_stable_sort(&values, ideal);
+            values.rotate_left(113);
+            check_against_stable_sort(&values, ideal);
+        }
+    }
 }

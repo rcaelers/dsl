@@ -612,7 +612,7 @@ validation does not run concurrently; `dsymutil` and `atos -inlineFrames` provid
 | Following idle | Socket hit-target refresh | 340 / 740 (45.9%) | Lower bound; predominantly egui list moves and index maintenance |
 
 The sorting stack is inside `route_bundle`, where candidate bands are ordered by distance
-from the ideal band and then by their numeric coordinate before deduplication. The idle stack
+from the ideal band and then by their numeric coordinate. The idle stack
 still reaches `WidgetRects::insert` through repeated hit-target refreshes. These observations
 identify CPU optimization candidates; they do not explain the previous native timing outlier,
 measure tail latency, predict a speedup, or include browser/GPU/full-application work.
@@ -620,11 +620,44 @@ Raw call-graph evidence, selected inline attribution, executable identity, and m
 in [`node_graph_release_native_sample.txt`](../../benchmarks/performance/node_graph_release_native_sample.txt)
 and [`node_graph_release_native_sample.json`](../../benchmarks/performance/node_graph_release_native_sample.json).
 
-#### Proposed future release-cost work
+### Candidate-band ordering
 
-Evaluate candidate-band ordering cost while preserving the exact order, deduplicated values,
-route fingerprints, and work budgets. Any alternative needs equivalence tests and paired
-native/browser release-frame measurements; stack proportions alone do not justify a change.
+The bundle router numerically sorts and deduplicates finite band coordinates before sorting
+by proximity. Aligned obstacle rows therefore contribute only one copy of each coordinate to
+the more expensive distance sort. Both sorts are in-place unstable sorts. The original `f64`
+distance comparator and total coordinate tie-breaker define the final order, including the
+negative-zero representative when both zero signs occur. Coordinate generation is charged
+before deduplication; candidate iteration and work-budget spending remain unchanged.
+Bitwise comparisons against the original stable-sort/dedup oracle cover float boundaries,
+distance ties, duplicated and unique coordinates, and reversed, sorted, and shuffled inputs.
+
+Paired release builds on the reference M1 Ultra host and Chrome 152 on 2026-09-06 compare
+this ordering with the original stable distance sort at `39825a81`. Each platform has three
+process pairs with both baseline-first and candidate-first order, fixed before measurement.
+Each invocation uses the unchanged two-scale CPU fixtures and twenty samples per distribution;
+every browser run has a fresh isolated profile. Cargo validation does not run concurrently.
+The table shows medians of the three per-run p50/p95 values in milliseconds, baseline → current.
+
+| Platform / nodes / connections | Cold routing p50 | Release CPU p50 | Release CPU p95 | Following-idle CPU p95 |
+| --- | --- | --- | --- | --- |
+| Native / 100 / 500 | 1.16 → 1.11 | 3.54 → 3.49 | 3.90 → 3.75 | 5.83 → 5.82 |
+| Native / 500 / 2000 | 12.28 → 10.81 | 22.24 → 20.51 | 23.05 → 21.30 | 27.55 → 26.98 |
+| Chrome / 100 / 500 | 2.37 → 2.32 | 5.90 → 5.83 | 6.10 → 6.05 | 9.10 → 8.95 |
+| Chrome / 500 / 2000 | 17.35 → 15.23 | 31.87 → 29.93 | 32.64 → 30.82 | 43.19 → 42.63 |
+
+For the large fixture, cold routing improves about 12% on both platforms; release p50 improves
+7.8% on native and 6.1% in Chrome. All three pairs improve large-fixture cold routing and release
+p50/p95 on both platforms. Every retained run passes the cold/history-aware checks and has zero
+cold/release/idle fallbacks with the existing budgets. A sort-algorithm-only comparison, without
+early deduplication, shows no consistent material native improvement and is not the selected
+implementation. Its complete paired reports are retained separately within the same
+[`node_graph_band_order_native_browser.json`](../../benchmarks/performance/node_graph_band_order_native_browser.json)
+artifact, alongside binary identities, schedules, browser versions, all samples, and collection notes.
+
+These are descriptive CPU results for aligned-row fixtures, not confidence intervals, a
+tail-latency guarantee, or proof of gains for arbitrary unique-band layouts. Stationary and
+following-idle costs are not the target of this change. Large-graph frames remain above
+16.67 ms, and these measurements do not include GPU submission or full application composition.
 
 ### Partial hit-target move elision
 
