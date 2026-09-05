@@ -99,6 +99,9 @@ appearance until the checked router is activated in step 3.
 - [x] Test cold and history-aware determinism, unrelated movement, moving obstacles into
   routes, newly opened corridors, pan/zoom, and bounded-work presentation. Acceptance:
   invalid cached paths are never reported safe; unaffected valid routes remain stable.
+- [x] Measure native connected-endpoint drag updates, retained paths, evolving fallbacks,
+  and release rebuilds. Split CPU frame timing into widget processing and tessellation;
+  retain the measured offscreen hit-target z-order optimization and edge-interaction tests.
 - [ ] Measure 100/500 and 500/2000 node/connection fixtures on native and wasm. Target routing
   p95 below 8 ms on the smaller fixture. Record misses and follow-up work rather than
   weakening constraints. Retain benchmark evidence in the performance design record.

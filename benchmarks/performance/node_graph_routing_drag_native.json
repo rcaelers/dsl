@@ -1,0 +1,509 @@
+{
+  "date": "2026-09-05",
+  "base_revision": "5a0bbe24",
+  "profile": "release (optimized + debuginfo)",
+  "hardware": {
+    "cpu": "Apple M1 Ultra",
+    "logical_cpus": 20,
+    "memory_bytes": 68719476736,
+    "os": "macOS 26.6.2 (25G83)",
+    "rustc": "1.100.0-nightly (0ed41eb41 2026-09-04)"
+  },
+  "measurement_context": "Sequential native runs on the same host, without concurrent cargo validation. CPU-only; not GPU/application frame timing or randomized paired trials.",
+  "native": {
+    "fixture": "paired-grid-connected-drag-v1",
+    "reports": [
+      {
+        "cold": {
+          "max_ms": 1.8183340000000001,
+          "p50_ms": 1.659375,
+          "p95_ms": 1.804958,
+          "p99_ms": 1.8183340000000001,
+          "samples_ms": [
+            1.5922079999999998,
+            1.5934169999999999,
+            1.598792,
+            1.5997080000000001,
+            1.604541,
+            1.6134579999999998,
+            1.6146660000000002,
+            1.6152499999999999,
+            1.638541,
+            1.659375,
+            1.6948340000000002,
+            1.7298330000000002,
+            1.744916,
+            1.76,
+            1.772459,
+            1.779375,
+            1.782708,
+            1.782834,
+            1.804958,
+            1.8183340000000001
+          ]
+        },
+        "connections": 500,
+        "first": {
+          "cold_ms": 1.767208,
+          "layout_ms": 1.081583,
+          "update_ms": 0.369208
+        },
+        "layout": {
+          "max_ms": 1.42375,
+          "p50_ms": 1.157125,
+          "p95_ms": 1.3615000000000002,
+          "p99_ms": 1.42375,
+          "samples_ms": [
+            1.027,
+            1.04225,
+            1.056834,
+            1.074958,
+            1.086375,
+            1.088833,
+            1.104709,
+            1.1389580000000001,
+            1.151333,
+            1.157125,
+            1.1882920000000001,
+            1.210541,
+            1.216083,
+            1.236375,
+            1.244041,
+            1.25325,
+            1.258791,
+            1.361208,
+            1.3615000000000002,
+            1.42375
+          ]
+        },
+        "nodes": 100,
+        "outcomes": [
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 0,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 1,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 2,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 3,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 4,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 5,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 6,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 7,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 8,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 9,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 10,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 11,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 12,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 13,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 14,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 15,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 16,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 17,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 18,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 19,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {},
+            "retained_paths": 490,
+            "sample": 20,
+            "warm_failures": {}
+          }
+        ],
+        "release_ms": 1.731292,
+        "update": {
+          "max_ms": 0.449792,
+          "p50_ms": 0.37262500000000004,
+          "p95_ms": 0.434542,
+          "p99_ms": 0.449792,
+          "samples_ms": [
+            0.358875,
+            0.360166,
+            0.36583299999999996,
+            0.369375,
+            0.369417,
+            0.370458,
+            0.371125,
+            0.371667,
+            0.372041,
+            0.37262500000000004,
+            0.377,
+            0.384334,
+            0.384625,
+            0.397083,
+            0.397167,
+            0.39825,
+            0.400083,
+            0.40549999999999997,
+            0.434542,
+            0.449792
+          ]
+        }
+      },
+      {
+        "cold": {
+          "max_ms": 9.2825,
+          "p50_ms": 8.721083,
+          "p95_ms": 9.048166,
+          "p99_ms": 9.2825,
+          "samples_ms": [
+            8.370209,
+            8.450875,
+            8.577959,
+            8.591916999999999,
+            8.626375000000001,
+            8.648,
+            8.66575,
+            8.688417000000001,
+            8.697415999999999,
+            8.721083,
+            8.750917000000001,
+            8.865708,
+            8.884334,
+            8.910375,
+            8.993666000000001,
+            9.018082999999999,
+            9.045041,
+            9.0455,
+            9.048166,
+            9.2825
+          ]
+        },
+        "connections": 2000,
+        "first": {
+          "cold_ms": 9.025125000000001,
+          "layout_ms": 16.571125,
+          "update_ms": 9.072833000000001
+        },
+        "layout": {
+          "max_ms": 16.241959,
+          "p50_ms": 9.292416,
+          "p95_ms": 10.336082999999999,
+          "p99_ms": 16.241959,
+          "samples_ms": [
+            8.746708,
+            8.754125,
+            8.799332999999999,
+            8.822999999999999,
+            8.829540999999999,
+            9.148042,
+            9.214500000000001,
+            9.232000000000001,
+            9.25375,
+            9.292416,
+            9.29725,
+            9.305625,
+            9.349958,
+            9.355875,
+            9.412208,
+            9.559709,
+            9.603584,
+            9.736333,
+            10.336082999999999,
+            16.241959
+          ]
+        },
+        "nodes": 500,
+        "outcomes": [
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 632,
+            "sample": 0,
+            "warm_failures": {
+              "WorkLimit": 728
+            }
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1264,
+            "sample": 1,
+            "warm_failures": {
+              "WorkLimit": 96
+            }
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1896,
+            "sample": 2,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1992,
+            "sample": 3,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1992,
+            "sample": 4,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1992,
+            "sample": 5,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1992,
+            "sample": 6,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1992,
+            "sample": 7,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1992,
+            "sample": 8,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1992,
+            "sample": 9,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1992,
+            "sample": 10,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1992,
+            "sample": 11,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1992,
+            "sample": 12,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1992,
+            "sample": 13,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1992,
+            "sample": 14,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1992,
+            "sample": 15,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1992,
+            "sample": 16,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1992,
+            "sample": 17,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1992,
+            "sample": 18,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1992,
+            "sample": 19,
+            "warm_failures": {}
+          },
+          {
+            "cold_failures": {
+              "WorkLimit": 1360
+            },
+            "retained_paths": 1992,
+            "sample": 20,
+            "warm_failures": {}
+          }
+        ],
+        "release_ms": 8.983291,
+        "update": {
+          "max_ms": 8.776417,
+          "p50_ms": 1.1906670000000001,
+          "p95_ms": 2.415333,
+          "p99_ms": 8.776417,
+          "samples_ms": [
+            1.094375,
+            1.098417,
+            1.100333,
+            1.126542,
+            1.128625,
+            1.131917,
+            1.155583,
+            1.181834,
+            1.184958,
+            1.1906670000000001,
+            1.2007079999999999,
+            1.2076660000000001,
+            1.252542,
+            1.271875,
+            1.291459,
+            1.365958,
+            1.3785830000000001,
+            1.424916,
+            2.415333,
+            8.776417
+          ]
+        }
+      }
+    ],
+    "zoom": 0.35
+  }
+}

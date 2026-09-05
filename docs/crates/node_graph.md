@@ -325,6 +325,12 @@ provisional geometry and highlight the splice candidate. Release checks the curr
 position, applies the existing topology operation, and returns to ordinary obstacle checking.
 Existing reroute nodes and their branching connections retain their saved representation.
 
+Node hit targets are initially registered for input, then raised in paint order so a
+front node covers controls belonging to nodes behind it. Targets outside the drawing clip
+keep their initial registration but skip the redundant z-order update. Visibility is
+tested per target, not per node body, so protruding socket hit areas remain interactive
+at viewport edges. Routing continues to include all offscreen obstacle geometry.
+
 Interaction highlights:
 
 - **Wire dragging** with live compatibility checking and snap-to-socket; a snap candidate

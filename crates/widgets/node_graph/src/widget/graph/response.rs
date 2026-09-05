@@ -65,6 +65,12 @@ fn minimap_id(base: egui::Id) -> egui::Id {
 }
 
 fn raise(ui: &egui::Ui, rect: Rect, id: egui::Id, sense: egui::Sense) {
+    // Offscreen targets retain their initial response registration. They cannot
+    // cover a visible inline control, so moving them in egui's z-order is wasted
+    // work. Test each target, not the node body: socket hit areas protrude beyond it.
+    if !rect.intersects(ui.clip_rect()) {
+        return;
+    }
     ui.interact_opt(rect, id, sense, egui::InteractOptions { move_to_top: true });
 }
 
@@ -78,6 +84,102 @@ impl GraphResponses {
             sockets: HashMap::new(),
             minimap: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod response_tests {
+    use egui::Vec2;
+
+    use super::*;
+    use crate::model::SocketDirection;
+    use crate::runtime::NodeTypeRegistry;
+
+    #[test]
+    fn clipped_raise_keeps_registration_and_resumes_when_target_enters_clip() {
+        let context = egui::Context::default();
+        let clip = Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0));
+        context.begin_pass(egui::RawInput {
+            screen_rect: Some(clip),
+            ..Default::default()
+        });
+        let mut ui = egui::Ui::new(
+            context.clone(),
+            egui::Id::new("clipped-raise"),
+            egui::UiBuilder::new().max_rect(clip),
+        );
+        ui.set_clip_rect(clip);
+        let id = ui.id().with("target");
+        let original = Rect::from_min_size(Pos2::new(300.0, 100.0), Vec2::splat(20.0));
+        ui.interact(original, id, egui::Sense::click_and_drag());
+        raise(
+            &ui,
+            original.translate(Vec2::new(20.0, 0.0)),
+            id,
+            egui::Sense::click_and_drag(),
+        );
+        assert_eq!(
+            context.read_response(id).unwrap().rect,
+            original,
+            "offscreen raising must not update/reorder the initial registration"
+        );
+        let visible = original.translate(Vec2::new(-150.0, 0.0));
+        raise(&ui, visible, id, egui::Sense::click_and_drag());
+        assert_eq!(context.read_response(id).unwrap().rect, visible);
+        let mut output = context.end_pass();
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn protruding_socket_is_raised_even_when_its_node_body_is_offscreen() {
+        let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+        let node = widget
+            .add_node_at("Reroute", Pos2::new(201.0, 100.0))
+            .unwrap();
+        let clip = Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0));
+        let layout = widget.build_layout(Pos2::ZERO);
+        let socket = SocketId {
+            node,
+            index: 0,
+            direction: SocketDirection::Input,
+        };
+        assert!(!layout.node_screen_rects[&node].intersects(clip));
+        assert!(layout.socket_hit_rects[&socket].intersects(clip));
+        let pointer = Pos2::new(199.0, 112.0);
+        let context = egui::Context::default();
+        let mut hovered = None;
+        for _ in 0..2 {
+            context.begin_pass(egui::RawInput {
+                screen_rect: Some(clip),
+                events: vec![egui::Event::PointerMoved(pointer)],
+                ..Default::default()
+            });
+            let mut ui = egui::Ui::new(
+                context.clone(),
+                egui::Id::new("protruding-target"),
+                egui::UiBuilder::new().max_rect(clip),
+            );
+            ui.set_clip_rect(clip);
+            let canvas = ui.interact(clip, ui.id().with("canvas"), egui::Sense::click_and_drag());
+            widget.allocate_responses(&mut ui, canvas, &layout, clip);
+            let covered = ui.id().with("covered-control");
+            ui.interact(
+                Rect::from_min_max(Pos2::new(190.0, 100.0), Pos2::new(200.0, 125.0)),
+                covered,
+                egui::Sense::click_and_drag(),
+            );
+            widget.raise_node_hit_targets(&ui, &layout, node);
+            hovered = Some((
+                context
+                    .read_response(socket_hit_id(ui.id(), socket))
+                    .unwrap()
+                    .hovered(),
+                context.read_response(covered).unwrap().hovered(),
+            ));
+            let mut output = context.end_pass();
+            output.textures_delta.clear();
+        }
+        assert_eq!(hovered, Some((true, false)));
     }
 }
 

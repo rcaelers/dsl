@@ -71,8 +71,8 @@ Task IDs start with their ownership category and remain stable when task wording
 - [graph.editor.connection-routing] Add ordered obstacle-avoiding connection drawing without changing
   saved topology or processing behavior. See the [design proposal](writing-block.md) and
   [implementation plan](docs/plans/node_graph_connection_routing.md). One numbered step per branch:
-  6. [ ] Complete browser, moving-node, and application-frame performance evidence, and address
-     scale work-limit fallbacks and frame cost without weakening route constraints.
+  6. [ ] Complete browser and full drag/application-frame performance evidence, and address
+     cold/release work-limit fallbacks and remaining frame cost without weakening route constraints.
      Native CPU baseline and cache-hit measurements are in
      `docs/aspects/performance.md`.
 - [graph.editor.socket-renaming] Add generic instance-local socket renaming. Node definitions explicitly mark which input and

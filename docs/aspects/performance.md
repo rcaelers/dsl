@@ -44,6 +44,9 @@ layout, including complete key construction/comparison and copying the path/fail
 with shared immutable geometry. It asserts that the stationary fixture actually hits
 the cache. The original native baseline predates snapshot reuse and retains its original
 field set; cache measurements report `cached_routing` separately from forced `routing`.
+The frame breakdown also reports a separate `build_layout` sample (with production
+history), `Context::run_ui` duration, and tessellation duration. The latter two are timed
+within the CPU frame; the separate layout sample is not an additional frame component.
 
 Reproduce the native measurement with:
 
@@ -104,9 +107,69 @@ browser measurement with a reliably bounded runner remains open.
 
 ### Proposed future measurements
 
-Real application/GPU frame timing, moving-node workloads, post-drag quality passes, and
-history-aware comparison remain required by the connection-routing plan. The CPU-only
-scale harness does not replace those acceptance gates.
+Real application/GPU frame timing, full moving-node frame workloads, browser execution,
+and broader drag scenarios remain required by the connection-routing plan. The CPU-only
+scale and connected-endpoint fixtures do not replace those acceptance gates.
+
+### Connected-endpoint drag measurement
+
+`routing_drag_native` and `routing_drag_browser` use `paired-grid-connected-drag-v1`:
+the same two graph sizes and 0.35 zoom, with the first connected source alternating
+between its original Y and Y + 20. The other nodes remain stationary. Each sample times
+layout preparation with production history, an independent history-aware route update on
+that prepared layout, and a forced cold rebuild. Preparation does not warm the independent
+route history. Every sample changes geometry, checks finite complete presentation,
+verifies that incident routes are rebuilt, and counts shared checked paths and failures.
+The final release rebuild is checked against the same geometry's cold result. These are
+route/layout measurements, not input-dispatch or complete drag-frame timings.
+
+The first update is separate from twenty subsequent release-profile samples; the latter
+report nearest-rank p50/p95/p99 and raw samples. With only twenty samples, p99 is the maximum,
+not a well-estimated long-tail percentile. Debug tests use two updates without timing gates.
+Run `cargo test -p node-graph --release routing_drag_native -- --nocapture` to reproduce.
+
+The native capture on 2026-09-05 uses the reference M1 Ultra host/profile above and routing
+revision `5a0bbe24`. Raw timings and per-update outcomes are in
+[`node_graph_routing_drag_native.json`](../../benchmarks/performance/node_graph_routing_drag_native.json).
+
+| Native fixture | Drag route p50 / p95 / p99 | Cold route p95 | Layout p95 | Release rebuild |
+| --- | --- | --- | --- | --- |
+| 100 nodes / 500 connections | 0.373 / 0.435 / 0.450 ms | 1.805 ms | 1.362 ms | 1.731 ms |
+| 500 nodes / 2000 connections | 1.191 / 2.415 / 8.776 ms | 9.048 ms | 10.336 ms | 8.983 ms |
+
+The smaller fixture retains 490 unrelated checked paths on every move, with no failures.
+The larger starts with 1360 cold `WorkLimit` fallbacks; its first three updates reduce those
+to 728, 96, and zero as retained proofs free search work for other pairs. Later moves retain
+1992 paths. Cold routing and the release quality rebuild still produce 1360 fallbacks.
+Warm recovery therefore does not establish complete cold-route throughput, and the release
+shortfall remains required follow-up work.
+
+### Offscreen hit-target z-order cost
+
+The CPU frame breakdown places most of the larger stationary fixture's cost in widget
+processing, not tessellation: before the change, UI p95 is 521.83 ms and tessellation p95
+is 1.32 ms. egui's `move_to_top` implementation removes and reinserts a widget in its layer
+and updates the shifted widget indexes. Raising every offscreen target repeats that work
+for targets that cannot cover a visible inline control.
+
+The editor retains initial response registrations but skips the second, z-order-only
+registration when that target is outside the drawing clip. Each socket target is checked
+independently of its node body, preserving protruding socket hit areas at viewport edges.
+Complete layout, obstacle geometry, routing, and document state are unchanged.
+
+Sequential native runs on the same reference host, without concurrent cargo validation,
+give the following observations. These are not randomized paired trials or end-to-end GPU
+measurements. Full before/after samples are in
+[`node_graph_hit_target_culling_native.json`](../../benchmarks/performance/node_graph_hit_target_culling_native.json).
+
+| Native fixture | CPU frame p95 before / after | Routing fallback count before / after |
+| --- | --- | --- |
+| 100 nodes / 500 connections | 21.90 / 9.85 ms | 0 / 0 |
+| 500 nodes / 2000 connections | 523.10 / 63.36 ms | 1360 / 1360 |
+
+The larger frame remains too expensive for smooth interaction. Further profiling and
+browser/application measurements remain necessary; this optimization does not change
+routing work budgets or reinterpret failures as checked paths.
 
 ## Reference workloads
 
