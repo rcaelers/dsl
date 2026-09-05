@@ -71,10 +71,10 @@ Task IDs start with their ownership category and remain stable when task wording
 - [graph.editor.connection-routing] Add ordered obstacle-avoiding connection drawing without changing
   saved topology or processing behavior. See the [design proposal](writing-block.md) and
   [implementation plan](docs/plans/node_graph_connection_routing.md). One numbered step per branch:
-  6. [ ] Complete browser and full drag/application-frame performance evidence, and address
+  6. [ ] Complete GPU and full drag/application-frame performance evidence, and address
      remaining cold-routing/frame cost without weakening route constraints. Keep the disjoint
      reference fixtures free of cold/release fallbacks with the existing work budgets.
-     Native CPU baseline and cache-hit measurements are in
+     Native/browser CPU baselines, connected-drag, and cache-hit measurements are in
      `docs/aspects/performance.md`.
 - [graph.editor.socket-renaming] Add generic instance-local socket renaming. Node definitions explicitly mark which input and
   output sockets are renameable; sockets without that capability remain definition-owned. Preserve stable schema IDs and

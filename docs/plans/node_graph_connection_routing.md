@@ -87,9 +87,10 @@ appearance until the checked router is activated in step 3.
 - [x] Add portable scale fixtures and record the native CPU-only baseline for routing,
   hover and editor tessellation, including hardware, timing distributions and fallback
   counts in the performance record.
-- [ ] Capture a completed browser CPU baseline with a reliably bounded runner. Interactive
-  execution produced partial progress but no retained full result. Measure GPU
-  upload/presentation and real application frame time separately.
+- [x] Capture a completed browser CPU baseline with a reliably bounded runner. Retain both
+  stationary and connected-drag release reports; test timeout cleanup and reject partial runs.
+- [ ] Measure GPU upload/presentation, full drag frames, and real application frame time
+  separately from the CPU-only widget/routing fixtures.
 - [x] Reuse identical routing snapshots using complete geometry/configuration/zoom keys,
   immutable shared path data, and unchanged failure classifications. Test invalidation
   and compare native cache-hit cost with the retained forced-rebuild baseline.
@@ -109,7 +110,7 @@ appearance until the checked router is activated in step 3.
   painting. Retain native frame/layout measurements and visibility/indicator regression tests.
 - [x] Index socket hit-target order per node to avoid repeated full-map scans. Preserve
   overlapping-target winners, cover layout/topology changes, and retain native timing evidence.
-- [ ] Measure 100/500 and 500/2000 node/connection fixtures on native and wasm. Target routing
+- [x] Measure 100/500 and 500/2000 node/connection fixtures on native and wasm. Target routing
   p95 below 8 ms on the smaller fixture. Record misses and follow-up work rather than
   weakening constraints. Retain benchmark evidence in the performance design record.
 

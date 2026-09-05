@@ -54,19 +54,31 @@ Reproduce the native measurement with:
 cargo test -p node-graph --release routing_scale_native -- --nocapture
 ```
 
-The browser uses the same fixture and measurement body:
+The browser uses the same stationary and connected-drag fixture bodies. Build the release
+test binary, then pass the `.wasm` executable path printed by Cargo to the bounded runner:
 
 ```sh
-NO_HEADLESS=1 CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
-  cargo test -p node-graph --release --target wasm32-unknown-unknown --lib \
-  routing_scale_browser -- --nocapture
+cargo test -p node-graph --release --target wasm32-unknown-unknown --lib --no-run
+CHROME_BIN="/path/to/chrome" WASM_BINDGEN_TEST_RUNNER=wasm-bindgen-test-runner \
+  node scripts/measure_node_graph_browser.mjs /path/to/node_graph-test.wasm
 ```
 
-Open the runner's localhost URL and retain the `ROUTING_PERFORMANCE` console JSON.
-`ROUTING_PROGRESS` messages identify each construction, routing, and frame sample outside
-the measured intervals. The runner must match the lockfile's wasm-bindgen version (0.2.127
-for this baseline). Browser execution is interactive, with no GPU-backed canvas in this
-harness; a long synchronous test can keep the page unresponsive until it finishes.
+The host script requires Node 22 or newer and Chrome on macOS/Linux. The wasm-bindgen runner
+must match the lockfile version (0.2.127 for this baseline). It serves tests on an ephemeral
+loopback port and starts a separate headless Chrome process with a fresh temporary profile;
+it never attaches to an existing browser. DevTools captures console reports and the final
+test summary without virtual-time overrides. `ROUTING_PROGRESS` messages go to stderr,
+outside measured intervals. Successful stdout JSON requires both browser tests to pass and
+both fixtures to retain twenty release samples, including the drag outcomes/release timer.
+Debug, partial, or failed executions are not accepted as baselines.
+
+`ROUTING_BROWSER_TIMEOUT_SECONDS` bounds the complete serve/browser execution, defaulting
+to 180 seconds, independently of the browser event loop; compilation is separate. Timeout,
+interruption, early process exit, or connection loss fails the run. Cleanup terminates only
+the process groups it starts and removes their temporary profile. Runner regression tests
+include a stalled process with a descendant and assert that neither survives the timeout:
+`node --test scripts/measure_node_graph_browser_test.mjs`. This harness has no GPU-backed
+canvas and does not measure texture upload, presentation, or surrounding application work.
 
 The native reference was measured on 2026-09-05 using the routing implementation at
 `8da42b1d`, an Apple M1 Ultra (20 logical CPUs, 64 GiB), macOS 26.6.2 (25G83), Rust
@@ -103,11 +115,12 @@ stationary measurements do not establish moving-node or browser responsiveness.
 Interactive Chrome execution reached both corrected fixtures, but automation stalled
 before a completed test result and full JSON report could be retrieved. Partial progress
 logs are not retained as a browser baseline or a browser correctness pass. Repeating the
-browser measurement with a reliably bounded runner remains open.
+measurement with the bounded runner provides the complete
+[browser CPU reference](#bounded-browser-and-native-cpu-reference) below.
 
 ### Proposed future measurements
 
-Real application/GPU frame timing, full moving-node frame workloads, browser execution,
+Real application/GPU frame timing, full moving-node frame workloads,
 and broader drag scenarios remain required by the connection-routing plan. The CPU-only
 scale and connected-endpoint fixtures do not replace those acceptance gates.
 
@@ -168,7 +181,7 @@ measurements. Full before/after samples are in
 | 500 nodes / 2000 connections | 523.10 / 63.36 ms | 1360 / 1360 |
 
 The larger frame remains too expensive for smooth interaction. Further profiling and
-browser/application measurements remain necessary; this optimization does not change
+application/GPU measurements remain necessary; this optimization does not change
 routing work budgets or reinterpret failures as checked paths.
 
 ### Complete cold routing with a bundle-validation broad phase
@@ -194,7 +207,7 @@ The larger cold pass takes longer than the earlier roughly 9 ms work-limited mea
 but completes all 2000 checked routes instead of abandoning 1360 of them. This is a
 completeness improvement, not a like-for-like latency regression or a claim of faster
 full-route throughput against that incomplete baseline. The smaller fixture remains below
-the 8 ms routing-p95 target. Large-frame cost, broader layouts, browser execution, and
+the 8 ms routing-p95 target. Large-frame cost, broader layouts, and
 application/GPU measurements remain open acceptance work. The full-scan collision oracle,
 boundary contacts, nonfinite geometry, original endpoint exemptions, envelope containment,
 and exhausted-work behavior have regression coverage.
@@ -221,7 +234,7 @@ Routing outcome counts, including cubic counts, are unchanged. The fixture has v
 sockets and no indicators, so it exercises the avoided scans; it does not establish the
 same improvement for heavily hidden or decorated graphs. Visibility truth-table and
 multi-owner indicator placement tests cover hidden/connected sockets, connect/disconnect
-updates, and low/normal/high zoom. Large-frame cost and browser/application measurements
+updates, and low/normal/high zoom. Large-frame cost and application/GPU measurements
 remain open acceptance work.
 
 ### Per-node socket hit-order index
@@ -249,8 +262,39 @@ The smaller frame result is essentially unchanged; the larger benefits from elim
 the repeated visits. Routing outcome and cubic counts are unchanged. Tests compare the
 index with the flat-map projection across hiding, collapse, socket growth, connection and
 node changes, and verify the same winner for deliberately overlapping socket targets.
-The larger CPU frame remains above a 60 Hz budget, and browser/application verification
+The larger CPU frame remains above a 60 Hz budget, and application/GPU verification
 remains outstanding.
+
+### Bounded browser and native CPU reference
+
+The release fixture at `04c45237` completes both browser tests in isolated headless Chrome
+152.0.7977.83 (V8 15.2.124.21) on the reference M1 Ultra host. The retained 2026-09-05 run uses
+a 45-second outer deadline and matching wasm-bindgen-test-runner 0.2.127. Separate native
+stationary and drag runs follow on the same Rust source without concurrent cargo validation.
+The full browser identity, test summary, wasm hash, host metadata, first samples, and subsequent
+sample arrays are retained in
+[`node_graph_routing_browser_baseline.json`](../../benchmarks/performance/node_graph_routing_browser_baseline.json).
+
+| Target / fixture | Forced routing p95 | Cache-hit p95 | CPU frame p95 | Fallbacks |
+| --- | --- | --- | --- | --- |
+| Native, 100 nodes / 500 connections | 1.266 ms | 0.153 ms | 8.315 ms | 0 |
+| Chrome, 100 nodes / 500 connections | 2.515 ms | 0.120 ms | 12.885 ms | 0 |
+| Native, 500 nodes / 2000 connections | 12.620 ms | 0.666 ms | 39.217 ms | 0 |
+| Chrome, 500 nodes / 2000 connections | 17.460 ms | 0.525 ms | 58.010 ms | 0 |
+
+| Target / connected-endpoint drag | Update p95 | Cold p95 | Release rebuild | Retained paths |
+| --- | --- | --- | --- | --- |
+| Native, 100 nodes / 500 connections | 0.432 ms | 1.207 ms | 1.251 ms | 490 |
+| Chrome, 100 nodes / 500 connections | 0.530 ms | 2.225 ms | 2.145 ms | 490 |
+| Native, 500 nodes / 2000 connections | 1.394 ms | 12.537 ms | 12.634 ms | 1992 |
+| Chrome, 500 nodes / 2000 connections | 1.565 ms | 17.515 ms | 16.950 ms | 1992 |
+
+Every recorded warm/cold drag outcome has zero fallbacks; release checks match the cold
+geometry and failure map. The smaller fixture meets the 8 ms routing-p95 target on both
+targets. The larger CPU frame remains above a 60 Hz budget on both. These single-host
+observations are not randomized paired comparisons, a cross-browser guarantee, or evidence
+of an end-to-end application frame rate. Connected-drag timers isolate routing/layout, not
+the full widget frame. GPU, real application, and full drag-frame measurements remain open.
 
 ## Reference workloads
 
