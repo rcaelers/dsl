@@ -173,8 +173,44 @@ undo history.
 The private individual router accepts node rectangles and explicit left/right port geometry.
 Its layout adapter includes offscreen nodes, excludes frame rectangles, and assigns temporary
 obstacle indices in sorted node-ID order. Every layout generation computes checked routes
-without changing the document. Each pass shares one work budget across connections in stable
-endpoint order. Routes and failures live only in that layout snapshot; there is no retained
+without changing the document. The adapter partitions connections by ordered node pair, then
+sorts source sockets by height and socket index. Shared outputs use destination height and
+socket index as their secondary order. First-compatible placement partitions destination
+inversions into separate candidate groups. Equal heights, including signed zero, use socket
+keys rather than container iteration order. Non-finite, backward, and equal-X candidates
+remain singletons. A separate bounded comparison allowance limits partitioning; exhaustion
+also leaves remaining candidates as singletons. Candidate membership alone does not assert a
+shared corridor: the bundle router checks capacity and final geometry before accepting a group.
+
+The bundle router searches horizontal lane bands near the endpoint midpoint and above/below
+expanded obstacle boundaries. Interior lanes have a fixed minimum spacing of eight layout
+units. Staggered rectilinear endpoint fans transition from actual socket spacing to interior
+spacing. The complete lane band and both connecting fan envelopes must avoid every expanded
+body. Final segments receive the same analytic collision checks as individual routes; only
+the outward port escapes have their own-node exemptions. Pairwise analytic checks reject
+intersections within a bundle, except the horizontal prefix/suffix of an explicitly shared
+socket. Coincident distinct sockets do not receive that exemption. Shared-output separation
+starts at zero; no minimum-spacing guarantee applies inside endpoint fans.
+
+When a single band does not fit, the router searches a monotonic visibility lattice for a
+shared multi-turn reference path. Endpoint band pairs are tried in stable proximity order
+after validating their fan openings. An asymmetric swept footprint reserves the full lane
+height below the reference and the full turn displacement on either side in X. Obstacle
+inflation by the reflected footprint checks both slab capacity and connecting openings,
+including the space required to stagger vertical runs. Lane offsets turn in opposite X
+directions for upward and downward runs. Collinear reference steps are coalesced; folded
+offsets, unrepresentable spacing, and intersecting final paths are rejected. The conservative
+footprint can reject a physically feasible layout; search does not claim completeness or a
+globally optimal bundle arrangement.
+
+A failed bundle attempt splits into contiguous halves in stable order and retries
+down to individual visibility routes. Crossings between separately routed groups are allowed.
+All band candidates, collision checks, retries, and individual searches share the routing
+work budget. The private `routing/corridor` owner provides rectangle validation, port escapes,
+and visibility search to the individual and bundle routers; neither routes through the other.
+
+Each pass shares one routing work budget across connections in stable pair/group/member
+order. Routes and failures live only in that layout snapshot; there is no retained
 route history across topology edits, load, undo, or redo.
 
 The router validates finite geometry and configuration, expands node bodies, and creates

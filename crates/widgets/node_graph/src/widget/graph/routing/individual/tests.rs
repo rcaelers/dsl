@@ -1,10 +1,10 @@
 use egui::{Pos2, Rect};
 
-use super::super::PathSegment;
-use super::contract::{PortGeometry, PortSide, RouteConfig, RouteFailure, RouteInput, WorkBudget};
-use super::obstacle::clear;
+use super::super::corridor::{Channels, clear};
+use super::super::{
+    PathSegment, PortGeometry, PortSide, RouteConfig, RouteFailure, RouteInput, WorkBudget,
+};
 use super::router::route;
-use super::search::Channels;
 
 fn rect(x: f32, y: f32, w: f32, h: f32) -> Rect {
     Rect::from_min_size(Pos2::new(x, y), egui::vec2(w, h))

@@ -1,6 +1,6 @@
 use egui::{Pos2, Rect, Vec2};
 
-use super::contract::{PortGeometry, PortSide, RouteConfig, RouteFailure, RouteInput, WorkBudget};
+use super::super::{PortGeometry, PortSide, RouteConfig, RouteFailure, RouteInput, WorkBudget};
 
 pub(crate) fn expanded(
     input: &RouteInput<'_>,
@@ -12,6 +12,8 @@ pub(crate) fn expanded(
         .all(|v| v.is_finite() && *v >= 0.0)
         || !config.safety.is_finite()
         || config.safety <= 0.0
+        || !config.lane_spacing.is_finite()
+        || config.lane_spacing <= 0.0
         || !config.bend_cost.is_finite()
         || config.bend_cost < 0.0
         || !config.vertical_weight.is_finite()

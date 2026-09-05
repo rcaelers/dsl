@@ -46,12 +46,18 @@ appearance until the checked router is activated in step 3.
 
 ## 4. Compatible bundles and capacity
 
-- [ ] Group eligible node-pair connections deterministically and partition inversions into
-  compatible sub-bundles. Handle shared-output fan-out with zero initial separation.
-- [ ] Search with bundle envelopes, checking slabs and connecting openings. Allocate fixed
+- [x] Group eligible node-pair connections deterministically and partition inversions into
+  compatible candidates, with destination ordering for shared outputs and stable socket-key
+  ties. Bound partition comparisons and retain individual routing until capacity is checked.
+- [x] Route rectilinear shared-output fan-out with zero initial separation.
+- [x] Search horizontal lane-band envelopes and both connecting fan openings. Allocate fixed
   minimum-spacing lanes and split failed groups deterministically down to individual paths.
-- [ ] Test inversions, equal-Y ties, shared outputs, narrow openings, and input iteration
-  permutations. Acceptance: compatible shared interiors preserve order and capacity;
+- [x] Extend shared envelope search across multiple slabs with interior turns, preserving
+  capacity through every connecting opening rather than splitting whenever one band cannot fit.
+- [x] Test candidate partitioning for inversions, equal-Y ties, shared outputs, input iteration
+  permutations, ineligible geometry, and exhausted grouping comparisons.
+- [x] Test routed shared outputs, narrow bands, blocked fan openings, and editor split/retry.
+- [x] Test multi-turn shared corridors and their openings. Acceptance: compatible shared interiors preserve order and capacity;
   crossings between separate groups are allowed and not misreported as ordering failures.
 
 ## 5. Smooth curves and variable spacing

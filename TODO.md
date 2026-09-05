@@ -71,7 +71,6 @@ Task IDs start with their ownership category and remain stable when task wording
 - [graph.editor.connection-routing] Add ordered obstacle-avoiding connection drawing without changing
   saved topology or processing behavior. See the [design proposal](writing-block.md) and
   [implementation plan](docs/plans/node_graph_connection_routing.md). One numbered step per branch:
-  4. [ ] Add compatible bundles, shared-output fan-out, and channel-opening capacity checks.
   5. [ ] Add validated smoothing and capacity-aware variable spacing.
   6. [ ] Add stable incremental updates and record native/browser performance evidence.
 - [graph.editor.socket-renaming] Add generic instance-local socket renaming. Node definitions explicitly mark which input and

@@ -1,7 +1,7 @@
-use super::super::{PathSegment, WirePath};
-use super::contract::{PortSide, RouteConfig, RouteFailure, RouteInput, WorkBudget};
-use super::obstacle::{clear, escape, expanded};
-use super::search::Channels;
+use super::super::corridor::{Channels, clear, escape, expanded};
+use super::super::{
+    PathSegment, PortSide, RouteConfig, RouteFailure, RouteInput, WirePath, WorkBudget,
+};
 
 #[cfg(test)]
 pub(crate) fn route(input: RouteInput<'_>, config: &RouteConfig) -> Result<WirePath, RouteFailure> {

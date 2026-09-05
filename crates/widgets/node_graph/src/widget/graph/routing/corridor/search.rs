@@ -3,7 +3,7 @@ use std::collections::BinaryHeap;
 
 use egui::{Pos2, Rect};
 
-use super::contract::{RouteConfig, RouteFailure, WorkBudget};
+use super::super::{RouteConfig, RouteFailure, WorkBudget};
 use super::obstacle::clear;
 
 /// Columns at obstacle boundaries partition the plane into slabs. Retaining each
