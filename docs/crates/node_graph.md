@@ -333,6 +333,13 @@ provisional geometry and highlight the splice candidate. Release checks the curr
 position, applies the existing topology operation, and returns to ordinary obstacle checking.
 Existing reroute nodes and their branching connections retain their saved representation.
 
+The wire-splice owner checks connectivity before preparing a drop-specific routing layout.
+Connected nodes cannot splice, so drag and placement confirmation leave their routing history
+untouched until the ordinary post-gesture quality rebuild. Eligible unconnected nodes still
+prepare candidate-excluded geometry at their final position, including center-targeted drops
+without a pointer. Frame membership and the final full routing rebuild remain independent
+of this insertion check.
+
 Node hit targets are initially registered for input, then raised in paint order so a
 front node covers controls belonging to nodes behind it. Targets outside the drawing clip
 keep their initial registration but skip the redundant z-order update. Visibility is

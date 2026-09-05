@@ -311,6 +311,23 @@ impl NodeGraphWidget {
         }
     }
 
+    /// Checks drop eligibility before preparing candidate-excluded routing.
+    /// Connected nodes cannot splice, so their existing routing history stays
+    /// intact until the normal post-gesture quality rebuild.
+    pub(crate) fn try_wire_insert_on_drop(
+        &mut self,
+        node_id: NodeId,
+        pointer_canvas: Option<Pos2>,
+    ) {
+        if node_has_any_connection(&self.graph.connections, node_id) {
+            return;
+        }
+        // The final pointer event may have moved the node since the input
+        // layout was prepared. Eligible drops still need current geometry.
+        let layout = self.build_layout_excluding(Pos2::ZERO, Some(node_id));
+        self.try_wire_insert(node_id, pointer_canvas, &layout);
+    }
+
     pub(crate) fn try_wire_insert(
         &mut self,
         node_id: NodeId,

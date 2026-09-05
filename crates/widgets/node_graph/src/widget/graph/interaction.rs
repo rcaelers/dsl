@@ -450,8 +450,7 @@ impl NodeGraphWidget {
             };
         }
 
-        let drop_layout = self.build_layout_excluding(Pos2::ZERO, Some(node_id));
-        self.try_wire_insert(node_id, pointer_canvas, &drop_layout);
+        self.try_wire_insert_on_drop(node_id, pointer_canvas);
         let selected: Vec<NodeId> = self
             .graph
             .nodes
@@ -529,8 +528,7 @@ impl NodeGraphWidget {
                     .map(|node| node.id)
                     .collect();
                 if let [only] = selected[..] {
-                    let drop_layout = self.build_layout_excluding(Pos2::ZERO, Some(only));
-                    self.try_wire_insert(only, pointer_canvas, &drop_layout);
+                    self.try_wire_insert_on_drop(only, pointer_canvas);
                 }
                 self.resolve_frame_membership_on_drop(&selected, layout);
                 return InteractionState::Idle;

@@ -3,7 +3,7 @@ use egui::{Color32, Pos2, Shape, Vec2};
 use super::action::GraphAction;
 use super::connection_paint::{WireEmphasis, draw_connections};
 use super::interaction_state::InteractionState;
-use super::routing::{PathSegment, RouteFailure};
+use super::routing::{PathSegment, RouteConfig, RouteFailure};
 use super::widget::NodeGraphWidget;
 use crate::model::{Connection, NodeId, NodeKind, SocketDirection, SocketId};
 use crate::runtime::NodeTypeRegistry;
@@ -135,7 +135,7 @@ fn splice_preview_excludes_only_the_candidate_and_routes_rebuild_after_insertion
         widget.compute_insert_candidate_wire(candidate, Some(point), &layout),
         Some((0, true))
     );
-    widget.try_wire_insert(candidate, Some(point), &layout);
+    widget.try_wire_insert_on_drop(candidate, Some(point));
     widget.interaction_state = InteractionState::Idle;
     let layout = widget.build_layout(Pos2::ZERO);
     assert_eq!(layout.routing_excluded, None);
@@ -146,6 +146,103 @@ fn splice_preview_excludes_only_the_candidate_and_routes_rebuild_after_insertion
     );
     assert_eq!(layout.wire_paths.len(), 2);
     assert!(layout.wire_failures.is_empty());
+}
+
+#[test]
+fn connected_drop_preserves_topology_undo_and_the_existing_route_snapshot() {
+    for endpoint in 0..2 {
+        for placing in [false, true] {
+            let (mut widget, connection, _) = scene();
+            let node = if endpoint == 0 {
+                connection.from.node
+            } else {
+                connection.to.node
+            };
+            widget.graph.nodes.get_mut(&node).unwrap().selected = true;
+            widget.interaction_state = if placing {
+                InteractionState::PlacingNodes {
+                    anchor_canvas: Pos2::ZERO,
+                    just_entered: false,
+                }
+            } else {
+                InteractionState::DraggingNode {
+                    node_id: node,
+                    offset: Vec2::ZERO,
+                    constraint: None,
+                }
+            };
+            let mut layout = widget.build_layout(Pos2::ZERO);
+            let before = serde_json::to_value(&widget.graph).unwrap();
+            let undo_count = widget.undo_stack.len();
+            let point = layout.nodes[&node].node_rect().center();
+            widget.try_wire_insert_on_drop(node, Some(point));
+            assert_eq!(serde_json::to_value(&widget.graph).unwrap(), before);
+            assert_eq!(widget.undo_stack.len(), undo_count);
+            // An unnecessary excluded-node layout changes the exact-input key.
+            // A hit here proves that even transient routing state was untouched.
+            assert!(widget.routing_cache.borrow_mut().route_interactive(
+                &mut layout,
+                &widget.graph.connections,
+                &RouteConfig::default(),
+                widget.view.zoom,
+                true,
+            ));
+        }
+    }
+}
+
+#[test]
+fn eligible_drop_uses_final_node_geometry_for_pointer_and_center_targets() {
+    for placing in [false, true] {
+        for pointer_present in [false, true] {
+            let (mut widget, connection, candidate) = scene();
+            widget.graph.nodes.get_mut(&candidate).unwrap().selected = true;
+            widget.graph.nodes.get_mut(&candidate).unwrap().pos.y = 300.0;
+            widget.interaction_state = if placing {
+                InteractionState::PlacingNodes {
+                    anchor_canvas: Pos2::ZERO,
+                    just_entered: false,
+                }
+            } else {
+                InteractionState::DraggingNode {
+                    node_id: candidate,
+                    offset: Vec2::ZERO,
+                    constraint: None,
+                }
+            };
+            let stale = widget.build_layout(Pos2::ZERO);
+            assert!(
+                widget
+                    .compute_insert_candidate_wire(candidate, None, &stale)
+                    .is_none()
+            );
+            // Simulate the final input event moving the node onto the wire.
+            widget.graph.nodes.get_mut(&candidate).unwrap().pos.y = 120.0;
+            widget.try_wire_insert_on_drop(
+                candidate,
+                pointer_present.then_some(Pos2::new(262.0, 132.0)),
+            );
+            assert_eq!(widget.graph.connections.len(), 2);
+            assert!(
+                widget
+                    .graph
+                    .connections
+                    .iter()
+                    .any(|c| c.from == connection.from && c.to.node == candidate)
+            );
+            assert!(
+                widget
+                    .graph
+                    .connections
+                    .iter()
+                    .any(|c| c.from.node == candidate && c.to == connection.to)
+            );
+            widget.interaction_state = InteractionState::Idle;
+            let layout = widget.build_layout(Pos2::ZERO);
+            assert_eq!(layout.wire_paths.len(), 2);
+            assert!(layout.wire_failures.is_empty());
+        }
+    }
 }
 
 #[test]

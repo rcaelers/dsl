@@ -345,6 +345,40 @@ processing for further profiling; single release/idle samples do not establish t
 Both targets retain zero isolated, moving-frame, and release routing fallbacks. GPU and
 full-application measurements, broader drag layouts, and frame-cost reduction remain open.
 
+### Eligibility-first connected-node drops
+
+The wire-splice owner rejects an already-connected node before building candidate-excluded
+drop routing. Drag and placement confirmation call this shared operation. Such a node cannot
+splice under the existing topology rules; its ordinary release-quality rebuild still runs.
+Eligible unconnected drops continue to build current geometry after the final pointer event,
+with only the candidate excluded. Pointer-less drops retain node-center targeting.
+
+This removes an unused layout construction, routing-key change, and full routing pass from
+connected-node release. It does not remove the final quality pass, change routing budgets,
+alter frame membership, or optimize the following idle response-allocation pass. Tests verify
+unchanged document/undo state and an exact routing-cache hit after rejecting input-connected
+and output-connected candidates, for drag and placement. Eligible-drop tests cover final-event
+movement, pointer/center targets, and checked routes after insertion. The full pointer-driven
+fixture still requires every release path to be rebuilt and match the cold oracle.
+
+Sequential native and Chrome release runs on the reference host on 2026-09-05 compare
+`62a90857` with this change using the unchanged pointer-driven fixture. Source stays fixed
+through every build/run and there is no concurrent cargo validation. Complete reports are in
+[`node_graph_connected_drop_native_browser.json`](../../benchmarks/performance/node_graph_connected_drop_native_browser.json).
+
+| Target / fixture | Release CPU frame before / after | Following idle before / after |
+| --- | --- | --- |
+| Native, 100 nodes / 500 connections | 5.234 / 3.843 ms | 5.952 / 6.317 ms |
+| Chrome, 100 nodes / 500 connections | 8.580 / 6.245 ms | 9.645 / 10.215 ms |
+| Native, 500 nodes / 2000 connections | 36.632 / 21.546 ms | 29.042 / 32.022 ms |
+| Chrome, 500 nodes / 2000 connections | 49.475 / 32.415 ms | 46.415 / 51.600 ms |
+
+Release and following-idle entries are one sample per fixture/run, not p95 or randomized
+paired measurements. They show a lower observed release cost without establishing an idle
+improvement; idle samples are higher in these runs. All isolated and pointer-driven drag
+outcomes retain zero fallbacks. Release/idle tail distributions, remaining cold-routing and
+frame costs, broader layouts, and GPU/application timing remain open acceptance work.
+
 ## Reference workloads
 
 All performance claims are measured on two reference captures. A change is not accepted on the
