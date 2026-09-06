@@ -514,6 +514,15 @@ mod tests {
             Some(Command::ProfileFrames(_))
         ));
         assert!(Args::try_parse_from(["logic-conduit", "profile-frames"]).is_err());
+        assert!(
+            Args::try_parse_from([
+                "logic-conduit",
+                "profile-frames",
+                "fixture.json",
+                "--always-on-top"
+            ])
+            .is_ok()
+        );
         for seconds in ["0", "20", "300"] {
             assert!(
                 Args::try_parse_from([

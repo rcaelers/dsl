@@ -454,6 +454,10 @@ samples and the minimum lifetime are complete. Extra UI frames do not extend the
 an early close fails even if the sample count is complete. Post-warmup surface-acquisition
 failures invalidate the run while preserving the renderer's default recovery action. This
 prevents CPU-only work on an occluded surface from masquerading as rendered-frame evidence.
+`--always-on-top` explicitly activates the temporary profiling window and requests a window
+level above normal windows. It is off by default, does not affect normal application windows,
+and is recorded in each report. It does not bypass surface validation or guarantee visibility
+on a locked desktop or behind higher-level system UI.
 
 `eframe_cpu` is the framework's previous-frame CPU-side elapsed time, including UI and rendering
 work but excluding its measured vsync wait. It is not GPU execution time. `ui_start_interval`
@@ -499,7 +503,7 @@ must exit successfully and the CPU report must validate. Existing trace paths ar
 cleanup kills only owned process groups. Capture completion alone is not rendering acceptance.
 
 ```sh
-node scripts/measure_application_metal.mjs target/release/logic-conduit <fanout.json> <new.trace>
+node scripts/measure_application_metal.mjs target/release/logic-conduit <fanout.json> <new.trace> --always-on-top
 xcrun xctrace export --input <new.trace> \
   --xpath '/trace-toc/run[@number="1"]/data/table[@schema="metal-gpu-intervals"]' --output <gpu.xml>
 xcrun xctrace export --input <new.trace> \
@@ -518,7 +522,7 @@ required `egui_render` label prevents write-only GPU activity from passing rende
 Raw Instruments exports can include unrelated system metadata even with `--attach`; only
 process-filtered evidence belongs in the repository.
 
-The reference-host 2026-09-06 scale captures complete but fail rendering acceptance: the
+The occluded reference-host 2026-09-06 scale captures complete but fail rendering acceptance: the
 100-node analysis window contains 943 pending-write and 259 signal buffers; the 500-node
 window contains 206 and 58 respectively, with no `egui_render` buffers in either. Hardened
 reruns explicitly report surface acquisition `Occluded` at both scales. Their CPU/cadence
@@ -532,11 +536,43 @@ Regression checks run with `node --test scripts/measure_application_metal_test.m
 failure/timeout cleanup including descendants, XML references, process isolation, overlapping
 and nested intervals, boundary exclusions, missing required render work and malformed data.
 
+### Visible native GPU observations
+
+The opt-in foreground setting supports visible-window measurement without relaxing the
+surface-acquisition guard. On the reference M1 Ultra host on 2026-09-06, both application
+scale fixtures complete the bounded capture with `--always-on-top` and a post-measurement
+screenshot. The trace-relative 1–4 second window contains 170 and 175 `egui_render` command
+buffers respectively. Each figure below is a single-run nearest-rank observation, not a
+before/after comparison, confidence interval, or full application-frame measurement.
+
+| Nodes / connections | Render GPU span p50 / p95 | Render GPU active union p50 / p95 | Pending-write GPU span p50 / p95 |
+| --- | --- | --- | --- |
+| 100 / 500 | 0.225 / 0.230 ms | 0.207 / 0.210 ms | 0.014 / 0.045 ms |
+| 500 / 2000 | 0.222 / 0.228 ms | 0.205 / 0.208 ms | 0.014 / 0.047 ms |
+
+Separate uninstrumented CPU runs, each with 30 warmup / 120 observations and the same foreground
+setting, show eframe CPU p50/p95 of 3.27/3.61 ms and 12.53/13.42 ms respectively. CPU and GPU
+samples cover different windows and are not added or subtracted. Instrumented CPU observations
+remain in the artifact as capture-completion evidence, not an uninstrumented timing baseline.
+
+All four post-measurement screenshots are inspected. CPU and trace screenshots have identical
+hashes at each scale: 100% graph zoom, default split panels, empty capture/viewer, disabled
+Run/Start controls, visible fan-out, and 100/500 node counts with most content offscreen. No
+migration/error toasts appear. The larger fixture shows more angular routes; appearance does
+not establish route quality or fallback counts. This workload does not represent the neutral
+low-zoom full CPU widget fixture or a fully visible large graph. Its similar GPU spans therefore
+do not establish constant rendering cost with graph size or a whole-graph 60 Hz guarantee.
+
+Complete process-filtered in-window command-buffer intervals, distributions, excluded counts,
+uninstrumented and instrumented CPU reports, binary/XML identities and screenshot checks are in
+[`node_graph_visible_native_gpu.json`](../../benchmarks/performance/node_graph_visible_native_gpu.json).
+Source and executable stay fixed during capture; Cargo validation does not run concurrently.
+
 #### Proposed future rendering validation
 
-Capture an unoccluded native window with verified render work and post-measurement screenshots.
-Presentation latency, full application/active-runtime composition, browser rendering and
-release/idle tail measurements remain separate acceptance work.
+Measure CPU upload/staging and frame-to-presentation latency separately from command-buffer
+GPU execution. Full application/active-runtime composition, browser rendering, low-zoom
+application/drag scenarios and release/idle tails remain separate acceptance work.
 
 ### Native application UI scale documents
 

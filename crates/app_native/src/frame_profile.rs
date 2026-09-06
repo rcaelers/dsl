@@ -27,6 +27,9 @@ pub(crate) struct ProfileArgs {
     /// Keep rendering for at least this many seconds so an external profiler can attach
     #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u32).range(0..=300))]
     minimum_seconds: u32,
+    /// Activate and keep this temporary profiling window above normal windows
+    #[arg(long)]
+    always_on_top: bool,
     /// Optional new PNG file, captured only after all timing samples
     #[arg(long)]
     screenshot: Option<PathBuf>,
@@ -145,6 +148,20 @@ fn surface_error(status: Option<String>, sampling: bool) -> Option<ProfileError>
         .map(ProfileError::UnavailableSurface)
 }
 
+fn profile_viewport(always_on_top: bool) -> egui::ViewportBuilder {
+    let viewport = egui::ViewportBuilder::default()
+        .with_title("LogicConduit frame profile — execution disabled")
+        .with_resizable(false)
+        .with_inner_size([1440.0, 900.0]);
+    if always_on_top {
+        viewport
+            .with_active(true)
+            .with_window_level(egui::WindowLevel::AlwaysOnTop)
+    } else {
+        viewport
+    }
+}
+
 impl eframe::App for ProfileApp {
     fn raw_input_hook(&mut self, ctx: &egui::Context, input: &mut egui::RawInput) {
         for event in &input.events {
@@ -254,10 +271,7 @@ pub(crate) fn run(args: ProfileArgs) -> crate::native::MainResult {
     let surface_status = Arc::new(Mutex::new(None));
     let surface_callback = Arc::clone(&surface_status);
     let mut options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("LogicConduit frame profile — execution disabled")
-            .with_resizable(false)
-            .with_inner_size([1440.0, 900.0]),
+        viewport: profile_viewport(args.always_on_top),
         renderer: eframe::Renderer::Wgpu,
         persistence_path: Some(preferences.path().to_owned()),
         persist_window: false,
@@ -333,6 +347,7 @@ pub(crate) fn run(args: ProfileArgs) -> crate::native::MainResult {
         "input_nodes": input_nodes, "input_connections": input_connections,
         "warmup": args.warmup, "sample_count": args.samples, "frames": frames,
         "minimum_duration_seconds": args.minimum_seconds,
+        "always_on_top": args.always_on_top,
         "eframe_cpu": distribution(frames.iter().map(|sample| sample.eframe_cpu_ms).collect()),
         "ui_start_interval": distribution(frames.iter().map(|sample| sample.ui_start_interval_ms).collect()),
         "adapter": *adapter.borrow(), "surface_config": observation.surface_config,
@@ -347,6 +362,21 @@ pub(crate) fn run(args: ProfileArgs) -> crate::native::MainResult {
 #[cfg(test)]
 mod frame_profile_tests {
     use super::*;
+
+    #[test]
+    fn foreground_profiling_is_explicit_and_preserves_fixture_dimensions() {
+        let ordinary = profile_viewport(false);
+        assert_eq!(ordinary.window_level, None);
+        assert_eq!(ordinary.active, None);
+        let foreground = profile_viewport(true);
+        assert_eq!(
+            foreground.window_level,
+            Some(egui::WindowLevel::AlwaysOnTop)
+        );
+        assert_eq!(foreground.active, Some(true));
+        assert_eq!(foreground.inner_size, ordinary.inner_size);
+        assert_eq!(foreground.resizable, Some(false));
+    }
 
     #[test]
     fn unavailable_surfaces_are_rejected_after_warmup() {
