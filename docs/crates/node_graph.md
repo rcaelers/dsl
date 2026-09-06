@@ -171,6 +171,14 @@ obstacle-collision proof. Preview wires use the same geometry representation; mu
 internal dashed links remain separate decoration. Paths are not persisted or added to
 undo history.
 
+Visible connections from the exact same output socket form one paint group. All outlines
+in that group are drawn before its colored strokes, so shared runs and T junctions have
+no internal shadow seam. Different output sockets remain separate groups, including equal
+port indices on different nodes, and keep their crossing outlines. Groups containing a
+highlighted branch paint after ordinary groups; within a group, highlighted fills paint
+last without changing other branches' emphasis. Hidden branches contribute no outline or
+fill. Painting uses the unchanged path snapshot used by hit testing and editing gestures.
+
 The private individual router accepts node rectangles and explicit left/right port geometry.
 Its layout adapter includes offscreen nodes, excludes frame rectangles, and assigns temporary
 obstacle indices in sorted node-ID order. Every layout generation computes checked routes
@@ -214,6 +222,13 @@ down to individual visibility routes. Crossings between separately routed groups
 All band candidates, collision checks, retries, and individual searches share the routing
 work budget. The private `routing/corridor` owner provides rectangle validation, port escapes,
 and visibility search to the individual and bundle routers; neither routes through the other.
+
+The subsequent source-separation pass has its own `max_work` limit. Each connection's
+overlap proof and retry receive at most an equal share of the remaining work across the
+remaining connections in stable identity order. Unused work returns to the pass budget.
+An expensive retry cannot spend the work reserved for checking unrelated paths later in
+the pass, including retained drag paths. Exhaustion remains local to that connection;
+non-conflicting paths retain their checked geometry, and the total pass limit is unchanged.
 
 Before exact segment validation, a rectilinear bundle builds one closed envelope containing
 all its lanes, fan-outs, and endpoint escapes. A budgeted broad-phase scan retains every
@@ -259,6 +274,9 @@ The router validates finite geometry and configuration, expands node bodies, and
 horizontal escape segments. Only each escape's own expanded body is exempt from its collision
 check; every other body remains an obstacle. Escape endpoints lie beyond their expanded body
 even when the requested escape is shorter than the clearance.
+Individual and source-separation searches constrain their first and last transitions to
+join these escapes without a reversal. The same constraint applies when optional quality
+work lengthens the escapes, so a wire cannot double back into a protruding endpoint spur.
 
 Search uses a finite visibility lattice at escape coordinates and just outside obstacle
 boundaries. Columns partition the plane into slabs; search retains Y position and incoming

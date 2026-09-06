@@ -50,6 +50,11 @@ minimum lane spacing 6, and preferred spacing 12. Stroke, shadow, and hit tolera
 presentation quantities. Clearances constrain the mathematical path, not every pixel of
 its screen-space shadow.
 
+Paint connections from the exact same output socket as one group: draw all their shadows
+before their colored strokes so shared runs and T junctions have no dark internal seam.
+Different-source groups retain separate crossing outlines. Highlighted groups paint last,
+with highlighted fills after ordinary fills within the group; hidden branches do not paint.
+
 Inputs contain finite node rectangles, sockets with explicit left/right sides, directed
 connections, configuration, and optional previous routes. Use actual layout geometry,
 including collapsed and offscreen nodes. Reject non-finite geometry and invalid negative
@@ -73,6 +78,9 @@ Expand every node rectangle by configured clearance. Each port-to-escape segment
 horizontally outward on its specified side. Its endpoint lies outside its own expanded
 rectangle, at least horizontal clearance plus numerical safety margin away, even when
 desired escape length is shorter.
+The corridor joins each escape by continuing straight or turning perpendicular to it,
+never by reversing along it. This also applies to extended escapes used for rounding
+and retries that separate different source sockets.
 
 Only that endpoint segment is exempt from collision with its own expanded rectangle.
 It remains outside the actual node interior and is checked against every other obstacle.
@@ -145,7 +153,10 @@ their control hulls and lane spacing, including peers later in identity order, s
 does not introduce a crossing inside that bundle. Same-output fan-out is exempt.
 
 The separation pass has its own `max_work` allowance and leaves non-conflicting paths
-unchanged. It checks node clearance and endpoint escapes on the final path; optional
+unchanged. Each connection receives at most an equal share of the remaining work across
+the remaining connections in stable order; unused work stays available for later checks.
+A difficult separation retry cannot exhaust the allowance reserved for unrelated wires.
+The total pass limit is unchanged. It checks node clearance and endpoint escapes on the final path; optional
 smoothing is accepted only after a further shared-run check. Failed or exhausted retries
 use the existing visible diagnostic fallback, not an apparently checked merged signal.
 The pass also checks retained drag paths against newly routed connections before publishing

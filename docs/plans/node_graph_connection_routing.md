@@ -159,6 +159,14 @@ appearance until the checked router is activated in step 3.
 
 ## 7. Source-socket separation
 
+- [x] Paint same-output branches with group-wide shadow/fill passes so shared T junctions
+  have no internal outline seam. Cover paint order, zoom, mixed emphasis, hidden branches
+  and distinct-source crossing outlines without changing route or interaction geometry.
+- [x] Bound each separation retry's share of the existing pass budget so a moved fan-out
+  source cannot starve unrelated route checks. Cover cold rebuilds, drag retention, release,
+  recovery, zoom and connection-order independence without increasing the pass limit.
+- [x] Prevent reversing joins at port escapes, including overlapping extended escape
+  extents and source-separation retries. Cover both port sides and rounded paths across zoom.
 - [x] Preserve data-type wire colors on routing failures; communicate failures through the
   separate warning markers, hover explanations and canvas summary instead of recoloring edges.
 - [x] Hovering a warning marker highlights its failed connections using port-hover emphasis,
