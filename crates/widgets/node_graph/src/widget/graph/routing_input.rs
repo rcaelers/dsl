@@ -162,7 +162,9 @@ impl GraphWidgetLayout {
             let Some(path) = self.wire_paths.get(&key) else {
                 continue;
             };
-            let result = (|| {
+            // A hard separation retry must not consume the proof allowance for
+            // unrelated, already checked paths later in the stable order.
+            let result = budget.with_share(ordered.len() - index, |budget| {
                 let mut conflict = false;
                 for previous in &ordered[..index] {
                     if previous.from == connection.from {
@@ -171,7 +173,7 @@ impl GraphWidgetLayout {
                     let previous_key = (previous.from, previous.to);
                     if !self.wire_failures.contains_key(&previous_key)
                         && let Some(other) = self.wire_paths.get(&previous_key)
-                        && shares_run(path, other, &mut budget)?
+                        && shares_run(path, other, budget)?
                     {
                         conflict = true;
                         break;
@@ -193,7 +195,7 @@ impl GraphWidgetLayout {
                         .flatten()
                     })
                     .collect();
-                let (nodes, members) = self.routing_geometry(&[connection], &mut budget)?;
+                let (nodes, members) = self.routing_geometry(&[connection], budget)?;
                 separate_route(
                     RouteInput {
                         nodes: &nodes,
@@ -203,10 +205,10 @@ impl GraphWidgetLayout {
                     &others,
                     config,
                     zoom,
-                    &mut budget,
+                    budget,
                 )
                 .map(Some)
-            })();
+            });
             match result {
                 Ok(Some(path)) => {
                     self.wire_paths.insert(key, path);
@@ -406,6 +408,130 @@ mod routing_input_tests {
     use super::*;
     use crate::model::{FrameId, NodeKind, SocketDirection, SocketId};
     use crate::runtime::NodeTypeRegistry;
+
+    #[test]
+    fn moving_one_fanout_source_does_not_fail_remote_connections() {
+        let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+        let specs = [
+            (40.0, 650.0, 1, 12),
+            (370.0, 205.0, 4, 3),
+            (675.0, 185.0, 2, 3),
+            (610.0, 475.0, 2, 3),
+            (1045.0, 225.0, 1, 1),
+            (920.0, 400.0, 2, 1),
+            (1415.0, 240.0, 2, 1),
+            (1275.0, 850.0, 3, 1),
+            (1450.0, 420.0, 12, 1),
+            (1950.0, 450.0, 2, 0),
+            (1860.0, 675.0, 3, 2),
+            (2230.0, 650.0, 2, 0),
+            (1890.0, 80.0, 2, 0),
+        ];
+        let ids: Vec<_> = specs
+            .into_iter()
+            .map(|(x, y, inputs, outputs)| {
+                let id = widget.add_node_at("Reroute", Pos2::new(x, y)).unwrap();
+                let node = widget.graph.nodes.get_mut(&id).unwrap();
+                node.kind = NodeKind::Regular;
+                node.inputs = vec![node.inputs[0].clone(); inputs];
+                node.outputs = vec![node.outputs[0].clone(); outputs];
+                id
+            })
+            .collect();
+        for (source, output, target, input) in [
+            (0, 7, 1, 0),
+            (0, 6, 1, 1),
+            (0, 8, 1, 3),
+            (1, 0, 2, 0),
+            (1, 0, 3, 0),
+            (2, 0, 5, 0),
+            (3, 0, 5, 1),
+            (2, 0, 4, 0),
+            (4, 0, 6, 0),
+            (6, 0, 9, 1),
+            (0, 8, 7, 0),
+            (5, 0, 7, 1),
+            (7, 0, 8, 11),
+            (0, 0, 8, 1),
+            (0, 1, 8, 2),
+            (0, 2, 8, 3),
+            (0, 3, 8, 4),
+            (0, 4, 8, 5),
+            (0, 5, 8, 6),
+            (0, 6, 8, 7),
+            (0, 7, 8, 8),
+            (8, 0, 9, 0),
+            (8, 0, 10, 0),
+            (6, 0, 10, 2),
+            (10, 0, 11, 0),
+            (10, 1, 11, 1),
+            (0, 9, 8, 0),
+            (0, 10, 10, 1),
+            (1, 0, 12, 0),
+        ] {
+            widget.graph.connections.push(Connection {
+                from: SocketId {
+                    node: ids[source],
+                    index: output,
+                    direction: SocketDirection::Output,
+                },
+                to: SocketId {
+                    node: ids[target],
+                    index: input,
+                    direction: SocketDirection::Input,
+                },
+            });
+        }
+        for zoom in [0.5, 1.0, 1.7] {
+            widget.view.zoom = zoom;
+            let config = RouteConfig::default();
+            let mut cache = super::super::routing_cache::RoutingCache::default();
+            let remote = widget
+                .graph
+                .connections
+                .iter()
+                .find(|c| c.from.node == ids[4])
+                .unwrap();
+            let remote_key = (remote.from, remote.to);
+            let mut previous_remote: Option<WirePath> = None;
+            for x in [40.0, 100.0, 160.0, 220.0, 40.0] {
+                widget.graph.nodes.get_mut(&ids[0]).unwrap().pos.x = x;
+                let mut layout = widget.build_layout(Pos2::ZERO);
+                for dragging in [true, false] {
+                    cache.route_interactive(
+                        &mut layout,
+                        &widget.graph.connections,
+                        &config,
+                        zoom,
+                        dragging,
+                    );
+                    if dragging && let Some(previous) = &previous_remote {
+                        assert_eq!(
+                            layout.wire_paths[&remote_key].segments().as_ptr(),
+                            previous.segments().as_ptr()
+                        );
+                    }
+                    for c in &widget.graph.connections {
+                        if c.from.node != ids[0] && c.to.node != ids[0] {
+                            assert!(
+                                !layout.wire_failures.contains_key(&(c.from, c.to)),
+                                "source x={x}: {:?}",
+                                layout.wire_failures
+                            );
+                        }
+                    }
+                }
+                previous_remote = Some(layout.wire_paths[&remote_key].clone());
+                if x == 40.0 {
+                    assert!(layout.wire_failures.is_empty());
+                }
+                let expected = layout.wire_failures.clone();
+                let reversed: Vec<_> = widget.graph.connections.iter().rev().cloned().collect();
+                layout.rebuild_routes_with_config(&reversed, &config, zoom);
+                assert_eq!(layout.wire_failures, expected);
+            }
+        }
+    }
 
     #[test]
     fn independent_sources_do_not_share_the_target_approach_track() {

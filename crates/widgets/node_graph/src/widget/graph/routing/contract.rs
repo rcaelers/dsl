@@ -80,4 +80,44 @@ impl WorkBudget {
             .ok_or(RouteFailure::WorkLimit)?;
         Ok(())
     }
+
+    /// Bound one job's share while reserving work for the remaining jobs. Unused
+    /// work stays in the parent; nested jobs cannot increase its total allowance.
+    pub(crate) fn with_share<T>(&mut self, jobs: usize, work: impl FnOnce(&mut Self) -> T) -> T {
+        let allowance = self.remaining / jobs.max(1);
+        let mut child = Self::new(allowance);
+        let result = work(&mut child);
+        self.remaining -= allowance - child.remaining;
+        result
+    }
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+
+    #[test]
+    fn failed_jobs_leave_reserved_work_and_unused_shares_are_reclaimed() {
+        let mut budget = WorkBudget::new(100);
+        assert_eq!(
+            budget.with_share(4, |child| {
+                child.spend(25)?;
+                child.spend(1)
+            }),
+            Err(RouteFailure::WorkLimit)
+        );
+        assert_eq!(budget.remaining, 75);
+        budget.with_share(3, |child| child.spend(5)).unwrap();
+        assert_eq!(budget.remaining, 70);
+        budget
+            .with_share(2, |child| child.with_share(2, |nested| nested.spend(17)))
+            .unwrap();
+        assert_eq!(budget.remaining, 53);
+        budget.with_share(1, |child| child.spend(53)).unwrap();
+        assert_eq!(budget.spend(1), Err(RouteFailure::WorkLimit));
+        assert_eq!(
+            budget.with_share(0, |child| child.spend(1)),
+            Err(RouteFailure::WorkLimit)
+        );
+    }
 }
