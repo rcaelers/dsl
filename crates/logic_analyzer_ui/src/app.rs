@@ -3838,7 +3838,17 @@ impl eframe::App for App {
         self.show_status_bar(&mut status_ui, &status_actions);
 
         self.about.show(ui.ctx());
-        self.preferences.show(ui.ctx(), &mut self.node_catalogs);
+        let mut graph_prefs = self.node_graph.ui_prefs();
+        let previous_routing = graph_prefs.connection_routing;
+        self.preferences.show(
+            ui.ctx(),
+            &mut self.node_catalogs,
+            &mut graph_prefs.connection_routing,
+        );
+        if graph_prefs.connection_routing != previous_routing {
+            self.node_graph.set_ui_prefs(graph_prefs);
+            ui.ctx().request_repaint();
+        }
 
         for error in self
             .output_downloads

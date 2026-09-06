@@ -4,7 +4,7 @@ use egui::{Pos2, Rect};
 
 use super::interaction_state::InteractionState;
 use super::routing::{RouteConfig, RouteFailure, WirePath};
-use super::widget::NodeGraphWidget;
+use super::widget::{ConnectionRouting, NodeGraphWidget};
 use crate::model::{FrameId, NodeId, NodeKind, SocketDirection, SocketId};
 use crate::support::{SOCKET_RADIUS, to_screen_rect};
 use crate::widget::node::NodeWidget;
@@ -205,13 +205,17 @@ impl NodeGraphWidget {
                 | InteractionState::DraggingFrame { .. }
                 | InteractionState::PlacingNodes { .. }
         );
-        self.routing_cache.borrow_mut().route_interactive(
-            &mut layout,
-            &self.graph.connections,
-            &RouteConfig::default(),
-            self.view.zoom,
-            dragging,
-        );
+        if self.connection_routing == ConnectionRouting::Classic {
+            layout.rebuild_classic_routes(&self.graph.connections, self.view.zoom);
+        } else {
+            self.routing_cache.borrow_mut().route_interactive(
+                &mut layout,
+                &self.graph.connections,
+                &RouteConfig::default(),
+                self.view.zoom,
+                dragging,
+            );
+        }
         layout
     }
 }

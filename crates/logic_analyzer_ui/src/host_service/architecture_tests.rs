@@ -6,8 +6,12 @@ use crate::preferences::PreferencesWindow;
 #[test]
 fn application_components_accept_ui_owned_host_ports() {
     let _: fn(Box<dyn HostService>) -> AppServices = AppServices::with_host_service;
-    let _: fn(&mut PreferencesWindow, &egui::Context, &mut [Box<dyn NodeCatalogService>]) =
-        PreferencesWindow::show;
+    let _: fn(
+        &mut PreferencesWindow,
+        &egui::Context,
+        &mut [Box<dyn NodeCatalogService>],
+        &mut node_graph::ConnectionRouting,
+    ) = PreferencesWindow::show;
 }
 
 #[test]

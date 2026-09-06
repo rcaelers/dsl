@@ -171,6 +171,16 @@ obstacle-collision proof. Preview wires use the same geometry representation; mu
 internal dashed links remain separate decoration. Paths are not persisted or added to
 undo history.
 
+`GraphUiPrefs.connection_routing` selects `ConnectionRouting::Classic` or
+`ConnectionRouting::ObstacleAvoiding` without changing the graph document. Obstacle-avoiding
+routing is the default, including when loading preferences saved before this field existed.
+Classic mode uses the direct output-first Bézier formula from the original renderer, including
+its 50-screen-pixel minimum horizontal span, and skips obstacle search and routing diagnostics.
+Both modes provide the same path snapshot for painting and wire-editing gestures. Changing the
+preference clears routing history; switching back rebuilds checked routes for the current graph.
+The application exposes this setting under Preferences → Node Graph → Connection drawing and
+persists it through the existing graph UI preferences, independently of saved node positions.
+
 Visible connections from the exact same output socket form one paint group. All outlines
 in that group are drawn before its colored strokes, so shared runs and T junctions have
 no internal shadow seam. Different output sockets remain separate groups, including equal

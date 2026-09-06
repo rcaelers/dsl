@@ -37,6 +37,7 @@ pub struct NodeGraphWidget {
     pub(crate) hovered_input_context: Option<&'static str>,
     pub(crate) registry: NodeTypeRegistry,
     pub(crate) minimap_visible: bool,
+    pub(crate) connection_routing: ConnectionRouting,
     pub(crate) routing_debug: RoutingDebug,
     pub(crate) routing_cache: RefCell<RoutingCache>,
     pub(crate) top_node: Option<NodeId>,
@@ -154,8 +155,18 @@ pub(crate) struct NodeRenameState {
     pub(crate) screen_pos: Pos2,
 }
 
+/// Connection geometry policy, independent of saved node positions and topology.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ConnectionRouting {
+    /// Direct output-first Bézier curves without obstacle avoidance or routing warnings.
+    Classic,
+    /// Checked obstacle-avoiding paths with shared-source routing and diagnostics.
+    #[default]
+    ObstacleAvoiding,
+}
+
 /// Persistable UI state that isn't part of the graph document itself —
-/// N-panel width/tab and minimap visibility (Phase 5.2). The host app reads
+/// Panel width/tab, minimap visibility, and connection drawing. The host app reads
 /// this via [`NodeGraphWidget::ui_prefs`] to save it and restores it via
 /// [`NodeGraphWidget::set_ui_prefs`] on the next launch.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -166,6 +177,9 @@ pub struct GraphUiPrefs {
     pub panel_tab: Option<String>,
     /// Whether the graph minimap is visible.
     pub minimap_visible: bool,
+    /// Connection drawing policy; older preferences retain obstacle-avoiding routing.
+    #[serde(default)]
+    pub connection_routing: ConnectionRouting,
 }
 
 fn graph_pointer(
@@ -206,6 +220,7 @@ impl NodeGraphWidget {
             registry,
             minimap_visible: true,
             routing_debug: RoutingDebug::default(),
+            connection_routing: ConnectionRouting::default(),
             routing_cache: RefCell::new(RoutingCache::default()),
             top_node: None,
             menu: MenuController::new(),
@@ -425,22 +440,27 @@ impl NodeGraphWidget {
         }
     }
 
-    /// Current UI prefs (N-panel width/tab, minimap visibility) — for the
-    /// host app to persist across launches (Phase 5.2).
+    /// Current panel, minimap, and connection-drawing preferences for the host
+    /// app to persist across launches.
     pub fn ui_prefs(&self) -> GraphUiPrefs {
         GraphUiPrefs {
             panel_width: self.panel.width,
             panel_tab: self.panel.active_tab.clone(),
             minimap_visible: self.minimap_visible,
+            connection_routing: self.connection_routing,
         }
     }
 
-    /// Restores UI prefs saved via [`Self::ui_prefs`] — call once after
-    /// construction, before the first `show`.
+    /// Applies UI preferences saved via [`Self::ui_prefs`], either on startup
+    /// or when the user changes a preference. Routing changes clear cached paths.
     ///
     /// # Parameters
-    /// - `prefs`: Persisted docked-panel and minimap preferences to restore.
+    /// - `prefs`: Docked-panel, minimap, and connection-drawing preferences to apply.
     pub fn set_ui_prefs(&mut self, prefs: GraphUiPrefs) {
+        if self.connection_routing != prefs.connection_routing {
+            self.connection_routing = prefs.connection_routing;
+            *self.routing_cache.get_mut() = RoutingCache::default();
+        }
         self.panel.width = prefs.panel_width;
         self.panel.active_tab = prefs.panel_tab.map(|requested| {
             self.panel_tabs
@@ -951,6 +971,7 @@ mod tests {
 
         widget.set_ui_prefs(GraphUiPrefs {
             panel_width: 280.0,
+            connection_routing: super::ConnectionRouting::default(),
             panel_tab: None,
             minimap_visible: true,
         });
@@ -975,6 +996,7 @@ mod tests {
 
         widget.set_ui_prefs(GraphUiPrefs {
             panel_width: 300.0,
+            connection_routing: super::ConnectionRouting::default(),
             panel_tab: Some("removed-tab".to_owned()),
             minimap_visible: true,
         });

@@ -6,7 +6,7 @@ use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Sense, Stroke, Vec2};
 
 use super::layout::GraphWidgetLayout;
 use super::routing::{PathSegment, RouteConfig, RouteFailure};
-use super::widget::NodeGraphWidget;
+use super::widget::{ConnectionRouting, NodeGraphWidget};
 use crate::model::{NodeId, SocketId};
 use crate::support::to_screen_rect;
 
@@ -96,6 +96,9 @@ impl NodeGraphWidget {
         viewport: (Rect, Pos2),
         pointer: Option<Pos2>,
     ) {
+        if self.connection_routing == ConnectionRouting::Classic {
+            return;
+        }
         let (rect, origin) = viewport;
         let color = Color32::from_rgb(255, 170, 50);
         let mut failures: Vec<_> = layout.wire_failures.iter().collect();

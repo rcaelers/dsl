@@ -14,4 +14,6 @@ mod runtime;
 mod support;
 mod widget;
 
-pub use widget::{GraphSnapshotError, GraphUiPrefs, NodeContextAction, NodeGraphWidget};
+pub use widget::{
+    ConnectionRouting, GraphSnapshotError, GraphUiPrefs, NodeContextAction, NodeGraphWidget,
+};

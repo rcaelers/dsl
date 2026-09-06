@@ -159,6 +159,9 @@ appearance until the checked router is activated in step 3.
 
 ## 7. Source-socket separation
 
+- [x] Add a persisted connection-drawing preference for classic origin/main curves versus
+  obstacle-avoiding routing. Preserve node positions and topology, reset routing history on
+  changes, suppress routing warnings in classic mode, and cover old preferences and live switching.
 - [x] Paint same-output branches with group-wide shadow/fill passes so shared T junctions
   have no internal outline seam. Cover paint order, zoom, mixed emphasis, hidden branches
   and distinct-source crossing outlines without changing route or interaction geometry.

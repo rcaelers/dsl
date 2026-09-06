@@ -209,6 +209,10 @@ mod tests {
         });
         let restored: PersistedState = serde_json::from_value(legacy).unwrap();
         assert_eq!(restored.ui.graph_ui_prefs.panel_width, 320.0);
+        assert_eq!(
+            restored.ui.graph_ui_prefs.connection_routing,
+            node_graph::ConnectionRouting::ObstacleAvoiding
+        );
         // Saved before the viewer toggles existed: both restore enabled.
         assert!(restored.ui.viewer_measurements_enabled);
         assert!(restored.ui.viewer_snapping_enabled);
@@ -220,6 +224,7 @@ mod tests {
             ui: super::super::PersistedUiState::capture(
                 node_graph::GraphUiPrefs {
                     panel_width: 320.0,
+                    connection_routing: node_graph::ConnectionRouting::Classic,
                     panel_tab: None,
                     minimap_visible: true,
                 },
@@ -235,6 +240,10 @@ mod tests {
             serde_json::from_value(serde_json::to_value(&state).unwrap()).unwrap();
 
         assert!(!restored.ui.viewer_measurements_enabled);
+        assert_eq!(
+            restored.ui.graph_ui_prefs.connection_routing,
+            node_graph::ConnectionRouting::Classic
+        );
         assert!(restored.ui.viewer_snapping_enabled);
     }
 }

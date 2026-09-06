@@ -44,6 +44,12 @@ Frames are visual containers, not obstacles.
 
 ## Geometry, identity, and results
 
+The connection-drawing UI preference selects classic direct Bézier curves or obstacle-avoiding
+routing. Obstacle-avoiding is the default. Classic curves preserve the original screen-space
+handle formula and bypass routing warnings; switching modes clears routing history without
+changing node positions, topology, or the saved graph. The preference is persisted separately
+with other graph UI settings, and both modes share the paint/interaction path representation.
+
 Routing distances use graph-space logical units, independent of pan and zoom. Initial
 configurable values are horizontal clearance 20, vertical clearance 16, desired escape 30,
 minimum lane spacing 6, and preferred spacing 12. Stroke, shadow, and hit tolerance remain

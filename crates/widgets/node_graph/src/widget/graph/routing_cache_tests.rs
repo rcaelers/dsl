@@ -2,9 +2,9 @@ use egui::{Pos2, Rect, Vec2};
 
 use super::interaction_state::InteractionState;
 use super::layout::GraphWidgetLayout;
-use super::routing::{RouteConfig, RouteFailure};
+use super::routing::{PathSegment, RouteConfig, RouteFailure};
 use super::routing_cache::RoutingCache;
-use super::widget::NodeGraphWidget;
+use super::widget::{ConnectionRouting, GraphUiPrefs, NodeGraphWidget};
 use crate::model::{Connection, FrameId, NodeId, NodeKind, SocketDirection, SocketId};
 use crate::runtime::NodeTypeRegistry;
 use crate::widget::node::NodeWidget;
@@ -34,6 +34,80 @@ fn scene() -> (NodeGraphWidget, Connection, NodeId) {
     };
     widget.graph.add_connection(connection.from, connection.to);
     (widget, connection, obstacle)
+}
+
+#[test]
+fn classic_preference_restores_direct_curves_and_switching_resets_routing() {
+    let legacy: GraphUiPrefs = serde_json::from_value(serde_json::json!({
+        "panel_width": 280.0, "panel_tab": null, "minimap_visible": true,
+    }))
+    .unwrap();
+    assert_eq!(
+        legacy.connection_routing,
+        ConnectionRouting::ObstacleAvoiding
+    );
+    for zoom in [0.25, 1.0, 3.0] {
+        for target_x in [-100.0, 500.0] {
+            let (mut widget, connection, obstacle) = scene();
+            widget.view.zoom = zoom;
+            widget
+                .graph
+                .nodes
+                .get_mut(&connection.to.node)
+                .unwrap()
+                .pos
+                .x = target_x;
+            widget.graph.nodes.get_mut(&obstacle).unwrap().pos =
+                widget.graph.nodes[&connection.from.node].pos;
+            let original = serde_json::to_value(&widget.graph).unwrap();
+            let key = (connection.from, connection.to);
+            assert!(
+                widget
+                    .build_layout(Pos2::ZERO)
+                    .wire_failures
+                    .contains_key(&key)
+            );
+            for mode in [
+                ConnectionRouting::Classic,
+                ConnectionRouting::ObstacleAvoiding,
+                ConnectionRouting::Classic,
+            ] {
+                let mut prefs = widget.ui_prefs();
+                prefs.connection_routing = mode;
+                widget.set_ui_prefs(
+                    serde_json::from_value(serde_json::to_value(prefs).unwrap()).unwrap(),
+                );
+                let layout = widget.build_layout(Pos2::ZERO);
+                assert_eq!(widget.ui_prefs().connection_routing, mode);
+                assert_eq!(serde_json::to_value(&widget.graph).unwrap(), original);
+                if mode == ConnectionRouting::ObstacleAvoiding {
+                    assert!(layout.wire_failures.contains_key(&key));
+                    continue;
+                }
+                assert!(layout.wire_failures.is_empty());
+                let [PathSegment::Cubic(points)] = layout.wire_paths[&key].segments() else {
+                    panic!("classic cubic")
+                };
+                let from = layout.socket_screen_pos[&connection.from];
+                let to = layout.socket_screen_pos[&connection.to];
+                // Independent origin/main draw_wire formula in screen coordinates.
+                let dx = (to.x - from.x).abs().max(50.0) * 0.5;
+                let expected = [from, from + Vec2::new(dx, 0.0), to - Vec2::new(dx, 0.0), to];
+                for (actual, expected) in points
+                    .map(|p| widget.view.canvas_to_screen(Pos2::ZERO, p))
+                    .into_iter()
+                    .zip(expected)
+                {
+                    assert!(actual.distance(expected) < 0.001);
+                }
+                let a = points[0].lerp(points[1], 0.5);
+                let b = points[1].lerp(points[2], 0.5);
+                let c = points[2].lerp(points[3], 0.5);
+                let midpoint = a.lerp(b, 0.5).lerp(b.lerp(c, 0.5), 0.5);
+                assert_eq!(widget.wire_near_point(midpoint, &layout), Some(0));
+            }
+        }
+    }
 }
 
 fn assert_cold_matches(

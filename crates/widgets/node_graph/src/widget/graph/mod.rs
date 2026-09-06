@@ -29,4 +29,4 @@ mod wire;
 
 pub use snapshot_error::GraphSnapshotError;
 pub(crate) use widget::SocketIndicatorRegistry;
-pub use widget::{GraphUiPrefs, NodeContextAction, NodeGraphWidget};
+pub use widget::{ConnectionRouting, GraphUiPrefs, NodeContextAction, NodeGraphWidget};

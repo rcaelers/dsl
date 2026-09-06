@@ -34,6 +34,37 @@ impl NodeGraphWidget {
 }
 
 impl GraphWidgetLayout {
+    /// Direct curves share the painting/interaction snapshot but never run the
+    /// obstacle solver or classify ordinary classic curves as routing failures.
+    pub(crate) fn rebuild_classic_routes(&mut self, connections: &[Connection], zoom: f32) {
+        self.wire_paths.clear();
+        self.wire_failures.clear();
+        if !zoom.is_finite() || zoom <= 0.0 {
+            return;
+        }
+        for connection in connections {
+            let from = self
+                .nodes
+                .get(&connection.from.node)
+                .and_then(|n| n.output_socket_pos(connection.from.index));
+            let to = self
+                .nodes
+                .get(&connection.to.node)
+                .and_then(|n| n.input_socket_pos(connection.to.index));
+            if let (Some(from), Some(to)) = (from, to)
+                && from.is_finite()
+                && to.is_finite()
+                && (to - from).is_finite()
+            {
+                let path = WirePath::legacy(from, to, zoom);
+                if path.bounds().min.is_finite() && path.bounds().max.is_finite() {
+                    self.wire_paths
+                        .insert((connection.from, connection.to), path);
+                }
+            }
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn rebuild_routes(&mut self, connections: &[Connection], zoom: f32) {
         self.rebuild_routes_with_config(connections, &RouteConfig::default(), zoom);

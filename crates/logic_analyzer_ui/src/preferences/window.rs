@@ -1,12 +1,24 @@
+use node_graph::ConnectionRouting;
+
 use crate::node_catalog_service::NodeCatalogService;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PreferencesPage {
+    NodeGraph,
+    ExternalDecoders,
+}
 
 pub(crate) struct PreferencesWindow {
     open: bool,
+    page: PreferencesPage,
 }
 
 impl PreferencesWindow {
     pub(crate) fn new() -> Self {
-        Self { open: false }
+        Self {
+            open: false,
+            page: PreferencesPage::NodeGraph,
+        }
     }
 
     pub(crate) fn open(&mut self) {
@@ -17,6 +29,7 @@ impl PreferencesWindow {
         &mut self,
         ctx: &egui::Context,
         catalogs: &mut [Box<dyn NodeCatalogService>],
+        connection_routing: &mut ConnectionRouting,
     ) {
         if !self.open {
             return;
@@ -32,10 +45,23 @@ impl PreferencesWindow {
                         ui.set_width(190.0);
                         ui.heading("Preferences");
                         ui.separator();
-                        let _ = ui.selectable_label(true, "External Decoders");
+                        ui.selectable_value(&mut self.page, PreferencesPage::NodeGraph, "Node Graph");
+                        ui.selectable_value(&mut self.page, PreferencesPage::ExternalDecoders, "External Decoders");
                     });
                     ui.separator();
                     egui::ScrollArea::vertical().show(ui, |ui| {
+                        if self.page == PreferencesPage::NodeGraph {
+                            ui.heading("Node Graph");
+                            ui.add_space(10.0);
+                            ui.label("Connection drawing");
+                            ui.radio_value(connection_routing, ConnectionRouting::Classic, "Classic curves")
+                                .on_hover_text("Direct curves, as on origin/main. Connections may cross nodes; no routing warnings.");
+                            ui.radio_value(connection_routing, ConnectionRouting::ObstacleAvoiding, "Obstacle-avoiding")
+                                .on_hover_text("Route around nodes, separate independent signals, and combine branches from the same output.");
+                            ui.add_space(10.0);
+                            ui.weak("Applies immediately and is saved across launches. Node positions and saved connections do not change.");
+                            return;
+                        }
                         ui.heading("External Decoders");
                         ui.label(
                             "Foreign Python decoders are trusted code and run with application permissions.",
@@ -97,4 +123,65 @@ fn draw_catalog(ui: &mut egui::Ui, catalog: &mut dyn NodeCatalogService) {
                 });
             });
     });
+}
+
+#[cfg(test)]
+mod preferences_tests {
+    use super::*;
+
+    #[test]
+    fn graph_preferences_switch_connection_drawing_in_both_directions() {
+        let ctx = egui::Context::default();
+        let mut window = PreferencesWindow::new();
+        window.open();
+        let mut mode = ConnectionRouting::default();
+        let mut frame = |events| {
+            ctx.begin_pass(egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1100.0, 750.0),
+                )),
+                events,
+                ..Default::default()
+            });
+            window.show(&ctx, &mut [], &mut mode);
+            let mut output = ctx.end_pass();
+            output.textures_delta.clear();
+            (output, mode)
+        };
+        frame(Vec::new());
+        let (mut output, _) = frame(Vec::new());
+        for (label, expected) in [
+            ("Classic curves", ConnectionRouting::Classic),
+            ("Obstacle-avoiding", ConnectionRouting::ObstacleAvoiding),
+        ] {
+            let pos = output
+                .shapes
+                .iter()
+                .find_map(|s| match &s.shape {
+                    egui::Shape::Text(t) if t.galley.text() == label => {
+                        Some(t.pos + t.galley.size() * 0.5)
+                    }
+                    _ => None,
+                })
+                .expect("visible routing preference");
+            frame(vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]);
+            let (next, actual) = frame(vec![egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+            output = next;
+            assert_eq!(actual, expected);
+        }
+    }
 }

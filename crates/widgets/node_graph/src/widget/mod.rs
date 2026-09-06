@@ -2,4 +2,6 @@ mod graph;
 mod menu;
 mod node;
 
-pub use graph::{GraphSnapshotError, GraphUiPrefs, NodeContextAction, NodeGraphWidget};
+pub use graph::{
+    ConnectionRouting, GraphSnapshotError, GraphUiPrefs, NodeContextAction, NodeGraphWidget,
+};
