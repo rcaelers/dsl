@@ -12,6 +12,8 @@ use super::obstacle::clear;
 pub(crate) struct Channels {
     xs: Vec<f32>,
     ys: Vec<f32>,
+    reserved: Vec<[Pos2; 2]>,
+    spacing: f32,
 }
 
 impl Channels {
@@ -19,6 +21,18 @@ impl Channels {
         start: Pos2,
         end: Pos2,
         obstacles: &[Rect],
+        config: &RouteConfig,
+        budget: &mut WorkBudget,
+    ) -> Result<Self, RouteFailure> {
+        Self::avoiding_runs(start, end, obstacles, &[], config, budget)
+    }
+
+    /// Parallel runs are reserved, but perpendicular crossings remain available.
+    pub(crate) fn avoiding_runs(
+        start: Pos2,
+        end: Pos2,
+        obstacles: &[Rect],
+        reserved: &[[Pos2; 2]],
         config: &RouteConfig,
         budget: &mut WorkBudget,
     ) -> Result<Self, RouteFailure> {
@@ -34,6 +48,20 @@ impl Channels {
                 (rect.min.y - config.safety).next_down(),
                 (rect.max.y + config.safety).next_up(),
             ]);
+        }
+        budget.spend(reserved.len())?;
+        for &[a, b] in reserved {
+            if a.x == b.x {
+                xs.extend([
+                    (a.x - config.lane_spacing).next_down(),
+                    (a.x + config.lane_spacing).next_up(),
+                ]);
+            } else if a.y == b.y {
+                ys.extend([
+                    (a.y - config.lane_spacing).next_down(),
+                    (a.y + config.lane_spacing).next_up(),
+                ]);
+            }
         }
         // Outermost coordinates already form a finite envelope outside every obstacle.
         for axis in [&mut xs, &mut ys] {
@@ -52,7 +80,12 @@ impl Channels {
             return Err(RouteFailure::WorkLimit);
         }
         budget.spend(count)?;
-        Ok(Self { xs, ys })
+        Ok(Self {
+            xs,
+            ys,
+            reserved: reserved.to_vec(),
+            spacing: config.lane_spacing,
+        })
     }
 
     fn point(&self, vertex: usize) -> Pos2 {
@@ -137,6 +170,9 @@ impl Channels {
                 if !clear([a, b], obstacles, None, budget)? {
                     continue;
                 }
+                if !self.run_clear([a, b], budget)? {
+                    continue;
+                }
                 let distance = (b.x as f64 - a.x as f64).abs()
                     + (b.y as f64 - a.y as f64).abs() * config.vertical_weight;
                 let bend = if entry.state % 5 != 4 && entry.state % 5 != direction {
@@ -161,6 +197,34 @@ impl Channels {
         }
         Err(RouteFailure::NoCorridor)
     }
+
+    pub(crate) fn run_clear(
+        &self,
+        segment: [Pos2; 2],
+        budget: &mut WorkBudget,
+    ) -> Result<bool, RouteFailure> {
+        for &other in &self.reserved {
+            budget.spend(1)?;
+            if parallel_overlap(segment, other, self.spacing) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+}
+
+/// Positive-length parallel overlap, not a perpendicular crossing or endpoint touch.
+pub(crate) fn parallel_overlap(a: [Pos2; 2], b: [Pos2; 2], spacing: f32) -> bool {
+    let overlap = |a: f32, b: f32, c: f32, d: f32| a.min(b).max(c.min(d)) < a.max(b).min(c.max(d));
+    let near = |a: f32, b: f32| a == b || (a as f64 - b as f64).abs() < spacing as f64;
+    (a[0].x == a[1].x
+        && b[0].x == b[1].x
+        && near(a[0].x, b[0].x)
+        && overlap(a[0].y, a[1].y, b[0].y, b[1].y))
+        || (a[0].y == a[1].y
+            && b[0].y == b[1].y
+            && near(a[0].y, b[0].y)
+            && overlap(a[0].x, a[1].x, b[0].x, b[1].x))
 }
 
 #[derive(Clone, Copy, PartialEq)]

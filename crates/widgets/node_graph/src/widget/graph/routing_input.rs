@@ -9,7 +9,7 @@ use super::layout::GraphWidgetLayout;
 use super::routing::{
     BundleCandidate, BundleMember, PortGeometry, PortSide, RouteConfig, RouteFailure, RouteInput,
     WirePath, WorkBudget, compatible_groups, improve_route, route_quality_bundle,
-    route_with_budget,
+    route_with_budget, separate_route, shares_run,
 };
 use super::widget::NodeGraphWidget;
 use super::wire::node_has_any_connection;
@@ -130,6 +130,98 @@ impl GraphWidgetLayout {
                         if path.bounds().min.is_finite() && path.bounds().max.is_finite() {
                             self.wire_paths.insert(key, path);
                         }
+                    }
+                }
+            }
+        }
+        self.separate_connections(connections, config, zoom);
+    }
+
+    /// A separate bounded pass also rechecks retained drag paths against newly
+    /// routed signals. Stable source identity, never input/hash order, owns a run.
+    fn separate_connections(
+        &mut self,
+        connections: &[Connection],
+        config: &RouteConfig,
+        zoom: f32,
+    ) {
+        let mut ordered: Vec<_> = connections.iter().collect();
+        ordered.sort_by_key(|c| (c.from.node.0, c.from.index, c.to.node.0, c.to.index));
+        let groups: HashMap<_, _> = self
+            .connection_groups(connections, config.max_work)
+            .into_iter()
+            .enumerate()
+            .flat_map(|(i, group)| group.into_iter().map(move |c| ((c.from, c.to), i)))
+            .collect();
+        let mut budget = WorkBudget::new(config.max_work);
+        for (index, connection) in ordered.iter().enumerate() {
+            let key = (connection.from, connection.to);
+            if self.wire_failures.contains_key(&key) {
+                continue;
+            }
+            let Some(path) = self.wire_paths.get(&key) else {
+                continue;
+            };
+            let result = (|| {
+                let mut conflict = false;
+                for previous in &ordered[..index] {
+                    if previous.from == connection.from {
+                        continue;
+                    }
+                    let previous_key = (previous.from, previous.to);
+                    if !self.wire_failures.contains_key(&previous_key)
+                        && let Some(other) = self.wire_paths.get(&previous_key)
+                        && shares_run(path, other, &mut budget)?
+                    {
+                        conflict = true;
+                        break;
+                    }
+                }
+                if !conflict {
+                    return Ok(None);
+                }
+                let others: Vec<_> = ordered
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, other)| {
+                        let other_key = (other.from, other.to);
+                        let protected = groups[&key] == groups[&other_key];
+                        (other.from != connection.from
+                            && (i < index || protected)
+                            && !self.wire_failures.contains_key(&other_key))
+                        .then(|| self.wire_paths.get(&other_key).map(|p| (p, protected)))
+                        .flatten()
+                    })
+                    .collect();
+                let (nodes, members) = self.routing_geometry(&[connection], &mut budget)?;
+                separate_route(
+                    RouteInput {
+                        nodes: &nodes,
+                        source: members[0].source,
+                        target: members[0].target,
+                    },
+                    &others,
+                    config,
+                    zoom,
+                    &mut budget,
+                )
+                .map(Some)
+            })();
+            match result {
+                Ok(Some(path)) => {
+                    self.wire_paths.insert(key, path);
+                }
+                Ok(None) => {}
+                Err(failure) => {
+                    // A failed separation is never presented as a checked merged
+                    // signal. Keep the existing visible diagnostic/fallback policy.
+                    self.wire_failures.insert(key, failure);
+                    let from =
+                        self.nodes[&connection.from.node].output_socket_pos(connection.from.index);
+                    let to = self.nodes[&connection.to.node].input_socket_pos(connection.to.index);
+                    if let (Some(from), Some(to)) = (from, to) {
+                        self.wire_paths
+                            .insert(key, WirePath::legacy(from, to, zoom));
                     }
                 }
             }
@@ -314,6 +406,204 @@ mod routing_input_tests {
     use super::*;
     use crate::model::{FrameId, NodeKind, SocketDirection, SocketId};
     use crate::runtime::NodeTypeRegistry;
+
+    #[test]
+    fn independent_sources_do_not_share_the_target_approach_track() {
+        let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+        let a = widget
+            .add_node_at("Reroute", Pos2::new(0.0, 300.0))
+            .unwrap();
+        let b = widget
+            .add_node_at("Reroute", Pos2::new(0.0, 600.0))
+            .unwrap();
+        let target = widget
+            .add_node_at("Reroute", Pos2::new(600.0, 0.0))
+            .unwrap();
+        for id in [a, b, target] {
+            let node = widget.graph.nodes.get_mut(&id).unwrap();
+            node.kind = NodeKind::Regular;
+            node.inputs = vec![node.inputs[0].clone(); 4];
+            node.outputs = vec![node.outputs[0].clone(); 4];
+        }
+        let connection = |node, output, input| Connection {
+            from: SocketId {
+                node,
+                index: output,
+                direction: SocketDirection::Output,
+            },
+            to: SocketId {
+                node: target,
+                index: input,
+                direction: SocketDirection::Input,
+            },
+        };
+        // Node identity matters even when both sources use output index zero.
+        for connections in [
+            vec![connection(a, 0, 0), connection(b, 0, 3)],
+            // Distinct outputs on one node, split into incompatible destination orders.
+            vec![connection(a, 0, 3), connection(a, 3, 0)],
+        ] {
+            widget.graph.connections = connections.clone();
+            let original = serde_json::to_value(&widget.graph).unwrap();
+            for zoom in [0.5, 1.0, 1.7] {
+                widget.view.zoom = zoom;
+                let mut layout = widget.build_layout(Pos2::ZERO);
+                let config = RouteConfig::default();
+                let independent: Vec<_> = connections
+                    .iter()
+                    .map(|c| {
+                        let path = layout.route_connection(c, &config).unwrap();
+                        layout.smooth_connection(
+                            c,
+                            path,
+                            &config,
+                            zoom,
+                            &mut WorkBudget::new(config.max_smoothing_work),
+                        )
+                    })
+                    .collect();
+                assert!(
+                    shares_run(
+                        &independent[0],
+                        &independent[1],
+                        &mut WorkBudget::new(config.max_work)
+                    )
+                    .unwrap(),
+                    "fixture must reproduce the independently selected shared track"
+                );
+                assert!(
+                    layout.wire_failures.is_empty(),
+                    "{:?}",
+                    layout.wire_failures
+                );
+                let paths: Vec<_> = connections
+                    .iter()
+                    .map(|c| layout.wire_paths[&(c.from, c.to)].clone())
+                    .collect();
+                assert!(
+                    !shares_run(&paths[0], &paths[1], &mut WorkBudget::new(config.max_work))
+                        .unwrap()
+                );
+                if zoom == 1.0 && connections[1].from.node == b {
+                    separation_visual_fixture(&layout, &independent, &paths);
+                }
+                let before: Vec<_> = paths
+                    .iter()
+                    .map(|p| format!("{:?}", p.segments()))
+                    .collect();
+                let reversed: Vec<_> = connections.iter().rev().cloned().collect();
+                layout.rebuild_routes(&reversed, zoom);
+                assert!(layout.wire_failures.is_empty());
+                for (c, expected) in connections.iter().zip(before) {
+                    assert_eq!(
+                        format!("{:?}", layout.wire_paths[&(c.from, c.to)].segments()),
+                        expected
+                    );
+                }
+                // Exact reuse and partial drag history cannot bypass separation.
+                let mut cache = super::super::routing_cache::RoutingCache::default();
+                assert!(!cache.route(&mut layout, &connections, &config, zoom));
+                assert!(cache.route(&mut layout, &connections, &config, zoom));
+                let old_position = widget.graph.nodes[&a].pos;
+                widget.graph.nodes.get_mut(&a).unwrap().pos.y += 40.0;
+                layout = widget.build_layout(Pos2::ZERO);
+                assert!(!cache.route_interactive(&mut layout, &connections, &config, zoom, true));
+                for dragging in [true, false] {
+                    cache.route_interactive(&mut layout, &connections, &config, zoom, dragging);
+                    assert!(layout.wire_failures.is_empty());
+                    assert!(
+                        !shares_run(
+                            &layout.wire_paths[&(connections[0].from, connections[0].to)],
+                            &layout.wire_paths[&(connections[1].from, connections[1].to)],
+                            &mut WorkBudget::new(config.max_work),
+                        )
+                        .unwrap()
+                    );
+                }
+                widget.graph.nodes.get_mut(&a).unwrap().pos = old_position;
+            }
+            assert_eq!(original, serde_json::to_value(&widget.graph).unwrap());
+        }
+    }
+
+    #[test]
+    fn same_output_fanout_can_keep_its_shared_segments() {
+        let mut widget = NodeGraphWidget::new(NodeTypeRegistry::new());
+        let source = widget
+            .add_node_at("Reroute", Pos2::new(0.0, 400.0))
+            .unwrap();
+        let a = widget
+            .add_node_at("Reroute", Pos2::new(600.0, 0.0))
+            .unwrap();
+        let b = widget
+            .add_node_at("Reroute", Pos2::new(600.0, 200.0))
+            .unwrap();
+        for target in [a, b] {
+            widget.graph.add_connection(
+                SocketId {
+                    node: source,
+                    index: 0,
+                    direction: SocketDirection::Output,
+                },
+                SocketId {
+                    node: target,
+                    index: 0,
+                    direction: SocketDirection::Input,
+                },
+            );
+        }
+        let layout = widget.build_layout(Pos2::ZERO);
+        assert!(layout.wire_failures.is_empty());
+        let paths: Vec<_> = widget
+            .graph
+            .connections
+            .iter()
+            .map(|c| &layout.wire_paths[&(c.from, c.to)])
+            .collect();
+        assert!(shares_run(paths[0], paths[1], &mut WorkBudget::new(100_000)).unwrap());
+    }
+
+    fn separation_visual_fixture(
+        layout: &GraphWidgetLayout,
+        before: &[WirePath],
+        after: &[WirePath],
+    ) {
+        let mut svg = String::from(
+            "<svg xmlns='http://www.w3.org/2000/svg' width='1800' height='900' viewBox='0 0 1800 900'><rect width='1800' height='900' fill='#191919'/>",
+        );
+        for (column, (title, paths)) in [
+            ("Independent routes", before),
+            ("Source-separated routes", after),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            svg.push_str(&format!("<g transform='translate({},55)'><text x='20' y='-20' fill='white' font-size='22'>{title}</text>", column * 900 + 20));
+            for body in layout.node_rects.values() {
+                svg.push_str(&format!("<rect x='{}' y='{}' width='{}' height='{}' rx='8' fill='#303030' stroke='#666'/>", body.min.x, body.min.y, body.width(), body.height()));
+            }
+            for (index, path) in paths.iter().enumerate() {
+                for segment in path.segments() {
+                    let data = match segment {
+                        super::super::routing::PathSegment::Line(p) => {
+                            format!("M {} {} L {} {}", p[0].x, p[0].y, p[1].x, p[1].y)
+                        }
+                        super::super::routing::PathSegment::Cubic(p) => format!(
+                            "M {} {} C {} {},{} {},{} {}",
+                            p[0].x, p[0].y, p[1].x, p[1].y, p[2].x, p[2].y, p[3].x, p[3].y
+                        ),
+                    };
+                    svg.push_str(&format!(
+                        "<path d='{data}' fill='none' stroke='#00d9bb' stroke-width='{}'/>",
+                        if index == 0 { 6 } else { 3 }
+                    ));
+                }
+            }
+            svg.push_str("</g>");
+        }
+        svg.push_str("</svg>");
+        println!("{svg}");
+    }
 
     #[test]
     fn editor_keeps_multi_turn_candidates_bundled_across_zoom_and_connection_order() {

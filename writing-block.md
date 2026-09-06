@@ -124,9 +124,25 @@ in stable order. Route incompatible groups separately. Crossings between groups 
 allowed; neither sockets nor document connections are reordered.
 
 If no common corridor fits, split into smaller contiguous groups deterministically and
-retry down to individual paths. Other bundles are not hard obstacles in the first
-implementation, avoiding dependence on routing iteration order. Inter-bundle optimization
-and global crossing penalties are deferred.
+retry down to individual paths. Crossings between independent groups remain allowed, but
+positive-length shared tracks are reserved for connections from the exact same output
+socket (node identity and socket index), never merely the same node, socket height, label,
+or destination. Distinct signals do not merge into one ordinary checked wire.
+
+After group routing, a bounded separation pass checks straight runs (including straight
+cubics) and identical curved segments in stable source/destination identity order. A
+conflicting later connection uses the individual visibility search with earlier signals'
+parallel runs reserved. Additional coordinates offer tracks at least one lane spacing away;
+perpendicular crossings remain available. Compatible-bundle peers additionally reserve
+their control hulls and lane spacing, including peers later in identity order, so a repair
+does not introduce a crossing inside that bundle. Same-output fan-out is exempt.
+
+The separation pass has its own `max_work` allowance and leaves non-conflicting paths
+unchanged. It checks node clearance and endpoint escapes on the final path; optional
+smoothing is accepted only after a further shared-run check. Failed or exhausted retries
+use the existing visible diagnostic fallback, not an apparently checked merged signal.
+The pass also checks retained drag paths against newly routed connections before publishing
+the common paint/interaction snapshot. Global crossing minimization remains a non-goal.
 
 ## Channels and capacity
 

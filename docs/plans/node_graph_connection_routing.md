@@ -157,6 +157,19 @@ appearance until the checked router is activated in step 3.
   p95 below 8 ms on the smaller fixture. Record misses and follow-up work rather than
   weakening constraints. Retain benchmark evidence in the performance design record.
 
+## 7. Source-socket separation
+
+- [x] Reserve shared segments for the exact same source socket, including across separate
+  node pairs and incompatible sub-bundles. Keep perpendicular crossings available.
+- [x] Retry conflicting tracks with checked node clearance and protected compatible-bundle
+  peers; use visible diagnostic fallback on failure or work exhaustion.
+- [x] Cover different ports on one node, equal port indices on different nodes, same-output
+  fan-out, straight cubics, identical arcs, crossings, zoom, input permutations and drag-cache
+  reuse/release. Preserve saved topology and the shared paint/hit-test path snapshot.
+
+Performance investigation in step 6 is paused at user request. Behavior verification runs
+exclude the dedicated `routing_performance_tests` module while that pause is in effect.
+
 ## Verification for every implementation branch
 
 Run `scripts/sort_use_groups.rb` when imports change and format Rust. Then run tests for
@@ -174,7 +187,7 @@ planning change requires link and diff checks, not Rust builds.
 
 ## Completion
 
-Complete all six steps and verification gates, define visible behavior for every route
+Complete the implementation steps and verification gates, define visible behavior for every route
 outcome, preserve editing gestures on painted paths, and record native/browser measurements.
 Document the resulting architecture in present tense under `docs/aspects/`, remove completed
 TODO work and this working plan, and retire the proposal once the durable design has an

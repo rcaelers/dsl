@@ -73,6 +73,7 @@ Task IDs start with their ownership category and remain stable when task wording
   [implementation plan](docs/plans/node_graph_connection_routing.md). One numbered step per branch:
   6. [ ] Complete GPU and full application-frame performance evidence, and address
      remaining cold routing and release/idle frame cost without weakening route constraints.
+     Performance investigation is paused at user request; resume only when requested.
      Profile the remaining release-frame upper tail and application/GPU costs after conservative
      hit-target move elision; preserve overlap order, pointer capture, and clipped-target Tab order.
      Keep the disjoint reference fixtures free of cold/release fallbacks with the existing work budgets.
