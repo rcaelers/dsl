@@ -151,18 +151,95 @@ def summarize(gpu, application, pid, start_ns, end_ns, required_labels=()):
             "measurement": "Process-owned Active depth-0 GPU intervals joined to command-buffer Encoding metadata by numeric identity. Span includes gaps between GPU stages; active_union merges overlaps. Neither is full UI-frame time, CPU upload cost, or presentation latency. Unmatched and window-crossing buffers are excluded explicitly."}
 
 
+def summarize_encoding(gpu_report, application):
+    """Join encoding wall spans to accepted GPU buffers and same-thread drawable waits.
+
+    A command buffer can remain open while its thread waits. Removing this known
+    overlap does not turn the remainder into CPU time or isolate upload/staging.
+    """
+    pid = gpu_report["pid"]
+    start_ns, end_ns = gpu_report["window_ns"]
+    selected = {b["command_buffer_id"]: b for b in gpu_report["buffers"]}
+    encodings = {}
+    waits = []
+
+    def thread_id(row):
+        thread = row["thread"]
+        owner = application.resolve(thread.find("process"))
+        if number(application.resolve(owner.find("pid"))) != pid:
+            raise ValueError("Thread does not belong to target process")
+        return number(application.resolve(thread.find("tid")))
+
+    for row in application.rows(pid):
+        event = row["event-type"].text
+        if event == "Wait for Next Drawable":
+            start = number(row["start"])
+            end = start + number(row["duration"])
+            # Retain boundary-crossing waits in full, intersect them per buffer below.
+            if start < end_ns and end > start_ns:
+                waits.append({"thread_id": thread_id(row), "start_ns": start, "end_ns": end})
+        elif event == "Encoding":
+            identity = number(row["cmdbuffer-id"])
+            label = row["event-label"].find("metal-object-label")
+            if (identity not in selected or label is None
+                    or row["event-label"].find("uint64") is None):
+                continue  # Nested encoder rows are not command-buffer wall spans.
+            if identity in encodings:
+                raise ValueError("Duplicate command-buffer Encoding interval")
+            if application.resolve(label).text != selected[identity]["label"]:
+                raise ValueError("Encoding label does not match GPU buffer")
+            start = number(row["start"])
+            encodings[identity] = {"command_buffer_id": identity,
+                                   "label": selected[identity]["label"],
+                                   "thread_id": thread_id(row), "start_ns": start,
+                                   "end_ns": start + number(row["duration"])}
+    if encodings.keys() != selected.keys():
+        raise ValueError("Missing command-buffer Encoding interval")
+
+    buffers = []
+    excluded = collections.Counter()
+    for row in encodings.values():
+        start, end = row["start_ns"], row["end_ns"]
+        if start < start_ns or end > end_ns:
+            excluded["outside_or_crossing_window_buffers"] += 1
+            continue
+        overlap = union_ns([(max(start, w["start_ns"]), min(end, w["end_ns"]))
+                            for w in waits if w["thread_id"] == row["thread_id"]
+                            and w["start_ns"] < end and w["end_ns"] > start])
+        buffers.append({**row, "wall_ms": (end - start) / 1e6,
+                        "drawable_wait_overlap_ms": overlap / 1e6,
+                        "non_drawable_wait_wall_ms": (end - start - overlap) / 1e6})
+    if not buffers:
+        raise ValueError("No matched Encoding intervals in analysis window")
+    buffers.sort(key=lambda b: (b["start_ns"], b["command_buffer_id"]))
+    waits.sort(key=lambda w: (w["start_ns"], w["thread_id"], w["end_ns"]))
+    summary = {}
+    for label in sorted({b["label"] for b in buffers}):
+        matching = [b for b in buffers if b["label"] == label]
+        summary[label] = {metric: distribution([b[metric + "_ms"] for b in matching])
+                          for metric in ["wall", "drawable_wait_overlap", "non_drawable_wait_wall"]}
+    return {"fixture": "native-metal-encoding-wait-overlap-v1", "pid": pid,
+            "window_ns": [start_ns, end_ns], "excluded": dict(excluded),
+            "summary": summary, "buffers": buffers, "drawable_waits": waits,
+            "measurement": "Command-buffer Encoding wall intervals joined by numeric identity to accepted GPU buffers. Same-process, same-thread Wait for Next Drawable intersections are unioned per buffer; nested encoder intervals are ignored. CPU encoding and GPU boundaries must both fit the fixed window. The remainder still includes unrelated CPU work, scheduling and other waits: it is not CPU time, upload/staging cost, or presentation latency. Per-buffer intervals can overlap and must not be summed as frame time."}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("gpu_xml")
     parser.add_argument("application_xml")
     parser.add_argument("--pid", type=int, required=True)
     parser.add_argument("--require-label", action="append", default=[])
+    parser.add_argument("--include-encoding", action="store_true",
+                        help="Include encoding wall / same-thread drawable-wait overlap, not CPU time")
     parser.add_argument("--start-ns", type=int, default=1_000_000_000)
     parser.add_argument("--end-ns", type=int, default=4_000_000_000)
     args = parser.parse_args()
-    result = summarize(Table(args.gpu_xml, "metal-gpu-intervals"),
-                       Table(args.application_xml, "metal-application-intervals"),
+    application = Table(args.application_xml, "metal-application-intervals")
+    result = summarize(Table(args.gpu_xml, "metal-gpu-intervals"), application,
                        args.pid, args.start_ns, args.end_ns, args.require_label)
+    if args.include_encoding:
+        result["encoding"] = summarize_encoding(result, application)
     print(json.dumps(result, indent=2, allow_nan=False))
 
 

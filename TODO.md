@@ -81,6 +81,8 @@ Task IDs start with their ownership category and remain stable when task wording
      `docs/aspects/performance.md`.
      Visible native GPU command-buffer observations are separate from presentation latency and
      CPU upload/staging cost; retain that separation for further application-frame measurements.
+     Encoding/drawable-wait overlap evidence does not isolate upload CPU time; use renderer-stage
+     instrumentation or CPU samples for that remaining attribution.
 - [graph.editor.socket-renaming] Add generic instance-local socket renaming. Node definitions explicitly mark which input and
   output sockets are renameable; sockets without that capability remain definition-owned. Preserve stable schema IDs and
   runtime port contracts independently from display names, persist user overrides in saved graphs, and provide a way to reset

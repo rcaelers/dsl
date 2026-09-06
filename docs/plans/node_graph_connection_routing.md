@@ -106,6 +106,9 @@ appearance until the checked router is activated in step 3.
   require application liveness through recording, not through trace serialization.
 - [x] Capture an unoccluded application window, require `egui_render` intervals, and verify
   screenshot completion before accepting native GPU/rendering baseline measurements.
+- [x] Join accepted native GPU buffers to encoding wall intervals and same-thread drawable
+  waits. Retain per-buffer overlaps and boundary exclusions; do not treat the remainder as
+  CPU upload/staging time. Keep renderer-stage CPU and presentation measurements outstanding.
 - [x] Add an opt-in, bounded native application UI frame observer with isolated preferences
   and unavailable execution services. Retain stationary bundled-graph CPU/cadence samples,
   renderer metadata, and post-measurement visual checks. GPU duration/presentation, large-graph

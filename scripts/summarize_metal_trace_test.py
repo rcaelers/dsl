@@ -1,7 +1,9 @@
 import io
+import json
 import unittest
+from unittest.mock import patch
 
-from summarize_metal_trace import Table, distribution, summarize, union_ns
+from summarize_metal_trace import Table, distribution, main, summarize, summarize_encoding, union_ns
 
 
 def table(schema, columns, rows):
@@ -36,6 +38,26 @@ def fixtures(extra=()):
         '<formatted-label><metal-object-label>unrelated-secret</metal-object-label><uint64>1</uint64></formatted-label>',
     ])
     return gpu, app
+
+
+def encoding_table(rows):
+    return table('metal-application-intervals',
+                 ['process', 'event-type', 'cmdbuffer-id', 'event-label', 'thread', 'start', 'duration'], rows)
+
+
+def encoding_row(start, duration, identity=3, pid=7, tid=11, label='render', nested=False,
+                 event='Encoding', thread_pid=None):
+    return (f'<process><pid>{pid}</pid></process><metal-event-name>{event}</metal-event-name>'
+            f'<metal-command-buffer-id>{identity}</metal-command-buffer-id><formatted-label>'
+            f'<metal-object-label>{label}</metal-object-label>' +
+            ('' if nested else '<uint64>1</uint64>') + '</formatted-label>'
+            f'<thread><tid>{tid}</tid><process><pid>{pid if thread_pid is None else thread_pid}</pid></process></thread>'
+            f'<start-time>{start}</start-time><duration>{duration}</duration>')
+
+
+def gpu_selection(*identities):
+    return {'pid': 7, 'window_ns': [10, 100],
+            'buffers': [{'command_buffer_id': i, 'label': 'render'} for i in identities]}
 
 
 class MetalTraceTests(unittest.TestCase):
@@ -89,6 +111,79 @@ class MetalTraceTests(unittest.TestCase):
                 Table(io.StringIO(xml), 'gpu')
         with self.assertRaises(ValueError):
             table('gpu', ['process', 'process'], [])
+
+
+class EncodingTraceTests(unittest.TestCase):
+    def test_cli_encoding_is_opt_in_and_preserves_gpu_report(self):
+        reports = []
+        for options in ([], ['--include-encoding']):
+            gpu, _ = fixtures()
+            app = encoding_table([encoding_row(10, 15)])
+            output = io.StringIO()
+            with patch('sys.argv', ['summarize_metal_trace.py', 'gpu.xml', 'app.xml',
+                                    '--pid', '7', '--start-ns', '10', '--end-ns', '100', *options]), \
+                    patch('summarize_metal_trace.Table', side_effect=[app, gpu]), \
+                    patch('sys.stdout', output):
+                main()
+            reports.append(json.loads(output.getvalue()))
+        encoding = reports[1].pop('encoding')
+        self.assertEqual(reports[0], reports[1])
+        self.assertEqual(encoding['buffers'][0]['command_buffer_id'], 3)
+
+    def test_identity_thread_and_interval_join_with_boundary_waits(self):
+        app = encoding_table([
+            encoding_row(20, 40), encoding_row(75, 15, identity=4, tid=12),
+            encoding_row(5, 15, identity=5),  # Encoding boundary differs from GPU boundary.
+            encoding_row(1, 99, nested=True),  # Ignore nested encoder, even with same identity.
+            encoding_row(0, 30, event='Wait for Next Drawable'),
+            encoding_row(25, 10, event='Wait for Next Drawable'),  # Overlap is not summed twice.
+            encoding_row(50, 70, event='Wait for Next Drawable'),  # Crosses upper window boundary.
+            encoding_row(40, 10, tid=12, event='Wait for Next Drawable'),
+            encoding_row(20, 40, pid=99, event='Wait for Next Drawable'),
+            encoding_row(20, 40, pid=99, label='unrelated-secret'),
+            encoding_row(100, 10, event='Wait for Next Drawable'),  # Outside fixed window.
+        ])
+        report = summarize_encoding(gpu_selection(3, 4, 5), app)
+        self.assertEqual(len(report['buffers']), 2)
+        first, second = report['buffers']
+        self.assertEqual(first['wall_ms'], 40 / 1e6)
+        self.assertEqual(first['drawable_wait_overlap_ms'], 25 / 1e6)
+        self.assertEqual(first['non_drawable_wait_wall_ms'], 15 / 1e6)
+        self.assertEqual(second['drawable_wait_overlap_ms'], 0)
+        self.assertEqual(second['non_drawable_wait_wall_ms'], 15 / 1e6)
+        self.assertEqual(report['excluded'], {'outside_or_crossing_window_buffers': 1})
+        self.assertEqual(len(report['drawable_waits']), 4)
+        self.assertEqual(report['summary']['render']['wall']['samples_ms'], [15 / 1e6, 40 / 1e6])
+        self.assertNotIn('unrelated-secret', str(report))
+
+    def test_no_drawable_wait_does_not_imply_cpu_time(self):
+        report = summarize_encoding(gpu_selection(3), encoding_table([encoding_row(10, 90)]))
+        self.assertEqual(report['drawable_waits'], [])
+        self.assertEqual(report['buffers'][0]['non_drawable_wait_wall_ms'], 90 / 1e6)
+        self.assertIn('not CPU time', report['measurement'])
+
+    def test_duplicate_missing_mismatched_and_boundary_encoding_fail(self):
+        for rows, message in [
+            ([encoding_row(20, 10), encoding_row(20, 10)], 'Duplicate'),
+            ([encoding_row(20, 10, nested=True)], 'Missing'),
+            ([encoding_row(20, 10, label='wrong')], 'label'),
+            ([encoding_row(1, 10)], 'No matched'),
+            ([encoding_row(90, 11)], 'No matched'),
+        ]:
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                summarize_encoding(gpu_selection(3), encoding_table(rows))
+
+    def test_invalid_thread_and_numeric_values_fail(self):
+        for row in [encoding_row(-1, 10), encoding_row(20, -1), encoding_row(20, 10, tid=-1),
+                    encoding_row(20, 10, thread_pid=99),
+                    encoding_row(20, 10).replace('<tid>11</tid>', '<tid ref="missing"/>')]:
+            with self.subTest(row=row), self.assertRaises(ValueError):
+                summarize_encoding(gpu_selection(3), encoding_table([row]))
+        with self.assertRaisesRegex(ValueError, 'Thread does not belong'):
+            summarize_encoding(gpu_selection(3), encoding_table([
+                encoding_row(20, 10),
+                encoding_row(20, 5, event='Wait for Next Drawable', thread_pid=99),
+            ]))
 
 
 if __name__ == '__main__':

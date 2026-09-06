@@ -568,10 +568,46 @@ uninstrumented and instrumented CPU reports, binary/XML identities and screensho
 [`node_graph_visible_native_gpu.json`](../../benchmarks/performance/node_graph_visible_native_gpu.json).
 Source and executable stay fixed during capture; Cargo validation does not run concurrently.
 
+### Native encoding and drawable-wait attribution
+
+The analyzer's opt-in `--include-encoding` report joins command-buffer `Encoding` intervals
+to accepted GPU buffers by numeric identity and verifies their labels. Nested encoder rows
+are excluded. Both encoding and GPU intervals must fit the same fixed analysis window.
+`Wait for Next Drawable` intervals are intersected on the same process and numeric thread
+identity, merging overlaps before computing each buffer's remainder. Boundary-crossing waits
+are retained in full and intersected with the accepted encoding interval, not discarded.
+
+Reanalysis of the visible native traces above retains 346 encoding intervals for the 100-node
+fixture and 354 for the 500-node fixture. One additional large-fixture buffer is excluded
+because its encoding crosses the window boundary even though its GPU work fits. The following
+figures describe `PendingWrites` encoding wall time, not upload CPU time:
+
+| Nodes / pending-write buffers | Encoding wall p50 / p95 | Same-thread drawable-wait overlap p50 / p95 | Remaining wall p50 / p95 |
+| --- | --- | --- | --- |
+| 100 / 176 | 13.498 / 14.327 ms | 13.113 / 13.913 ms | 0.389 / 0.457 ms |
+| 500 / 179 | 3.732 / 4.482 ms | 3.342 / 4.120 ms | 0.371 / 0.415 ms |
+
+The `egui_render` encoding wall p50/p95 is 0.180/0.226 ms across 170 buffers and 0.178/0.206 ms
+across 175 buffers respectively, with no same-thread drawable-wait overlap. All remainders are
+computed per buffer before taking percentiles; percentile columns are not subtracted.
+
+These observations show that pending-write encoding spans remain open across drawable waits.
+Neither the original span nor its remainder measures CPU execution or isolates upload/staging:
+unrelated work, scheduling and other waits can remain. Overlapping command-buffer lifetimes
+cannot be summed as frame time, and waiting for a drawable does not establish when a frame
+reaches the display. There is no new timing capture or before/after performance comparison.
+
+[`node_graph_native_encoding_waits.json`](../../benchmarks/performance/node_graph_native_encoding_waits.json)
+retains all 700 matched encoding records, process-owned drawable waits, distributions and source
+XML identities. An independent interval-boundary sweep checks every overlap/remainder and
+distribution against the normalized records; source identities match the GPU artifact above.
+
 #### Proposed future rendering validation
 
 Measure CPU upload/staging and frame-to-presentation latency separately from command-buffer
-GPU execution. Full application/active-runtime composition, browser rendering, low-zoom
+GPU execution. Upload/staging attribution needs renderer-stage instrumentation or CPU samples;
+Metal encoding wall spans and their drawable-wait remainders do not supply that measurement.
+Full application/active-runtime composition, browser rendering, low-zoom
 application/drag scenarios and release/idle tails remain separate acceptance work.
 
 ### Native application UI scale documents
