@@ -20,6 +20,8 @@ mod routing_input;
 #[cfg(test)]
 mod routing_performance_tests;
 mod routing_presentation;
+#[cfg(test)]
+mod routing_warning_tests;
 mod selection;
 mod snapshot_error;
 mod widget;

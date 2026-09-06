@@ -334,6 +334,12 @@ routing. The empty-canvas context menu opens Routing diagnostics, with independe
 for expanded obstacles, port escapes, and route results. Diagnostic settings are transient
 widget state and do not alter the document or its processing revision.
 
+Hovering a routing-warning marker highlights the failed connections represented by that
+marker using the same brighter, thicker data-type-colored stroke as port hover. Other wires
+temporarily ignore selected-node emphasis; leaving the marker restores ordinary highlighting
+without changing selection. Marker tooltips remain available. Hidden carried links stay
+hidden, and clipped markers or markers covered by floating panels do not override emphasis.
+
 An unconnected node being dragged or singly placed is temporarily excluded from routing
 obstacles so it can target a wire for splicing. The paint and interaction snapshot share this
 provisional geometry and highlight the splice candidate. Release checks the current node

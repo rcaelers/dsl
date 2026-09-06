@@ -161,6 +161,9 @@ appearance until the checked router is activated in step 3.
 
 - [x] Preserve data-type wire colors on routing failures; communicate failures through the
   separate warning markers, hover explanations and canvas summary instead of recoloring edges.
+- [x] Hovering a warning marker highlights its failed connections using port-hover emphasis,
+  temporarily suppressing selection-based wire emphasis without modifying selection. Cover
+  multiple failures per badge, unrelated wires, tooltip preservation, clipping/coverage and recovery.
 - [x] Reserve shared segments for the exact same source socket, including across separate
   node pairs and incompatible sub-bundles. Keep perpendicular crossings available.
 - [x] Retry conflicting tracks with checked node clearance and protected compatible-bundle

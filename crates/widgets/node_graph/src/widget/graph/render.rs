@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use egui::{Color32, CornerRadius, Painter, Pos2, Rect, RichText, Stroke, Vec2};
 
 use super::connection_paint::{WireEmphasis, draw_connections};
@@ -22,6 +24,7 @@ pub(crate) struct GraphRenderContext<'a> {
     pub layout: &'a GraphWidgetLayout,
     pub response_layout: Option<&'a GraphWidgetLayout>,
     pub hovered_socket: Option<SocketId>,
+    pub routing_warning_highlights: Option<&'a HashSet<(SocketId, SocketId)>>,
 }
 
 impl NodeGraphWidget {
@@ -38,6 +41,7 @@ impl NodeGraphWidget {
             layout,
             response_layout,
             hovered_socket,
+            routing_warning_highlights,
         } = context;
         // `painter` is already clipped to `rect`, but the inline node
         // controls below (`show_controls`) place real egui widgets straight
@@ -102,6 +106,13 @@ impl NodeGraphWidget {
             wire_w,
             |idx, conn| match insert_candidate {
                 _ if moved_link == Some(conn.to) => WireEmphasis::Hidden,
+                _ if let Some(failed) = routing_warning_highlights => {
+                    if failed.contains(&(conn.from, conn.to)) {
+                        WireEmphasis::Highlight
+                    } else {
+                        WireEmphasis::Normal
+                    }
+                }
                 Some((candidate, insertable)) if candidate == idx => {
                     if insertable {
                         WireEmphasis::Highlight

@@ -12,7 +12,7 @@ use super::menu::MenuController;
 use super::panel::PanelState;
 use super::response::GraphResponses;
 use super::routing_cache::RoutingCache;
-use super::routing_presentation::RoutingDebug;
+use super::routing_presentation::{RoutingDebug, routing_warning_highlights};
 use super::snapshot_error::GraphSnapshotError;
 use super::{layout, render};
 use crate::api::{
@@ -767,6 +767,8 @@ impl NodeGraphWidget {
 
         let response_layout = layout;
         let layout = self.build_layout(origin);
+        let warning_highlights =
+            routing_warning_highlights(ui, &layout, content_rect, graph_pointer);
         self.draw_graph(
             ui,
             &painter,
@@ -779,6 +781,7 @@ impl NodeGraphWidget {
                     && responses.minimap.is_some() == self.minimap_visible)
                     .then_some(&response_layout),
                 hovered_socket,
+                routing_warning_highlights: warning_highlights.as_ref(),
             },
         );
         // Register the floating UI after every graph hit target — including

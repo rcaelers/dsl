@@ -7,6 +7,7 @@ use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Sense, Stroke, Vec2};
 use super::layout::GraphWidgetLayout;
 use super::routing::{PathSegment, RouteConfig, RouteFailure};
 use super::widget::NodeGraphWidget;
+use crate::model::{NodeId, SocketId};
 use crate::support::to_screen_rect;
 
 #[derive(Default)]
@@ -28,6 +29,62 @@ fn failure_message(failure: RouteFailure) -> &'static str {
             "The routing work limit was reached. Simplify the layout to reduce routing work."
         }
     }
+}
+
+fn warning_anchor(
+    layout: &GraphWidgetLayout,
+    from: SocketId,
+    to: SocketId,
+) -> Option<(NodeId, Pos2)> {
+    // Prefer the source, then the destination when the source cannot be drawn.
+    [from.node, to.node].into_iter().find_map(|id| {
+        let body = *layout.node_screen_rects.get(&id)?;
+        (body.min.is_finite() && body.max.is_finite())
+            .then_some((id, body.right_top() + Vec2::new(-8.0, -9.0)))
+    })
+}
+
+fn warning_response(ui: &mut egui::Ui, id: NodeId, pos: Pos2, rect: Rect) -> egui::Response {
+    ui.interact(
+        Rect::from_center_size(pos, Vec2::splat(16.0)).intersect(rect),
+        ui.id().with(("routing-warning", id.0)),
+        Sense::hover(),
+    )
+}
+
+/// Current-frame hover only: no selection, graph, or persistent widget state changes.
+pub(crate) fn routing_warning_highlights(
+    ui: &mut egui::Ui,
+    layout: &GraphWidgetLayout,
+    rect: Rect,
+    graph_pointer: Option<Pos2>,
+) -> Option<HashSet<(SocketId, SocketId)>> {
+    let pointer = graph_pointer?; // Floating panels and the tab strip do not hover graph warnings.
+    let mut keys: Vec<_> = layout.wire_failures.keys().copied().collect();
+    keys.sort_by_key(|(from, to)| (from.node.0, from.index, to.node.0, to.index));
+    let mut marked = HashSet::new();
+    let mut hovered = None;
+    for &(from, to) in &keys {
+        if let Some((id, pos)) = warning_anchor(layout, from, to)
+            && marked.insert(id)
+            && {
+                let response = warning_response(ui, id, pos, rect);
+                // egui's hit-test result may refer to the preceding frame; a
+                // moved/clipped badge must contain the current pointer as well.
+                response.rect.contains(pointer) && response.hovered()
+            }
+        {
+            hovered = Some(id);
+        }
+    }
+    let hovered = hovered?;
+    Some(
+        keys.into_iter()
+            .filter(|&(from, to)| {
+                warning_anchor(layout, from, to).is_some_and(|(id, _)| id == hovered)
+            })
+            .collect(),
+    )
 }
 
 impl NodeGraphWidget {
@@ -54,13 +111,7 @@ impl NodeGraphWidget {
                 "Connection could not be routed. {} {fallback}",
                 failure_message(failure)
             );
-            // Prefer the source, then the destination when the source cannot be drawn.
-            let anchor = [from.node, to.node].into_iter().find_map(|id| {
-                let body = *layout.node_screen_rects.get(&id)?;
-                (body.min.is_finite() && body.max.is_finite())
-                    .then_some((id, body.right_top() + Vec2::new(-8.0, -9.0)))
-            });
-            if let Some((id, pos)) = anchor
+            if let Some((id, pos)) = warning_anchor(layout, from, to)
                 && marked.insert(id)
             {
                 painter.circle_filled(pos, 7.0, color);
@@ -71,12 +122,13 @@ impl NodeGraphWidget {
                     FontId::proportional(12.0),
                     Color32::BLACK,
                 );
-                ui.interact(
-                    Rect::from_center_size(pos, Vec2::splat(16.0)).intersect(rect),
-                    ui.id().with(("routing-warning", id.0)),
-                    Sense::hover(),
-                )
-                .on_hover_text(&explanation);
+                // Refresh the same hit target after graph controls, just as node
+                // targets are raised during painting. Geometry and ID are shared
+                // with the pre-paint hover query so tooltip and wire emphasis agree.
+                let response = warning_response(ui, id, pos, rect);
+                if pointer.is_some_and(|point| response.rect.contains(point)) {
+                    response.on_hover_text(&explanation);
+                }
             }
             if let Some(pointer) = pointer {
                 let canvas = self.view.screen_to_canvas(origin, pointer);

@@ -7,8 +7,8 @@ use crate::model::{Connection, GraphState};
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WireEmphasis {
     Normal,
-    /// Connected to a selected node, or a valid insert target for the
-    /// dragged node: brighter and thicker.
+    /// Selected-node, port-hover, routing-warning, or valid insert target:
+    /// brighter and thicker, retaining the data-type color.
     Highlight,
     /// Insert target the dragged node cannot splice into: dimmed.
     Muted,

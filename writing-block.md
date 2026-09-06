@@ -87,6 +87,12 @@ routing failure does not override it. This diagnostic curve is outside the safe-
 but remains editable and cuttable. Non-finite endpoints instead produce a node-associated warning without
 submitting invalid paint geometry. Routing recovers automatically when geometry becomes valid.
 
+Hovering a warning marker highlights only its associated failed connections with the ordinary
+port-hover emphasis, retaining data-type colors. During that hover, selected nodes do not
+highlight other connections. Selection itself is unchanged and ordinary emphasis resumes
+when the pointer leaves, the marker is clipped/covered, or routing recovers. The warning
+tooltip continues to explain the failure.
+
 ## Ordinary and exceptional paths
 
 The fast path handles sections whose escapes and endpoint directions permit increasing X
