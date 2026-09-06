@@ -3,7 +3,7 @@ use std::collections::BinaryHeap;
 
 use egui::{Pos2, Rect};
 
-use super::super::{RouteConfig, RouteFailure, WorkBudget};
+use super::super::{PortSide, RouteConfig, RouteFailure, WorkBudget};
 use super::obstacle::clear;
 
 /// Columns at obstacle boundaries partition the plane into slabs. Retaining each
@@ -14,6 +14,7 @@ pub(crate) struct Channels {
     ys: Vec<f32>,
     reserved: Vec<[Pos2; 2]>,
     spacing: f32,
+    endpoint_sides: Option<(PortSide, PortSide)>,
 }
 
 impl Channels {
@@ -85,7 +86,14 @@ impl Channels {
             ys,
             reserved: reserved.to_vec(),
             spacing: config.lane_spacing,
+            endpoint_sides: None,
         })
+    }
+
+    /// Join mandatory horizontal escapes without reversing along either escape.
+    pub(crate) fn with_endpoint_sides(mut self, source: PortSide, target: PortSide) -> Self {
+        self.endpoint_sides = Some((source, target));
+        self
     }
 
     fn point(&self, vertex: usize) -> Pos2 {
@@ -135,7 +143,13 @@ impl Channels {
                 continue;
             }
             let vertex = entry.state / 5;
-            if vertex == goal {
+            // Coincident escapes still need a corridor when both ports face the
+            // same side: directly joining them would reverse at the shared point.
+            let direct_reversal = entry.state == start_state
+                && self
+                    .endpoint_sides
+                    .is_some_and(|(source, target)| source == target);
+            if vertex == goal && !direct_reversal {
                 let mut route = Vec::new();
                 let mut state = entry.state;
                 loop {
@@ -162,6 +176,25 @@ impl Channels {
                 let Some(next) = next else {
                     continue;
                 };
+                let incoming = entry.state % 5;
+                if incoming != 4 && direction == (incoming ^ 1) {
+                    continue;
+                }
+                if let Some((source, target)) = self.endpoint_sides {
+                    let reverses_source = entry.state == start_state
+                        && matches!(
+                            (source, direction),
+                            (PortSide::Right, 1) | (PortSide::Left, 0)
+                        );
+                    let reverses_target = next == goal
+                        && matches!(
+                            (target, direction),
+                            (PortSide::Left, 1) | (PortSide::Right, 0)
+                        );
+                    if reverses_source || reverses_target {
+                        continue;
+                    }
+                }
                 let a = self.point(vertex);
                 let b = self.point(next);
                 if monotonic && (b.x < start.x || b.x > end.x) {

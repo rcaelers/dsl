@@ -94,7 +94,8 @@ pub(crate) fn separate_route(
     }
     let start = escape(input.source, input.nodes, &obstacles, config, budget)?;
     let end = escape(input.target, input.nodes, &obstacles, config, budget)?;
-    let channels = Channels::avoiding_runs(start, end, &obstacles, &reserved, config, budget)?;
+    let channels = Channels::avoiding_runs(start, end, &obstacles, &reserved, config, budget)?
+        .with_endpoint_sides(input.source.side, input.target.side);
     let monotonic = input.source.side == PortSide::Right
         && input.target.side == PortSide::Left
         && start.x < end.x;

@@ -57,6 +57,60 @@ fn evaluate(p: [Pos2; 4], t: f32) -> Pos2 {
 }
 
 #[test]
+fn endpoint_quality_does_not_introduce_a_protruding_reversal() {
+    let nodes = [
+        Rect::from_min_max(Pos2::new(200.0, 300.0), Pos2::new(300.0, 400.0)),
+        Rect::from_min_max(Pos2::new(400.0, 0.0), Pos2::new(500.0, 150.0)),
+    ];
+    let geometry = || RouteInput {
+        nodes: &nodes,
+        source: PortGeometry {
+            obstacle: 0,
+            position: nodes[0].right_center(),
+            side: PortSide::Right,
+        },
+        target: PortGeometry {
+            obstacle: 1,
+            position: nodes[1].left_center(),
+            side: PortSide::Left,
+        },
+    };
+    let config = RouteConfig::default();
+    for zoom in [0.5, 1.0, 2.0] {
+        let baseline =
+            route_with_budget(geometry(), &config, &mut WorkBudget::new(config.max_work)).unwrap();
+        let path = improve_route(
+            geometry(),
+            baseline,
+            &config,
+            zoom,
+            &mut WorkBudget::new(config.max_smoothing_work),
+        );
+        let mut points = vec![geometry().source.position];
+        for segment in path.segments() {
+            let sample = match segment {
+                PathSegment::Line(p) => {
+                    points.extend_from_slice(&p[1..]);
+                    p[0].lerp(p[1], 0.5)
+                }
+                PathSegment::Cubic(p) => {
+                    points.extend_from_slice(&p[1..]);
+                    evaluate(*p, 0.5)
+                }
+            };
+            assert!(path.distance(sample) * zoom <= 0.501);
+        }
+        assert_eq!(points.last(), Some(&geometry().target.position));
+        for turn in points.windows(3) {
+            assert!(
+                (turn[1] - turn[0]).dot(turn[2] - turn[1]) >= 0.0,
+                "protruding turn: {turn:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn rounded_corners_keep_escapes_clearance_and_aligned_tangents() {
     let nodes = nodes();
     let config = RouteConfig {

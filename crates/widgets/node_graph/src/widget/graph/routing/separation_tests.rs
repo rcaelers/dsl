@@ -100,6 +100,56 @@ fn reserved_runs_allow_crossings_but_choose_a_spaced_parallel_track() {
 }
 
 #[test]
+fn separated_route_does_not_reverse_at_overlapping_escape_extents() {
+    let nodes = [
+        Rect::from_min_max(Pos2::new(200.0, 300.0), Pos2::new(300.0, 400.0)),
+        Rect::from_min_max(Pos2::new(400.0, 0.0), Pos2::new(500.0, 150.0)),
+    ];
+    let config = RouteConfig {
+        escape: 54.0,
+        ..RouteConfig::default()
+    };
+    let other = line([354.0, 100.0], [354.0, 250.0]);
+    for zoom in [0.5, 1.0, 2.0] {
+        let path = separate_route(
+            RouteInput {
+                nodes: &nodes,
+                source: PortGeometry {
+                    obstacle: 0,
+                    position: nodes[0].right_center(),
+                    side: PortSide::Right,
+                },
+                target: PortGeometry {
+                    obstacle: 1,
+                    position: nodes[1].left_center(),
+                    side: PortSide::Left,
+                },
+            },
+            &[(&other, false)],
+            &config,
+            zoom,
+            &mut WorkBudget::new(config.max_work),
+        )
+        .unwrap();
+        assert!(!shares_run(&path, &other, &mut WorkBudget::new(config.max_work)).unwrap());
+        let mut points = vec![nodes[0].right_center()];
+        for segment in path.segments() {
+            match segment {
+                PathSegment::Line(p) => points.extend_from_slice(&p[1..]),
+                PathSegment::Cubic(p) => points.extend_from_slice(&p[1..]),
+            }
+        }
+        assert_eq!(points.last(), Some(&nodes[1].left_center()));
+        for turn in points.windows(3) {
+            assert!(
+                (turn[1] - turn[0]).dot(turn[2] - turn[1]) >= 0.0,
+                "protruding turn: {turn:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn separated_route_keeps_checked_node_clearance_escapes_and_wire_geometry() {
     let nodes = [
         Rect::from_min_max(Pos2::new(0.0, 300.0), Pos2::new(100.0, 400.0)),

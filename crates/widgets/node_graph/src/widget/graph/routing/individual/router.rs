@@ -17,7 +17,8 @@ pub(crate) fn route_with_budget(
     let obstacles = expanded(&input, config, budget)?;
     let start = escape(input.source, input.nodes, &obstacles, config, budget)?;
     let end = escape(input.target, input.nodes, &obstacles, config, budget)?;
-    let channels = Channels::new(start, end, &obstacles, config, budget)?;
+    let channels = Channels::new(start, end, &obstacles, config, budget)?
+        .with_endpoint_sides(input.source.side, input.target.side);
     let monotonic = input.source.side == PortSide::Right
         && input.target.side == PortSide::Left
         && start.x < end.x;

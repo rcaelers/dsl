@@ -62,7 +62,59 @@ fn checked_points(input: RouteInput<'_>) -> Vec<Pos2> {
     assert_eq!(points[points.len() - 1].y, points[points.len() - 2].y);
     assert!(points[1].x > points[0].x);
     assert!(points[points.len() - 2].x < points[points.len() - 1].x);
+    for turn in points.windows(3) {
+        assert!(
+            (turn[1] - turn[0]).dot(turn[2] - turn[1]) >= 0.0,
+            "route doubles back at {turn:?}: {points:?}"
+        );
+    }
     points
+}
+
+#[test]
+fn nearby_ports_do_not_double_back_at_extended_escapes() {
+    for escape in [30.0, 54.0] {
+        let config = RouteConfig {
+            escape,
+            ..RouteConfig::default()
+        };
+        for source_side in [PortSide::Left, PortSide::Right] {
+            for target_side in [PortSide::Left, PortSide::Right] {
+                for x in (0..=500).step_by(25) {
+                    for y in [-300.0, 300.0] {
+                        let nodes = [
+                            rect(x as f32, y, 100.0, 100.0),
+                            rect(400.0, 0.0, 100.0, 150.0),
+                        ];
+                        let port = |obstacle: usize, side| PortGeometry {
+                            obstacle,
+                            position: match side {
+                                PortSide::Left => nodes[obstacle].left_center(),
+                                PortSide::Right => nodes[obstacle].right_center(),
+                            },
+                            side,
+                        };
+                        let path = route(
+                            RouteInput {
+                                nodes: &nodes,
+                                source: port(0, source_side),
+                                target: port(1, target_side),
+                            },
+                            &config,
+                        )
+                        .unwrap();
+                        for pair in path.segments().windows(2) {
+                            let [PathSegment::Line([a, b]), PathSegment::Line([c, d])] = pair
+                            else {
+                                panic!("checked line path")
+                            };
+                            assert!((*b - *a).dot(*d - *c) >= 0.0, "source {x}, {y}: {pair:?}");
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -255,6 +307,23 @@ fn search_handles_equal_coordinates_and_monotonic_failure_with_a_valid_fallback(
             .unwrap(),
         vec![start, vertical_end]
     );
+    for source in [PortSide::Left, PortSide::Right] {
+        for target in [PortSide::Left, PortSide::Right] {
+            let coincident = Channels::new(start, start, &[], &config, &mut budget)
+                .unwrap()
+                .with_endpoint_sides(source, target);
+            // With no other lattice coordinates there is no room to turn. Only
+            // opposite-facing ports can join directly without a reversal.
+            assert_eq!(
+                coincident.find(start, start, &[], &config, false, &mut budget),
+                if source == target {
+                    Err(RouteFailure::NoCorridor)
+                } else {
+                    Ok(vec![start])
+                }
+            );
+        }
+    }
 }
 
 #[test]
