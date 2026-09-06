@@ -1,7 +1,9 @@
-use egui::{Color32, Painter, Pos2};
+use std::collections::HashMap;
+
+use egui::{Color32, Painter, Pos2, Stroke};
 
 use super::layout::GraphWidgetLayout;
-use super::routing::draw_path;
+use super::routing::{WirePath, draw_path_shadow, draw_path_stroke};
 use crate::model::{Connection, GraphState};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -44,39 +46,56 @@ pub(crate) fn draw_connections(
         graph,
         registry,
         layout,
-        to_screen,
         wire_width,
     };
-    let mut highlighted = Vec::new();
+    let mut groups: Vec<Vec<PaintedConnection<'_>>> = Vec::new();
+    let mut source_groups = HashMap::new();
     for (idx, conn) in graph.connections.iter().enumerate() {
         let emphasis = emphasis(idx, conn);
-        if emphasis == WireEmphasis::Hidden {
+        let Some(connection) = context.connection(conn, emphasis) else {
             continue;
-        }
-        if emphasis == WireEmphasis::Highlight {
-            highlighted.push((idx, conn));
-            continue;
-        }
-        context.draw(painter, conn, emphasis);
+        };
+        let group = *source_groups.entry(conn.from).or_insert_with(|| {
+            groups.push(Vec::new());
+            groups.len() - 1
+        });
+        groups[group].push(connection);
     }
-    for (idx, conn) in highlighted {
-        context.draw(painter, conn, emphasis(idx, conn));
+    // A source socket is one visual network. Paint all its outlines before any
+    // fills, including mixed-emphasis branches, so siblings cannot cut a seam
+    // through a shared run or T junction. Keep independent signals separate.
+    groups.sort_by_key(|group| group.iter().any(|c| c.emphasis == WireEmphasis::Highlight));
+    for mut group in groups {
+        group.sort_by_key(|c| c.emphasis == WireEmphasis::Highlight);
+        for connection in &group {
+            draw_path_shadow(painter, connection.path, to_screen, connection.stroke.width);
+        }
+        for connection in &group {
+            draw_path_stroke(painter, connection.path, to_screen, connection.stroke);
+        }
     }
 }
 
-struct ConnectionPaintContext<'a, F> {
+struct PaintedConnection<'a> {
+    path: &'a WirePath,
+    stroke: Stroke,
+    emphasis: WireEmphasis,
+}
+
+struct ConnectionPaintContext<'a> {
     graph: &'a GraphState,
     registry: &'a crate::runtime::NodeTypeRegistry,
     layout: &'a GraphWidgetLayout,
-    to_screen: F,
     wire_width: f32,
 }
 
-impl<F: Fn(Pos2) -> Pos2> ConnectionPaintContext<'_, F> {
-    fn draw(&self, painter: &Painter, conn: &Connection, emphasis: WireEmphasis) {
-        let Some(path) = self.layout.wire_paths.get(&(conn.from, conn.to)) else {
-            return;
-        };
+impl ConnectionPaintContext<'_> {
+    fn connection(
+        &self,
+        conn: &Connection,
+        emphasis: WireEmphasis,
+    ) -> Option<PaintedConnection<'_>> {
+        let path = self.layout.wire_paths.get(&(conn.from, conn.to))?;
         // `socket.color` is the socket's *idle* look; a resolved polymorphic
         // socket (e.g. a reroute's `Any` output taking on whatever flows
         // through it) needs the connected type's registry-wide color instead —
@@ -95,9 +114,13 @@ impl<F: Fn(Pos2) -> Pos2> ConnectionPaintContext<'_, F> {
             WireEmphasis::Normal => (base, self.wire_width),
             WireEmphasis::Highlight => (brighten_wire_color(base), self.wire_width * 2.0),
             WireEmphasis::Muted => (mute_wire_color(base), self.wire_width),
-            WireEmphasis::Hidden => return,
+            WireEmphasis::Hidden => return None,
         };
-        draw_path(painter, path, &self.to_screen, color, width);
+        Some(PaintedConnection {
+            path,
+            stroke: Stroke::new(width, color),
+            emphasis,
+        })
     }
 }
 
@@ -157,6 +180,147 @@ mod connection_paint_tests {
             ),
         );
         (widget, layout, candidate)
+    }
+
+    fn junction_shapes(
+        source_variant: usize,
+        emphasis: [WireEmphasis; 2],
+        reverse: bool,
+        zoom: f32,
+    ) -> (Vec<Shape>, Color32) {
+        let (mut widget, mut layout, target) = fixture(zoom);
+        let first = widget.graph.connections[0].clone();
+        let mut from = first.from;
+        match source_variant {
+            0 => {}
+            1 => {
+                let source = widget.graph.nodes.get_mut(&from.node).unwrap();
+                source.outputs.push(source.outputs[0].clone());
+                from.index = 1;
+            }
+            2 => from.node = first.to.node,
+            _ => panic!("source variant"),
+        }
+        let second = Connection {
+            from,
+            to: SocketId {
+                node: target,
+                index: 0,
+                direction: SocketDirection::Input,
+            },
+        };
+        for (connection, points) in [
+            (
+                &first,
+                vec![[0.0, 50.0], [100.0, 50.0], [100.0, 100.0], [200.0, 100.0]],
+            ),
+            (&second, vec![[0.0, 50.0], [100.0, 50.0], [100.0, 200.0]]),
+        ] {
+            layout.wire_paths.insert(
+                (connection.from, connection.to),
+                WirePath::new(
+                    points
+                        .windows(2)
+                        .map(|p| PathSegment::Line([Pos2::from(p[0]), Pos2::from(p[1])]))
+                        .collect(),
+                    0.5 / zoom,
+                ),
+            );
+        }
+        widget.graph.connections.push(second);
+        if reverse {
+            widget.graph.connections.reverse();
+        }
+        let base = widget
+            .registry
+            .socket_display(&widget.graph.nodes[&first.from.node].outputs[0])
+            .0;
+        let context = egui::Context::default();
+        context.begin_pass(egui::RawInput::default());
+        draw_connections(
+            &context.layer_painter(egui::LayerId::background()),
+            &widget.graph,
+            &widget.registry,
+            &layout,
+            |p| Pos2::new(20.0, 30.0) + p.to_vec2() * zoom,
+            2.0,
+            |_, c| emphasis[usize::from(c.to != first.to)],
+        );
+        let mut output = context.end_pass();
+        output.textures_delta.clear();
+        (output.shapes.into_iter().map(|s| s.shape).collect(), base)
+    }
+
+    /// Last covering stroke away from antialiasing boundaries: a later dark
+    /// outline here is the visible seam, even when the centerlines are joined.
+    fn junction_ink(shapes: &[Shape], point: Pos2) -> Option<Color32> {
+        shapes
+            .iter()
+            .filter_map(|shape| {
+                let Shape::LineSegment {
+                    points: [a, b],
+                    stroke,
+                } = shape
+                else {
+                    panic!("line fixture")
+                };
+                let d = *b - *a;
+                let t = ((point - *a).dot(d) / d.length_sq()).clamp(0.0, 1.0);
+                (point.distance(*a + d * t) < stroke.width * 0.5).then_some(stroke.color)
+            })
+            .next_back()
+    }
+
+    #[test]
+    fn same_output_junction_has_no_outline_seam_in_either_paint_order() {
+        for zoom in [0.25, 1.0, 3.0] {
+            for reverse in [false, true] {
+                for emphasis in [
+                    [WireEmphasis::Normal; 2],
+                    [WireEmphasis::Highlight; 2],
+                    [WireEmphasis::Normal, WireEmphasis::Highlight],
+                    [WireEmphasis::Highlight, WireEmphasis::Normal],
+                    [WireEmphasis::Muted, WireEmphasis::Highlight],
+                ] {
+                    let (shapes, base) = junction_shapes(0, emphasis, reverse, zoom);
+                    assert_eq!(shapes.len(), 10);
+                    let expected = match emphasis[0] {
+                        WireEmphasis::Normal => base,
+                        WireEmphasis::Highlight => brighten_wire_color(base),
+                        WireEmphasis::Muted => mute_wire_color(base),
+                        WireEmphasis::Hidden => unreachable!(),
+                    };
+                    let offset = if emphasis[1] == WireEmphasis::Highlight {
+                        2.5
+                    } else {
+                        1.5
+                    };
+                    let point = Pos2::new(20.0 + 100.0 * zoom + offset, 30.0 + 100.0 * zoom);
+                    assert_eq!(
+                        junction_ink(&shapes, point),
+                        Some(expected),
+                        "a sibling outline must not cut the branch"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn different_outputs_keep_crossing_outlines_and_hidden_branches_do_not_paint() {
+        for source_variant in [1, 2] {
+            let (shapes, _) =
+                junction_shapes(source_variant, [WireEmphasis::Normal; 2], false, 1.0);
+            assert_eq!(
+                junction_ink(&shapes, Pos2::new(121.5, 130.0)),
+                Some(Color32::from_rgba_premultiplied(0, 0, 0, 170))
+            );
+        }
+        let (shapes, base) =
+            junction_shapes(0, [WireEmphasis::Normal, WireEmphasis::Hidden], false, 1.0);
+        assert_eq!(shapes.len(), 6);
+        assert_eq!(junction_ink(&shapes, Pos2::new(121.5, 130.0)), Some(base));
+        assert_eq!(junction_ink(&shapes, Pos2::new(120.0, 180.0)), None);
     }
 
     #[test]

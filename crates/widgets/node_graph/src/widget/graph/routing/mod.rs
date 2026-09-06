@@ -40,5 +40,5 @@ pub(crate) use grouping::{BundleCandidate, compatible_groups};
 pub(crate) use history::avoids_changed_obstacles;
 pub(crate) use individual::route_with_budget;
 pub(crate) use individual_quality::improve_route;
-pub(crate) use paint::draw_path;
+pub(crate) use paint::{draw_path, draw_path_shadow, draw_path_stroke};
 pub(crate) use separation::{separate_route, shares_run};
