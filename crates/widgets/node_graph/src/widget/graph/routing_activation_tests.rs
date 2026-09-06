@@ -1,4 +1,4 @@
-use egui::{Color32, Pos2, Shape, Vec2};
+use egui::{Pos2, Shape, Vec2};
 
 use super::action::GraphAction;
 use super::connection_paint::{WireEmphasis, draw_connections};
@@ -78,7 +78,7 @@ fn activated_paths_survive_pan_zoom_load_and_history_without_persisting_routes()
 }
 
 #[test]
-fn failure_fallback_is_colored_editable_and_recovers_after_moving_the_obstacle() {
+fn failure_fallback_keeps_type_color_is_editable_and_recovers_after_moving_the_obstacle() {
     let (mut widget, connection, obstacle) = scene();
     widget.graph.nodes.get_mut(&obstacle).unwrap().pos.x = 68.0;
     widget.graph.nodes.get_mut(&obstacle).unwrap().pos.y = 120.0;
@@ -111,7 +111,14 @@ fn failure_fallback_is_colored_editable_and_recovers_after_moving_the_obstacle()
     };
     assert_eq!(
         curve.stroke.color,
-        egui::epaint::ColorMode::Solid(Color32::from_rgb(255, 170, 50))
+        egui::epaint::ColorMode::Solid(
+            widget
+                .registry
+                .socket_display(
+                    &widget.graph.nodes[&connection.from.node].outputs[connection.from.index]
+                )
+                .0
+        )
     );
     widget.graph.nodes.get_mut(&obstacle).unwrap().pos.y = 300.0;
     assert!(widget.build_layout(Pos2::ZERO).wire_failures.is_empty());

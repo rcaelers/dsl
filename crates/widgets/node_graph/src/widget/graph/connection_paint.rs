@@ -89,15 +89,8 @@ impl<F: Fn(Pos2) -> Pos2> ConnectionPaintContext<'_, F> {
             .and_then(|n| n.outputs.get(conn.from.index))
             .map(|s| self.registry.socket_display(s).0)
             .unwrap_or(Color32::from_rgb(160, 160, 160));
-        let base = if self
-            .layout
-            .wire_failures
-            .contains_key(&(conn.from, conn.to))
-        {
-            Color32::from_rgb(255, 170, 50)
-        } else {
-            base
-        };
+        // Color identifies the data type, including on diagnostic fallback paths.
+        // Routing failures are presented by separate markers and explanations.
         let (color, width) = match emphasis {
             WireEmphasis::Normal => (base, self.wire_width),
             WireEmphasis::Highlight => (brighten_wire_color(base), self.wire_width * 2.0),
@@ -283,6 +276,78 @@ mod connection_paint_tests {
                     .bounds()
                     .intersects(Rect::EVERYTHING)
             );
+        }
+    }
+
+    #[test]
+    fn routing_failures_do_not_override_type_color_or_interaction_emphasis() {
+        let (mut widget, mut layout, _) = fixture(1.0);
+        let conn = widget.graph.connections[0].clone();
+        let key = (conn.from, conn.to);
+        for base in [
+            Color32::from_rgb(20, 180, 210),
+            Color32::from_rgb(190, 70, 120),
+        ] {
+            widget.graph.nodes.get_mut(&conn.from.node).unwrap().outputs[conn.from.index].color =
+                crate::support::graph_color(base);
+            let base = widget
+                .registry
+                .socket_display(&widget.graph.nodes[&conn.from.node].outputs[conn.from.index])
+                .0;
+            for failure in [
+                None,
+                Some(super::super::routing::RouteFailure::InvalidGeometry),
+                Some(super::super::routing::RouteFailure::BlockedEscape),
+                Some(super::super::routing::RouteFailure::NoCorridor),
+                Some(super::super::routing::RouteFailure::WorkLimit),
+            ] {
+                layout.wire_failures.clear();
+                if let Some(failure) = failure {
+                    layout.wire_failures.insert(key, failure);
+                }
+                for (emphasis, color, width) in [
+                    (WireEmphasis::Normal, base, 2.0),
+                    (WireEmphasis::Highlight, brighten_wire_color(base), 4.0),
+                    (WireEmphasis::Muted, mute_wire_color(base), 2.0),
+                    (WireEmphasis::Hidden, base, 2.0),
+                ] {
+                    let context = egui::Context::default();
+                    context.begin_pass(egui::RawInput::default());
+                    draw_connections(
+                        &context.layer_painter(egui::LayerId::background()),
+                        &widget.graph,
+                        &widget.registry,
+                        &layout,
+                        |p| p,
+                        2.0,
+                        |_, _| emphasis,
+                    );
+                    let mut output = context.end_pass();
+                    output.textures_delta.clear();
+                    if emphasis == WireEmphasis::Hidden {
+                        assert!(output.shapes.is_empty());
+                        continue;
+                    }
+                    // The fixture paints three shadows followed by the three wire segments.
+                    assert_eq!(output.shapes.len(), 6);
+                    for shape in &output.shapes[3..] {
+                        match &shape.shape {
+                            Shape::CubicBezier(curve) => {
+                                assert_eq!(
+                                    curve.stroke.color,
+                                    egui::epaint::ColorMode::Solid(color)
+                                );
+                                assert_eq!(curve.stroke.width, width);
+                            }
+                            Shape::LineSegment { stroke, .. } => {
+                                assert_eq!(stroke.color, color);
+                                assert_eq!(stroke.width, width);
+                            }
+                            _ => panic!("unexpected wire shape"),
+                        }
+                    }
+                }
+            }
         }
     }
 }

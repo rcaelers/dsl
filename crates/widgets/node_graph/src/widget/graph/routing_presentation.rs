@@ -46,7 +46,7 @@ impl NodeGraphWidget {
         let mut marked = HashSet::new();
         for &(&(from, to), &failure) in &failures {
             let fallback = if layout.wire_paths.contains_key(&(from, to)) {
-                "The orange fallback may pass through nodes."
+                "The fallback curve keeps its data-type color and may pass through nodes."
             } else {
                 "The wire cannot be drawn until its socket geometry is valid."
             };

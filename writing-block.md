@@ -81,9 +81,10 @@ entire endpoint nodes from the obstacle set.
 
 Overlapping nodes, covered ports, or blocked escapes can make routing impossible. Do not
 silently relax body avoidance or claim success. An unroutable connection remains in the
-document and uses the legacy curve with visible routing-warning treatment and a hover
-explanation. This diagnostic curve is outside the safe-route guarantee but remains editable
-and cuttable. Non-finite endpoints instead produce a node-associated warning without
+document and uses the legacy curve with separate routing-warning markers and a hover
+explanation. Wire color continues to identify its data type, with ordinary interaction emphasis;
+routing failure does not override it. This diagnostic curve is outside the safe-route guarantee
+but remains editable and cuttable. Non-finite endpoints instead produce a node-associated warning without
 submitting invalid paint geometry. Routing recovers automatically when geometry becomes valid.
 
 ## Ordinary and exceptional paths

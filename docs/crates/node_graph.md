@@ -325,9 +325,11 @@ control points. Strict separation proves clearance; contact or unresolved overla
 depth bound is rejected. Painting and gestures share the accepted line/cubic path, whose
 interaction approximation uses a half-screen-pixel tolerance at the current zoom.
 
-Failed connections use editable orange fallback curves with warning markers and hover
-explanations. A canvas summary also reports failures whose socket geometry cannot be drawn;
-non-finite endpoint geometry never creates a fallback path. Layout edits automatically retry
+Failed connections use editable fallback curves that retain the connection's resolved
+data-type color and ordinary selection/interaction emphasis. Separate warning markers and
+hover explanations report routing failures without recoloring wires. A canvas summary also
+reports failures whose socket geometry cannot be drawn; non-finite endpoint geometry never
+creates a fallback path. Layout edits automatically retry
 routing. The empty-canvas context menu opens Routing diagnostics, with independent overlays
 for expanded obstacles, port escapes, and route results. Diagnostic settings are transient
 widget state and do not alter the document or its processing revision.
