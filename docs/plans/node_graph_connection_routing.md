@@ -101,6 +101,11 @@ appearance until the checked router is activated in step 3.
   quality rebuild; retain native/browser release-frame comparisons and cache/topology tests.
 - [ ] Measure GPU upload/presentation and real application frame time separately from the
   CPU-only widget/routing fixtures. Profile remaining release/idle frame costs.
+- [x] Add bounded process-targeted Metal capture and a reference-aware, process-filtering
+  interval summarizer. Reject missing render work and post-warmup surface-acquisition failures;
+  require application liveness through recording, not through trace serialization.
+- [ ] Capture an unoccluded application window, require `egui_render` intervals, and verify
+  screenshot completion before accepting native GPU/rendering baseline measurements.
 - [x] Add an opt-in, bounded native application UI frame observer with isolated preferences
   and unavailable execution services. Retain stationary bundled-graph CPU/cadence samples,
   renderer metadata, and post-measurement visual checks. GPU duration/presentation, large-graph

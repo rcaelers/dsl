@@ -75,6 +75,8 @@ Task IDs start with their ownership category and remain stable when task wording
      remaining cold routing and release/idle frame cost without weakening route constraints.
      Profile the remaining release-frame upper tail and application/GPU costs after conservative
      hit-target move elision; preserve overlap order, pointer capture, and clipped-target Tab order.
+     Capture an unoccluded native window and require actual `egui_render` GPU intervals before
+     accepting application rendering timings; investigate screenshot completion under occlusion.
      Keep the disjoint reference fixtures free of cold/release fallbacks with the existing work budgets.
      Native/browser CPU baselines, repeated release/idle tails, drag frames, cache-hit measurements,
      and isolated native application UI CPU/cadence baselines (small documents and built-in fan-out scale) are in

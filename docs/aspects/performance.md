@@ -449,6 +449,12 @@ viewport or rendering configuration during sampling invalidate the run. `--scree
 a PNG only after all timing samples and requires a new output file, never overwriting one.
 The process closes automatically after sampling and any requested screenshot.
 
+`--minimum-seconds` (0–300, default 0) keeps the isolated UI rendering until both the requested
+samples and the minimum lifetime are complete. Extra UI frames do not extend the sample set;
+an early close fails even if the sample count is complete. Post-warmup surface-acquisition
+failures invalidate the run while preserving the renderer's default recovery action. This
+prevents CPU-only work on an occluded surface from masquerading as rendered-frame evidence.
+
 `eframe_cpu` is the framework's previous-frame CPU-side elapsed time, including UI and rendering
 work but excluding its measured vsync wait. It is not GPU execution time. `ui_start_interval`
 measures elapsed wall time between consecutive first UI passes, including pacing and host
@@ -480,6 +486,57 @@ These small stationary documents do not establish large-graph scale acceptance, 
 speedup, or full live-application performance. GPU upload/execution/presentation attribution,
 large application graphs, application drag frames, browser rendering, and active-runtime
 composition remain open work in step 6.
+
+### Native Metal capture validation
+
+`scripts/measure_application_metal.mjs` is an explicit macOS/Xcode capture runner, separate
+from the CPU-only widget benchmarks. It launches only the isolated `profile-frames` app,
+defaults to 30 warmup / 120 CPU samples and a 20-second minimum lifetime, then attaches
+`Metal System Trace` to that PID after three seconds for a five-second recording. A separate
+45-second watchdog bounds application and profiler together. The app must remain alive until
+the recording time-limit marker; saving the trace may finish after the app. Both processes
+must exit successfully and the CPU report must validate. Existing trace paths are rejected;
+cleanup kills only owned process groups. Capture completion alone is not rendering acceptance.
+
+```sh
+node scripts/measure_application_metal.mjs target/release/logic-conduit <fanout.json> <new.trace>
+xcrun xctrace export --input <new.trace> \
+  --xpath '/trace-toc/run[@number="1"]/data/table[@schema="metal-gpu-intervals"]' --output <gpu.xml>
+xcrun xctrace export --input <new.trace> \
+  --xpath '/trace-toc/run[@number="1"]/data/table[@schema="metal-application-intervals"]' --output <app.xml>
+python3 -B scripts/summarize_metal_trace.py <gpu.xml> <app.xml> --pid <owned-pid> --require-label egui_render
+```
+
+The Python-stdlib summarizer resolves document-local XML identities, filters exact process
+ownership, and joins top-level active GPU intervals to typed command-buffer encoding labels.
+It analyzes the preselected trace-relative 1–4 second window and excludes entire buffers
+crossing either boundary. Per-buffer span includes stage gaps; active union merges overlapping
+intervals instead of adding them. Apple GPU stages can execute concurrently, so summed stage
+durations are not elapsed frame time; see [Apple's GPU timeline documentation](https://developer.apple.com/documentation/xcode/analyzing-apple-gpu-performance-using-a-visual-timeline).
+Neither metric includes CPU upload/staging cost or establishes presentation latency. The
+required `egui_render` label prevents write-only GPU activity from passing rendering acceptance.
+Raw Instruments exports can include unrelated system metadata even with `--attach`; only
+process-filtered evidence belongs in the repository.
+
+The reference-host 2026-09-06 scale captures complete but fail rendering acceptance: the
+100-node analysis window contains 943 pending-write and 259 signal buffers; the 500-node
+window contains 206 and 58 respectively, with no `egui_render` buffers in either. Hardened
+reruns explicitly report surface acquisition `Occluded` at both scales. Their CPU/cadence
+values and write-only GPU durations are rejected as application rendering baselines, not
+treated as improvements. Source identities, complete rejected CPU reports, filtered summary
+distributions and guard failures are in
+[`node_graph_metal_capture_validation.json`](../../benchmarks/performance/node_graph_metal_capture_validation.json).
+
+Regression checks run with `node --test scripts/measure_application_metal_test.mjs` and
+`python3 -B scripts/summarize_metal_trace_test.py`. They cover target liveness versus save time,
+failure/timeout cleanup including descendants, XML references, process isolation, overlapping
+and nested intervals, boundary exclusions, missing required render work and malformed data.
+
+#### Proposed future rendering validation
+
+Capture an unoccluded native window with verified render work and post-measurement screenshots.
+Presentation latency, full application/active-runtime composition, browser rendering and
+release/idle tail measurements remain separate acceptance work.
 
 ### Native application UI scale documents
 

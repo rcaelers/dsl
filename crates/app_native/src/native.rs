@@ -514,6 +514,30 @@ mod tests {
             Some(Command::ProfileFrames(_))
         ));
         assert!(Args::try_parse_from(["logic-conduit", "profile-frames"]).is_err());
+        for seconds in ["0", "20", "300"] {
+            assert!(
+                Args::try_parse_from([
+                    "logic-conduit",
+                    "profile-frames",
+                    "fixture.json",
+                    "--minimum-seconds",
+                    seconds
+                ])
+                .is_ok()
+            );
+        }
+        for seconds in ["-1", "301", "NaN"] {
+            assert!(
+                Args::try_parse_from([
+                    "logic-conduit",
+                    "profile-frames",
+                    "fixture.json",
+                    "--minimum-seconds",
+                    seconds
+                ])
+                .is_err()
+            );
+        }
         for option in ["--samples", "--warmup"] {
             for count in ["0", "10001", "-1"] {
                 assert!(

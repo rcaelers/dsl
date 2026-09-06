@@ -6,8 +6,8 @@ use std::cell::RefCell;
 use std::io::Write;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::Arc;
-use std::time::Instant;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use clap::Args;
 use eframe::icon_data::IconDataExt;
@@ -24,6 +24,9 @@ pub(crate) struct ProfileArgs {
     samples: u32,
     #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u32).range(1..=10000))]
     warmup: u32,
+    /// Keep rendering for at least this many seconds so an external profiler can attach
+    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u32).range(0..=300))]
+    minimum_seconds: u32,
     /// Optional new PNG file, captured only after all timing samples
     #[arg(long)]
     screenshot: Option<PathBuf>,
@@ -46,6 +49,8 @@ enum ProfileError {
     InvalidTiming,
     #[error("viewport or rendering configuration changed during sampling")]
     RenderingConfigurationChanged,
+    #[error("surface acquisition failed while sampling: {0}")]
+    UnavailableSurface(String),
 }
 
 struct Samples {
@@ -111,6 +116,7 @@ impl Samples {
 
 struct Observation {
     samples: Samples,
+    ready_to_finish: bool,
     error: Option<ProfileError>,
     screenshot: Option<Arc<egui::ColorImage>>,
     pixels_per_point: f32,
@@ -124,6 +130,19 @@ struct ProfileApp {
     last_ui_start: Option<Instant>,
     capture: bool,
     capture_requested: bool,
+    started: Instant,
+    minimum_duration: Duration,
+    surface_status: Arc<Mutex<Option<String>>>,
+}
+
+fn ready_to_finish(samples: &Samples, elapsed: Duration, minimum: Duration) -> bool {
+    samples.complete() && elapsed >= minimum
+}
+
+fn surface_error(status: Option<String>, sampling: bool) -> Option<ProfileError> {
+    status
+        .filter(|_| sampling)
+        .map(ProfileError::UnavailableSurface)
 }
 
 impl eframe::App for ProfileApp {
@@ -163,6 +182,12 @@ impl eframe::App for ProfileApp {
             }
         }
         let pixels_per_point = ui.ctx().pixels_per_point();
+        if let Some(error) = surface_error(
+            self.surface_status.lock().unwrap().take(),
+            observation.samples.seen > observation.samples.warmup,
+        ) {
+            observation.error = Some(error);
+        }
         let size = ui.available_rect_before_wrap().size();
         let viewport_points = [size.x, size.y];
         let surface_config = format!("{:?}", frame.wgpu_surface_config());
@@ -176,7 +201,12 @@ impl eframe::App for ProfileApp {
         observation.pixels_per_point = pixels_per_point;
         observation.viewport_points = viewport_points;
         observation.surface_config = surface_config;
-        let complete = observation.samples.complete();
+        let complete = ready_to_finish(
+            &observation.samples,
+            self.started.elapsed(),
+            self.minimum_duration,
+        );
+        observation.ready_to_finish = complete;
         let close = observation.error.is_some()
             || (complete && (!self.capture || observation.screenshot.is_some()));
         drop(observation);
@@ -211,6 +241,7 @@ pub(crate) fn run(args: ProfileArgs) -> crate::native::MainResult {
     let preferences = tempfile::tempdir()?;
     let observation = Rc::new(RefCell::new(Observation {
         samples: Samples::new(args.samples, args.warmup),
+        ready_to_finish: false,
         error: None,
         screenshot: None,
         pixels_per_point: 0.0,
@@ -220,7 +251,9 @@ pub(crate) fn run(args: ProfileArgs) -> crate::native::MainResult {
     let shared = Rc::clone(&observation);
     let adapter = Rc::new(RefCell::new(serde_json::Value::Null));
     let adapter_info = Rc::clone(&adapter);
-    let options = eframe::NativeOptions {
+    let surface_status = Arc::new(Mutex::new(None));
+    let surface_callback = Arc::clone(&surface_status);
+    let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("LogicConduit frame profile — execution disabled")
             .with_resizable(false)
@@ -230,7 +263,13 @@ pub(crate) fn run(args: ProfileArgs) -> crate::native::MainResult {
         persist_window: false,
         ..Default::default()
     };
+    let default_surface_action = Arc::clone(&options.wgpu_options.on_surface_status);
+    options.wgpu_options.on_surface_status = Arc::new(move |status| {
+        *surface_callback.lock().unwrap() = Some(format!("{status:?}"));
+        default_surface_action(status)
+    });
     let capture = args.screenshot.is_some();
+    let minimum_duration = Duration::from_secs(u64::from(args.minimum_seconds));
     eframe::run_native(
         "logic-conduit-frame-profile",
         options,
@@ -248,6 +287,9 @@ pub(crate) fn run(args: ProfileArgs) -> crate::native::MainResult {
                 last_ui_start: None,
                 capture,
                 capture_requested: false,
+                started: Instant::now(),
+                minimum_duration,
+                surface_status,
             }))
         }),
     )?;
@@ -255,11 +297,12 @@ pub(crate) fn run(args: ProfileArgs) -> crate::native::MainResult {
     if let Some(error) = &observation.error {
         return Err(error.clone().into());
     }
-    if !observation.samples.complete() {
+    if !observation.ready_to_finish {
         return Err(format!(
-            "incomplete frame profile: {} of {} samples",
+            "incomplete frame profile: {} of {} samples, minimum lifetime {} seconds",
             observation.samples.frames.len(),
-            args.samples
+            args.samples,
+            args.minimum_seconds
         )
         .into());
     }
@@ -289,6 +332,7 @@ pub(crate) fn run(args: ProfileArgs) -> crate::native::MainResult {
         "fixture": "native-application-ui-frames-v1", "graph": args.graph, "graph_blake3": blake3::hash(&bytes).to_hex().to_string(),
         "input_nodes": input_nodes, "input_connections": input_connections,
         "warmup": args.warmup, "sample_count": args.samples, "frames": frames,
+        "minimum_duration_seconds": args.minimum_seconds,
         "eframe_cpu": distribution(frames.iter().map(|sample| sample.eframe_cpu_ms).collect()),
         "ui_start_interval": distribution(frames.iter().map(|sample| sample.ui_start_interval_ms).collect()),
         "adapter": *adapter.borrow(), "surface_config": observation.surface_config,
@@ -303,6 +347,30 @@ pub(crate) fn run(args: ProfileArgs) -> crate::native::MainResult {
 #[cfg(test)]
 mod frame_profile_tests {
     use super::*;
+
+    #[test]
+    fn unavailable_surfaces_are_rejected_after_warmup() {
+        assert!(surface_error(None, true).is_none());
+        assert!(surface_error(Some("Timeout".into()), false).is_none());
+        assert_eq!(
+            surface_error(Some("Timeout".into()), true),
+            Some(ProfileError::UnavailableSurface("Timeout".into()))
+        );
+    }
+
+    #[test]
+    fn minimum_lifetime_requires_completed_samples_without_collecting_extra_frames() {
+        let mut samples = Samples::new(1, 1);
+        let minimum = Duration::from_secs(20);
+        assert!(!ready_to_finish(&samples, minimum, minimum));
+        samples.observe(1, Some(0.001), 16.0).unwrap();
+        samples.observe(2, Some(0.001), 16.0).unwrap();
+        assert!(ready_to_finish(&samples, Duration::ZERO, Duration::ZERO));
+        assert!(!ready_to_finish(&samples, Duration::from_secs(19), minimum));
+        assert!(ready_to_finish(&samples, minimum, minimum));
+        samples.observe(3, Some(0.002), 17.0).unwrap();
+        assert_eq!(samples.frames.len(), 1);
+    }
 
     #[test]
     fn warmup_and_repeated_passes_do_not_count_as_samples() {
